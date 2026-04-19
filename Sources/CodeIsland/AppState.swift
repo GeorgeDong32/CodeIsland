@@ -20,6 +20,9 @@ final class AppState {
     var permissionQueue: [PermissionRequest] = []
     var questionQueue: [QuestionRequest] = []
 
+    // Session-scoped auto-approve state: only one session at a time
+    var autoApproveSessionId: String?
+
     /// Computed: first item in permission queue (backward compat for UI reads)
     var pendingPermission: PermissionRequest? { permissionQueue.first }
     /// Computed: first item in question queue
@@ -428,6 +431,11 @@ final class AppState {
     /// Every removal path (cleanup timer, process exit, reducer effect) goes through here
     /// so leaked continuations / connections are impossible.
     private func removeSession(_ sessionId: String) {
+        // Reset auto-approve if this session had it active
+        if autoApproveSessionId == sessionId {
+            autoApproveSessionId = nil
+        }
+
         // Resume ALL pending continuations for this session
         drainPermissions(forSession: sessionId)
         drainQuestions(forSession: sessionId)
@@ -992,6 +1000,59 @@ final class AppState {
         showNextPending()
         refreshDerivedState()
     }
+
+    // MARK: - Auto Approve
+
+    /// Whether auto-approve is active for the given session
+    func isAutoApproveActive(for sessionId: String) -> Bool {
+        autoApproveSessionId == sessionId
+    }
+
+    /// Toggle auto-approve for a session. Only one session at a time.
+    func toggleAutoApprove(sessionId: String) {
+        if autoApproveSessionId == sessionId {
+            // Deactivate
+            autoApproveSessionId = nil
+        } else {
+            // Activate (deactivates previous session if any)
+            autoApproveSessionId = sessionId
+            // Flush all pending permissions for this session
+            flushPendingPermissionsForAutoApprove(sessionId: sessionId)
+        }
+    }
+
+    /// Auto-approve all pending queued permissions for a session using setMode bypassPermissions
+    private func flushPendingPermissionsForAutoApprove(sessionId: String) {
+        var didFlush = false
+        while let idx = permissionQueue.firstIndex(where: { $0.event.sessionId == sessionId }) {
+            let pending = permissionQueue.remove(at: idx)
+            pending.continuation.resume(returning: Self.setAutoApproveResponse)
+            didFlush = true
+        }
+        if didFlush {
+            sessions[sessionId]?.status = .running
+            showNextPending()
+            refreshDerivedState()
+        }
+    }
+
+    /// JSON response that switches session to bypassPermissions mode
+    static let setAutoApproveResponse: Data = {
+        let obj: [String: Any] = [
+            "hookSpecificOutput": [
+                "hookEventName": "PermissionRequest",
+                "decision": [
+                    "behavior": "allow",
+                    "updatedPermissions": [[
+                        "type": "setMode",
+                        "mode": "bypassPermissions",
+                        "destination": "session"
+                    ]]
+                ] as [String: Any]
+            ] as [String: Any]
+        ]
+        return (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
+    }()
 
     func dismissPermissionPrompt() {
         guard let pending = permissionQueue.first else { return }

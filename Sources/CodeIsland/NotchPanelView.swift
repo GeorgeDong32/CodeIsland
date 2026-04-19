@@ -844,6 +844,11 @@ private struct ApprovalBar: View {
     @State private var jumpValidationTask: Task<Void, Never>?
     @AppStorage(SettingsKey.autoCollapseAfterSessionJump) private var autoCollapseAfterSessionJump = SettingsDefaults.autoCollapseAfterSessionJump
 
+    // Auto-approve state
+    private var isAutoApproveActive: Bool {
+        appState.isAutoApproveActive(for: sessionId)
+    }
+
     private var fileName: String? {
         guard let fp = toolInput?["file_path"] as? String else { return nil }
         return (fp as NSString).lastPathComponent
@@ -903,14 +908,44 @@ private struct ApprovalBar: View {
                     .onTapGesture { handleCardClick() }
             }
 
-            // Pixel-style buttons
-            HStack(spacing: 6) {
-                PixelButton(label: L10n.shared["deny"], fg: .white.opacity(0.95), bg: Color(red: 0.45, green: 0.12, blue: 0.12), border: Color(red: 0.7, green: 0.25, blue: 0.25), action: onDeny)
-                PixelButton(label: L10n.shared["dismiss"], fg: .white.opacity(0.95), bg: Color(red: 0.25, green: 0.25, blue: 0.25), border: Color.white.opacity(0.28), action: onDismiss)
-                PixelButton(label: L10n.shared["allow_once"], fg: .white.opacity(0.95), bg: Color(red: 0.16, green: 0.38, blue: 0.18), border: Color(red: 0.28, green: 0.62, blue: 0.32), action: onAllow)
-                PixelButton(label: L10n.shared["always"], fg: .white.opacity(0.95), bg: Color(red: 0.14, green: 0.28, blue: 0.52), border: Color(red: 0.28, green: 0.48, blue: 0.82), action: onAlwaysAllow)
+            // Pixel-style buttons (or auto-approve status bar)
+            if isAutoApproveActive {
+                // Auto-approve active: show status bar instead of buttons
+                HStack(spacing: 6) {
+                    Text("⚡ AUTO APPROVE")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Color(red: 1.0, green: 0.84, blue: 0.0))
+                    Spacer()
+                    Text(L10n.shared["long_press_to_disable"])
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.4))
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color(red: 0.55, green: 0.0, blue: 0.0))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(Color(red: 1.0, green: 0.27, blue: 0.27), lineWidth: 2)
+                )
+                .shadow(color: Color(red: 1.0, green: 0.27, blue: 0.27).opacity(0.4), radius: 4)
+                .padding(.horizontal, 14)
+                .contentShape(Rectangle())
+                .onLongPressGesture(minimumDuration: 2.0) {
+                    toggleAutoApprove()
+                }
+            } else {
+                HStack(spacing: 6) {
+                    PixelButton(label: L10n.shared["deny"], fg: .white.opacity(0.95), bg: Color(red: 0.45, green: 0.12, blue: 0.12), border: Color(red: 0.7, green: 0.25, blue: 0.25), action: onDeny)
+                    PixelButton(label: L10n.shared["dismiss"], fg: .white.opacity(0.95), bg: Color(red: 0.25, green: 0.25, blue: 0.25), border: Color.white.opacity(0.28), action: onDismiss)
+                    PixelButton(label: L10n.shared["allow_once"], fg: .white.opacity(0.95), bg: Color(red: 0.16, green: 0.38, blue: 0.18), border: Color(red: 0.28, green: 0.62, blue: 0.32), action: onAllow)
+                    PixelButton(label: "\(L10n.shared["always"]) ⚡", fg: .white.opacity(0.95), bg: Color(red: 0.14, green: 0.28, blue: 0.52), border: Color(red: 0.28, green: 0.48, blue: 0.82), onLongPress: { toggleAutoApprove() }, action: onAlwaysAllow)
+                        .help(L10n.shared["long_press_auto_approve_tooltip"])
+                }
+                .padding(.horizontal, 14)
             }
-            .padding(.horizontal, 14)
         }
         .padding(.vertical, 10)
         .offset(x: failureShakeOffset)
@@ -918,6 +953,15 @@ private struct ApprovalBar: View {
             jumpValidationTask?.cancel()
             jumpValidationTask = nil
         }
+    }
+
+    // MARK: - Auto Approve
+
+    /// Toggle auto-approve for the current session with sound feedback
+    private func toggleAutoApprove() {
+        let wasActive = isAutoApproveActive
+        appState.toggleAutoApprove(sessionId: sessionId)
+        SoundManager.shared.preview(wasActive ? "8bit_error" : "8bit_start")
     }
 
     // MARK: - Click-to-jump handling
@@ -1493,6 +1537,8 @@ private struct PixelButton: View {
     let fg: Color
     let bg: Color
     let border: Color
+    let glowBorder: Color? = nil
+    var onLongPress: (() -> Void)? = nil
     let action: () -> Void
     @State private var hovering = false
 
@@ -1509,11 +1555,19 @@ private struct PixelButton: View {
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
-                        .strokeBorder(hovering ? border : border.opacity(0.4), lineWidth: 1)
+                        .strokeBorder(
+                            glowBorder ?? (hovering ? border : border.opacity(0.4)),
+                            lineWidth: glowBorder != nil ? 2 : 1
+                        )
                 )
+                .shadow(color: glowBorder?.opacity(0.4) ?? .clear, radius: 4)
         }
         .buttonStyle(.plain)
         .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
+        .contentShape(Rectangle())
+        .onLongPressGesture(minimumDuration: 2.0) {
+            onLongPress?()
+        }
     }
 }
 
@@ -1700,6 +1754,7 @@ private struct ThinScrollView<Content: View>: NSViewRepresentable {
 }
 
 private struct SessionIdentityLine: View {
+    let appState: AppState
     let session: SessionSnapshot
     let sessionId: String
     let projectFontSize: CGFloat
@@ -1742,6 +1797,13 @@ private struct SessionIdentityLine: View {
                     .font(.system(size: sessionFontSize, weight: .medium, design: .monospaced))
                     .foregroundStyle(sessionColor.opacity(0.6))
                     .fixedSize()
+            }
+
+            // Auto-approve active indicator
+            if appState.isAutoApproveActive(for: sessionId) {
+                Text("⚡")
+                    .font(.system(size: sessionFontSize + 2, weight: .bold))
+                    .foregroundStyle(Color(red: 1.0, green: 0.27, blue: 0.27))
             }
         }
     }
@@ -1951,6 +2013,7 @@ private struct SessionCard: View {
                 // Header: project name + optional session label + short ID
                 HStack(alignment: .center, spacing: 8) {
                     SessionIdentityLine(
+                        appState: appState,
                         session: session,
                         sessionId: sessionId,
                         projectFontSize: fontSize + 2,

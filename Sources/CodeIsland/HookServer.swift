@@ -156,6 +156,12 @@ class HookServer {
                 return
             }
 
+            // Auto-approve if session has auto-approve enabled — send setMode bypassPermissions
+            if appState.isAutoApproveActive(for: sessionId) {
+                sendResponse(connection: connection, data: AppState.setAutoApproveResponse)
+                return
+            }
+
             // AskUserQuestion is a question, not a permission — route to QuestionBar
             if event.toolName == "AskUserQuestion" {
                 monitorPeerDisconnect(connection: connection, sessionId: sessionId)
