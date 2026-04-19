@@ -933,6 +933,7 @@ private struct ApprovalBar: View {
                 .shadow(color: Color(red: 1.0, green: 0.27, blue: 0.27).opacity(0.4), radius: 4)
                 .padding(.horizontal, 14)
                 .contentShape(Rectangle())
+                .help(L10n.shared["long_press_auto_approve_tooltip"])
                 .onLongPressGesture(minimumDuration: 2.0) {
                     toggleAutoApprove()
                 }
@@ -961,7 +962,7 @@ private struct ApprovalBar: View {
     private func toggleAutoApprove() {
         let wasActive = isAutoApproveActive
         appState.toggleAutoApprove(sessionId: sessionId)
-        SoundManager.shared.preview(wasActive ? "8bit_error" : "8bit_start")
+        SoundManager.shared.preview(wasActive ? "8bit_complete" : "8bit_start")
     }
 
     // MARK: - Click-to-jump handling
@@ -1537,7 +1538,6 @@ private struct PixelButton: View {
     let fg: Color
     let bg: Color
     let border: Color
-    let glowBorder: Color? = nil
     var onLongPress: (() -> Void)? = nil
     let action: () -> Void
     @State private var hovering = false
@@ -1555,12 +1555,8 @@ private struct PixelButton: View {
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
-                        .strokeBorder(
-                            glowBorder ?? (hovering ? border : border.opacity(0.4)),
-                            lineWidth: glowBorder != nil ? 2 : 1
-                        )
+                        .strokeBorder(hovering ? border : border.opacity(0.4), lineWidth: 1)
                 )
-                .shadow(color: glowBorder?.opacity(0.4) ?? .clear, radius: 4)
         }
         .buttonStyle(.plain)
         .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
