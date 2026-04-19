@@ -924,8 +924,15 @@ private struct ApprovalBar: View {
 
     /// Handle click on approval card to jump to terminal (same as SessionCard behavior)
     private func handleCardClick() {
+        // If session is nil (removed but card still showing), show failure feedback
+        guard let session = session else {
+            SoundManager.shared.preview("8bit_error")
+            Task { @MainActor in await runJumpFailureShakeAnimation() }
+            return
+        }
+
         // Skip for remote sessions
-        guard let session = session, !session.isRemote else { return }
+        guard !session.isRemote else { return }
 
         TerminalActivator.activate(session: session, sessionId: sessionId)
 
