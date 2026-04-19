@@ -991,11 +991,11 @@ private struct ApprovalBar: View {
 
     @MainActor
     private func runJumpFailureShakeAnimation() async {
-        await runSharedJumpFailureShakeAnimation(offset: $failureShakeOffset)
+        await JumpAnimationHelper.runShake(offset: $failureShakeOffset)
     }
 }
 
-// MARK: - Jump Animation Helpers
+// MARK: - Question Bar (below notch, auto-expanded)
 
 private struct QuestionBar: View {
     let question: String
@@ -1807,19 +1807,19 @@ func shouldTriggerJumpFailureFeedback(_ jumpChecks: [Bool]) -> Bool {
     !jumpChecks.contains(true)
 }
 
-func jumpFailureShakeSequence() -> [Int] {
-    [8, -8, 6, -6, 3, -3, 0]
-}
+/// Namespace for jump animation utilities shared between ApprovalBar and SessionCard
+enum JumpAnimationHelper {
+    static let shakeSequence = [8, -8, 6, -6, 3, -3, 0]
+    static let shakeStepDuration: UInt64 = 35_000_000
 
-/// Shake animation helper - sets offset values from jumpFailureShakeSequence() with 35ms delays
-/// - Parameter offset: The binding to animate with shake values
-@MainActor
-private func runSharedJumpFailureShakeAnimation(offset: Binding<CGFloat>) async {
-    for value in jumpFailureShakeSequence() {
-        withAnimation(.easeInOut(duration: 0.035)) {
-            offset.wrappedValue = CGFloat(value)
+    @MainActor
+    static func runShake(offset: Binding<CGFloat>) async {
+        for value in shakeSequence {
+            withAnimation(.easeInOut(duration: 0.035)) {
+                offset.wrappedValue = CGFloat(value)
+            }
+            try? await Task.sleep(nanoseconds: shakeStepDuration)
         }
-        try? await Task.sleep(nanoseconds: 35_000_000)
     }
 }
 
@@ -2174,7 +2174,7 @@ private struct SessionCard: View {
 
     @MainActor
     private func runJumpFailureShakeAnimation() async {
-        await runSharedJumpFailureShakeAnimation(offset: $failureShakeOffset)
+        await JumpAnimationHelper.runShake(offset: $failureShakeOffset)
     }
 
     private func timeAgo(_ date: Date) -> String {
