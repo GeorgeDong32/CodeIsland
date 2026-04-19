@@ -922,22 +922,28 @@ private struct ApprovalBar: View {
 
     // MARK: - Click-to-jump handling
 
-    /// Handle click on approval card to jump to terminal (same as SessionCard behavior)
+    /// Handle click on approval card to jump to terminal.
+    /// Logic mirrors SessionCard.handleSessionClick():
+    /// - nil session: play error sound + shake animation
+    /// - remote session: skip (no terminal to jump to)
+    /// - valid local session: activate terminal + optionally auto-collapse
     private func handleCardClick() {
-        // If session is nil (removed but card still showing), show failure feedback
+        // Session may be nil if removed while card is still visible
         guard let session = session else {
             SoundManager.shared.preview("8bit_error")
             Task { @MainActor in await runJumpFailureShakeAnimation() }
             return
         }
 
-        // Skip for remote sessions
+        // Remote sessions have no local terminal
         guard !session.isRemote else { return }
 
         TerminalActivator.activate(session: session, sessionId: sessionId)
 
         guard autoCollapseAfterSessionJump else { return }
 
+        // Validate jump: retry 3x with increasing delays (120ms, 320ms, 640ms)
+        // Collapse on success; play error sound + shake on failure
         jumpValidationTask?.cancel()
         jumpValidationTask = Task {
             let delays: [UInt64] = [120_000_000, 320_000_000, 640_000_000]
@@ -949,6 +955,7 @@ private struct ApprovalBar: View {
             switch outcome {
             case .success:
                 guard !Task.isCancelled else { return }
+                // Auto-collapse to collapsed surface on successful jump
                 await MainActor.run {
                     switch appState.surface {
                     case .approvalCard:
@@ -984,16 +991,11 @@ private struct ApprovalBar: View {
 
     @MainActor
     private func runJumpFailureShakeAnimation() async {
-        for offset in jumpFailureShakeSequence() {
-            withAnimation(.easeInOut(duration: 0.035)) {
-                failureShakeOffset = CGFloat(offset)
-            }
-            try? await Task.sleep(nanoseconds: 35_000_000)
-        }
+        await runSharedJumpFailureShakeAnimation(offset: $failureShakeOffset)
     }
 }
 
-// MARK: - Question Bar (below notch, auto-expanded)
+// MARK: - Jump Animation Helpers
 
 private struct QuestionBar: View {
     let question: String
@@ -1809,6 +1811,18 @@ func jumpFailureShakeSequence() -> [Int] {
     [8, -8, 6, -6, 3, -3, 0]
 }
 
+/// Shake animation helper - sets offset values from jumpFailureShakeSequence() with 35ms delays
+/// - Parameter offset: The binding to animate with shake values
+@MainActor
+private func runSharedJumpFailureShakeAnimation(offset: Binding<CGFloat>) async {
+    for value in jumpFailureShakeSequence() {
+        withAnimation(.easeInOut(duration: 0.035)) {
+            offset.wrappedValue = CGFloat(value)
+        }
+        try? await Task.sleep(nanoseconds: 35_000_000)
+    }
+}
+
 enum JumpValidationOutcome: Equatable {
     case success
     case failed
@@ -2160,12 +2174,7 @@ private struct SessionCard: View {
 
     @MainActor
     private func runJumpFailureShakeAnimation() async {
-        for offset in jumpFailureShakeSequence() {
-            withAnimation(.easeInOut(duration: 0.035)) {
-                failureShakeOffset = CGFloat(offset)
-            }
-            try? await Task.sleep(nanoseconds: 35_000_000)
-        }
+        await runSharedJumpFailureShakeAnimation(offset: $failureShakeOffset)
     }
 
     private func timeAgo(_ date: Date) -> String {
