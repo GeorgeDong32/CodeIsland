@@ -930,8 +930,10 @@ private struct ApprovalBar: View {
     private func handleCardClick() {
         // Session may be nil if removed while card is still visible
         guard let session = session else {
-            SoundManager.shared.preview("8bit_error")
-            Task { @MainActor in await runJumpFailureShakeAnimation() }
+            Task { @MainActor in
+                SoundManager.shared.preview("8bit_error")
+                await runJumpFailureShakeAnimation()
+            }
             return
         }
 
