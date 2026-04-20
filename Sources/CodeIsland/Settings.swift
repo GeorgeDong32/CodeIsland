@@ -288,7 +288,9 @@ class SettingsManager {
     /// Sorted list of all tools that can be auto-approved (displayed in settings UI)
     static let allAutoApproveTools = SettingsDefaults.autoApproveDefaultTools.sorted()
 
-    /// Check if a specific tool should be auto-approved
+    /// Check if a specific tool should be auto-approved.
+    /// Called from HookServer (also @MainActor) via SettingsManager.shared.
+    /// If HookServer ever moves off MainActor, this call must be dispatched to main actor.
     func isAutoApproveTool(_ tool: String) -> Bool {
         let key = SettingsKey.autoApproveTool(tool)
         // If no override exists, use the default set
