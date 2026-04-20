@@ -427,6 +427,20 @@ private struct BehaviorPage: View {
                     Text(l10n["tool_history_limit_desc"])
                 }
             }
+
+            // Auto-approve tool toggles
+            Section {
+                ForEach(SettingsManager.allAutoApproveTools, id: \.self) { tool in
+                    Toggle(tool, isOn: Binding(
+                        get: { SettingsManager.shared.isAutoApproveTool(tool) },
+                        set: { SettingsManager.shared.setAutoApproveTool(tool, enabled: $0) }
+                    ))
+                }
+            } header: {
+                Text(l10n["auto_approve_tools"])
+            } footer: {
+                Text(l10n["auto_approve_tools_desc"])
+            }
         }
         .formStyle(.grouped)
     }
