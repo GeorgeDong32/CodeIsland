@@ -290,7 +290,8 @@ class SettingsManager {
 
     /// Check if a specific tool should be auto-approved.
     /// Called from HookServer (also @MainActor) via SettingsManager.shared.
-    /// If HookServer ever moves off MainActor, this call must be dispatched to main actor.
+    /// UserDefaults.bool is thread-safe, but actor isolation is assumed —
+    /// if HookServer ever moves off MainActor, this must be dispatched to main actor.
     func isAutoApproveTool(_ tool: String) -> Bool {
         let key = SettingsKey.autoApproveTool(tool)
         // If no override exists, use the default set

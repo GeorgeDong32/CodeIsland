@@ -77,7 +77,23 @@ final class SettingsAutoApproveTests: XCTestCase {
         XCTAssertTrue(manager.isAutoApproveTool("EnterPlanMode"))
     }
 
-    func testAllAutoApproveToolsContainsAllDefaults() {
+    func testEnableNonDefaultTool() {
+        let tool = "Bash"
+        let _ = toolKey(tool) // Track for cleanup
+
+        // Not in default set — should be OFF by default
+        XCTAssertFalse(manager.isAutoApproveTool(tool))
+
+        // Explicitly enable it
+        manager.setAutoApproveTool(tool, enabled: true)
+        XCTAssertTrue(manager.isAutoApproveTool(tool))
+
+        // Disable it again
+        manager.setAutoApproveTool(tool, enabled: false)
+        XCTAssertFalse(manager.isAutoApproveTool(tool))
+    }
+
+    func testAllAutoApproveToolsMatchesDefaultSet() {
         // Verify the static UI list matches the default set
         XCTAssertEqual(
             Set(SettingsManager.allAutoApproveTools),
