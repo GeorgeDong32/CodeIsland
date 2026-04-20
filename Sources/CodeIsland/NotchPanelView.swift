@@ -912,7 +912,7 @@ private struct ApprovalBar: View {
             if isAutoApproveActive {
                 // Auto-approve active: show status bar instead of buttons
                 HStack(spacing: 6) {
-                    Text("⚡ AUTO APPROVE")
+                    Text("⏵⏵ AUTO APPROVE")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(Color(red: 1.0, green: 0.84, blue: 0.0))
                     Spacer()
@@ -942,7 +942,7 @@ private struct ApprovalBar: View {
                     PixelButton(label: L10n.shared["deny"], fg: .white.opacity(0.95), bg: Color(red: 0.45, green: 0.12, blue: 0.12), border: Color(red: 0.7, green: 0.25, blue: 0.25), action: onDeny)
                     PixelButton(label: L10n.shared["dismiss"], fg: .white.opacity(0.95), bg: Color(red: 0.25, green: 0.25, blue: 0.25), border: Color.white.opacity(0.28), action: onDismiss)
                     PixelButton(label: L10n.shared["allow_once"], fg: .white.opacity(0.95), bg: Color(red: 0.16, green: 0.38, blue: 0.18), border: Color(red: 0.28, green: 0.62, blue: 0.32), action: onAllow)
-                    PixelButton(label: "\(L10n.shared["always"]) ⚡", fg: .white.opacity(0.95), bg: Color(red: 0.14, green: 0.28, blue: 0.52), border: Color(red: 0.28, green: 0.48, blue: 0.82), onLongPress: { toggleAutoApprove() }, action: onAlwaysAllow)
+                    PixelButton(label: "\(L10n.shared["always"]) ⏵⏵", fg: .white.opacity(0.95), bg: Color(red: 0.14, green: 0.28, blue: 0.52), border: Color(red: 0.28, green: 0.48, blue: 0.82), onLongPress: { toggleAutoApprove() }, action: onAlwaysAllow)
                         .help(L10n.shared["long_press_auto_approve_tooltip"])
                 }
                 .padding(.horizontal, 14)
@@ -1797,7 +1797,7 @@ private struct SessionIdentityLine: View {
 
             // Auto-approve active indicator
             if appState.isAutoApproveActive(for: sessionId) {
-                Text("⚡")
+                Text("⏵⏵")
                     .font(.system(size: sessionFontSize + 2, weight: .bold))
                     .foregroundStyle(Color(red: 1.0, green: 0.27, blue: 0.27))
             }
