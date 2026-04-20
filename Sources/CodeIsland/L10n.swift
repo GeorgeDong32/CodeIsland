@@ -112,6 +112,10 @@ final class L10n: ObservableObject {
         "tool_history_limit": "Tool History Limit",
         "tool_history_limit_desc": "Max number of recent tool calls shown per session",
 
+        // Auto-approve tools
+        "auto_approve_tools": "Auto-Approve Tools",
+        "auto_approve_tools_desc": "Tools that skip permission confirmation. Turn off to require manual approval.",
+
         // Appearance
         "preview": "Preview",
         "panel": "Panel",
@@ -343,6 +347,10 @@ final class L10n: ObservableObject {
         "10_seconds": "10 秒",
         "tool_history_limit": "工具历史上限",
         "tool_history_limit_desc": "每个会话显示的最近工具调用数量上限",
+
+        // Auto-approve tools
+        "auto_approve_tools": "自动审批工具",
+        "auto_approve_tools_desc": "跳过权限确认的工具。关闭后需要手动审批。",
 
         // Appearance
         "preview": "预览",
@@ -576,6 +584,10 @@ final class L10n: ObservableObject {
         "tool_history_limit": "ツール履歴の上限",
         "tool_history_limit_desc": "セッションごとに表示する最近のツール呼び出し数の上限です",
 
+        // Auto-approve tools
+        "auto_approve_tools": "自動承認ツール",
+        "auto_approve_tools_desc": "権限確認をスキップするツール。オフにすると手動承認が必要です。",
+
         // Appearance
         "preview": "プレビュー",
         "panel": "パネル",
@@ -808,6 +820,10 @@ final class L10n: ObservableObject {
         "tool_history_limit": "도구 기록 제한",
         "tool_history_limit_desc": "세션별로 표시할 최근 도구 호출의 최대 개수입니다",
 
+        // Auto-approve tools
+        "auto_approve_tools": "자동 승인 도구",
+        "auto_approve_tools_desc": "권한 확인을 건너뛰는 도구입니다. 끄면 수동 승인이 필요합니다.",
+
         // Appearance
         "preview": "미리보기",
         "panel": "패널",
@@ -1039,6 +1055,10 @@ final class L10n: ObservableObject {
         "10_seconds": "10 Saniye",
         "tool_history_limit": "Araç Geçmişi Limiti",
         "tool_history_limit_desc": "Oturum başına gösterilen son araç çağrı sayısı",
+
+        // Auto-approve tools
+        "auto_approve_tools": "Otomatik Onay Araçları",
+        "auto_approve_tools_desc": "İzin onayını atlayan araçlar. Kapatmak manuel onay gerektirir.",
 
         // Appearance
         "preview": "Önizleme",

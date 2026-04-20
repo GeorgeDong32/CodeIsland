@@ -81,6 +81,9 @@ enum SettingsKey {
     // Island collapsed width scale for non-notch screens (percentage: 50–150, default 100)
     static let collapsedWidthScale = "collapsedWidthScale"
 
+    // Auto-approve tool toggles (prefixed keys: autoApproveTool_{toolName})
+    static func autoApproveTool(_ tool: String) -> String { "autoApproveTool_\(tool)" }
+
 }
 
 struct SettingsDefaults {
@@ -124,6 +127,12 @@ struct SettingsDefaults {
     static let showToolStatus = true
 
     static let collapsedWidthScale = 100  // percentage
+
+    // Tools that are auto-approved by default (backwards-compatible with previous hardcoded list)
+    static let autoApproveDefaultTools: Set<String> = [
+        "TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskOutput", "TaskStop",
+        "TodoRead", "TodoWrite", "EnterPlanMode", "ExitPlanMode",
+    ]
 }
 
 @MainActor
@@ -272,6 +281,26 @@ class SettingsManager {
     var sessionGroupingMode: String {
         get { defaults.string(forKey: SettingsKey.sessionGroupingMode) ?? SettingsDefaults.sessionGroupingMode }
         set { defaults.set(newValue, forKey: SettingsKey.sessionGroupingMode) }
+    }
+
+    // MARK: - Auto-Approve Tool Configuration
+
+    /// Sorted list of all tools that can be auto-approved (displayed in settings UI)
+    static let allAutoApproveTools = SettingsDefaults.autoApproveDefaultTools.sorted()
+
+    /// Check if a specific tool should be auto-approved
+    func isAutoApproveTool(_ tool: String) -> Bool {
+        let key = SettingsKey.autoApproveTool(tool)
+        // If no override exists, use the default set
+        if defaults.object(forKey: key) == nil {
+            return SettingsDefaults.autoApproveDefaultTools.contains(tool)
+        }
+        return defaults.bool(forKey: key)
+    }
+
+    /// Set auto-approve preference for a specific tool
+    func setAutoApproveTool(_ tool: String, enabled: Bool) {
+        defaults.set(enabled, forKey: SettingsKey.autoApproveTool(tool))
     }
 }
 

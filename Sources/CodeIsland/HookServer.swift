@@ -115,13 +115,6 @@ class HookServer {
         }
     }
 
-    /// Internal tools that are safe to auto-approve without user confirmation.
-    private static let autoApproveTools: Set<String> = [
-        "TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskOutput", "TaskStop",
-        "TodoRead", "TodoWrite",
-        "EnterPlanMode", "ExitPlanMode",
-    ]
-
     static func routeKind(for event: HookEvent) -> RouteKind {
         let normalizedEventName = EventNormalizer.normalize(event.eventName)
         if normalizedEventName == "PermissionRequest" {
@@ -150,7 +143,7 @@ class HookServer {
             let sessionId = event.sessionId ?? "default"
 
             // Auto-approve safe internal tools without showing UI
-            if let toolName = event.toolName, Self.autoApproveTools.contains(toolName) {
+            if let toolName = event.toolName, SettingsManager.shared.isAutoApproveTool(toolName) {
                 let response = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
                 sendResponse(connection: connection, data: Data(response.utf8))
                 return
