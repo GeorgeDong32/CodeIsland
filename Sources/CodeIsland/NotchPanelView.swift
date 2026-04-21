@@ -946,8 +946,8 @@ private struct ApprovalBar: View {
                     PixelButton(label: L10n.shared["allow_once"], fg: .white.opacity(0.95), bg: Color(red: 0.16, green: 0.38, blue: 0.18), border: Color(red: 0.28, green: 0.62, blue: 0.32), action: onAllow)
                     PixelButton(label: L10n.shared["always"], fg: .white.opacity(0.95), bg: Color(red: 0.14, green: 0.28, blue: 0.52), border: Color(red: 0.28, green: 0.48, blue: 0.82), action: onAlwaysAllow)
 
-                    // Independent auto-approve toggle button
-                    PixelButton(label: "⏵⏵", fg: .white.opacity(0.95), bg: Color(red: 0.14, green: 0.28, blue: 0.52), border: Color(red: 0.28, green: 0.48, blue: 0.82), action: toggleAutoApprove)
+                    // Independent auto-approve toggle button (orange to distinguish from ALWAYS)
+                    PixelButton(label: L10n.shared["auto_approve"], fg: .white.opacity(0.95), bg: Color(red: 0.52, green: 0.28, blue: 0.08), border: Color(red: 0.82, green: 0.48, blue: 0.12), action: toggleAutoApprove)
                         .help(L10n.shared["bypass_permission_tooltip"])
                 }
                 .padding(.horizontal, 14)
