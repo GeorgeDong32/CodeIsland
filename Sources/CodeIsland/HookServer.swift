@@ -133,6 +133,9 @@ class HookServer {
         return .event
     }
 
+    /// Simple allow response for auto-approved permissions (no setMode)
+    private static let simpleAllowResponse = Data(#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#.utf8)
+
     private func processRequest(data: Data, connection: NWConnection) {
         guard let event = HookEvent(from: data) else {
             sendResponse(connection: connection, data: Data("{\"error\":\"parse_failed\"}".utf8))
@@ -151,8 +154,7 @@ class HookServer {
 
             // Auto-approve safe internal tools without showing UI
             if let toolName = event.toolName, Self.autoApproveTools.contains(toolName) {
-                let response = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
-                sendResponse(connection: connection, data: Data(response.utf8))
+                sendResponse(connection: connection, data: Self.simpleAllowResponse)
                 return
             }
 
@@ -160,8 +162,7 @@ class HookServer {
             // Use simple allow (no setMode) so user's manual permission mode changes are respected.
             // setMode bypassPermissions is sent only once during flushPendingPermissionsForAutoApprove.
             if appState.isAutoApproveActive(for: sessionId) {
-                let response = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
-                sendResponse(connection: connection, data: Data(response.utf8))
+                sendResponse(connection: connection, data: Self.simpleAllowResponse)
                 return
             }
 
