@@ -936,11 +936,6 @@ private struct ApprovalBar: View {
                 .onTapGesture { toggleAutoApprove() }
             } else {
                 HStack(spacing: 6) {
-                    // Dismiss as compact X icon on far left (36pt to meet min tap target)
-                    PixelButton(label: "✕", fg: .white.opacity(0.7), bg: Color(red: 0.2, green: 0.2, blue: 0.2), border: Color.white.opacity(0.15), compact: true, action: onDismiss)
-                        .frame(width: 36)
-                        .accessibilityLabel(L10n.shared["dismiss"])
-
                     // Action buttons
                     PixelButton(label: L10n.shared["deny"], fg: .white.opacity(0.95), bg: Color(red: 0.45, green: 0.12, blue: 0.12), border: Color(red: 0.7, green: 0.25, blue: 0.25), action: onDeny)
                     PixelButton(label: L10n.shared["allow_once"], fg: .white.opacity(0.95), bg: Color(red: 0.16, green: 0.38, blue: 0.18), border: Color(red: 0.28, green: 0.62, blue: 0.32), action: onAllow)
@@ -949,6 +944,11 @@ private struct ApprovalBar: View {
                     // Independent auto-approve toggle button (orange to distinguish from ALWAYS)
                     PixelButton(label: L10n.shared["auto_approve"], fg: .white.opacity(0.95), bg: Color(red: 0.52, green: 0.28, blue: 0.08), border: Color(red: 0.82, green: 0.48, blue: 0.12), action: toggleAutoApprove)
                         .help(L10n.shared["bypass_permission_tooltip"])
+
+                    // Dismiss as compact X icon on far right (36pt to meet min tap target)
+                    PixelButton(label: "✕", fg: .white.opacity(0.7), bg: Color(red: 0.2, green: 0.2, blue: 0.2), border: Color.white.opacity(0.15), compact: true, action: onDismiss)
+                        .frame(width: 36)
+                        .accessibilityLabel(L10n.shared["dismiss"])
                 }
                 .padding(.horizontal, 14)
             }
