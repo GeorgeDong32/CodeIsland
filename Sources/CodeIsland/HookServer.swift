@@ -158,11 +158,11 @@ class HookServer {
                 return
             }
 
-            // Auto-approve if session has auto-approve enabled
-            // Use simple allow (no setMode) so user's manual permission mode changes are respected.
+            // If auto-approve was active but PermissionRequest arrived anyway,
+            // the user must have manually exited bypass in CLI — clear the flag
+            // so the Session Card badge updates and normal approval flow resumes.
             if appState.isAutoApproveActive(for: sessionId) {
-                sendResponse(connection: connection, data: Self.simpleAllowResponse)
-                return
+                appState.clearAutoApprove(sessionId: sessionId)
             }
 
             // AskUserQuestion is a question, not a permission — route to QuestionBar
