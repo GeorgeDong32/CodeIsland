@@ -1038,12 +1038,17 @@ final class AppState {
         }
     }
 
-    /// Auto-approve all pending queued permissions for a session using setMode bypassPermissions
+    /// Auto-approve all pending queued permissions for a session using simple allow.
+    /// We intentionally do NOT send setMode:bypassPermissions — once CLI enters that
+    /// mode it stops sending PermissionRequests entirely, making it impossible to
+    /// detect when the user manually changes their permission mode back.
     private func flushPendingPermissionsForAutoApprove(sessionId: String) {
         var didFlush = false
         while let idx = permissionQueue.firstIndex(where: { $0.event.sessionId == sessionId }) {
             let pending = permissionQueue.remove(at: idx)
-            pending.continuation.resume(returning: Self.setAutoApproveResponse)
+            // Use simple allow instead of setAutoApproveResponse
+            let allowResponse = Data(#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#.utf8)
+            pending.continuation.resume(returning: allowResponse)
             didFlush = true
         }
         if didFlush {
@@ -1052,24 +1057,6 @@ final class AppState {
             refreshDerivedState()
         }
     }
-
-    /// JSON response that switches session to bypassPermissions mode
-    static let setAutoApproveResponse: Data = {
-        let obj: [String: Any] = [
-            "hookSpecificOutput": [
-                "hookEventName": "PermissionRequest",
-                "decision": [
-                    "behavior": "allow",
-                    "updatedPermissions": [[
-                        "type": "setMode",
-                        "mode": "bypassPermissions",
-                        "destination": "session"
-                    ]]
-                ] as [String: Any]
-            ] as [String: Any]
-        ]
-        return (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
-    }()
 
     func dismissPermissionPrompt() {
         guard let pending = permissionQueue.first else { return }

@@ -153,7 +153,6 @@ class HookServer {
 
             // Auto-approve if session has auto-approve enabled
             // Use simple allow (no setMode) so user's manual permission mode changes are respected.
-            // setMode bypassPermissions is sent only once during flushPendingPermissionsForAutoApprove.
             if appState.isAutoApproveActive(for: sessionId) {
                 sendResponse(connection: connection, data: Self.simpleAllowResponse)
                 return
