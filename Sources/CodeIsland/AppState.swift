@@ -1025,6 +1025,15 @@ final class AppState {
         autoApproveSessionId == sessionId
     }
 
+    /// Clear auto-approve flag without toggling or flushing.
+    /// Called when a PermissionRequest arrives for a session that was in bypass mode —
+    /// meaning the user manually exited bypass in CLI.
+    func clearAutoApprove(sessionId: String) {
+        if autoApproveSessionId == sessionId {
+            autoApproveSessionId = nil
+        }
+    }
+
     /// Toggle auto-approve for a session. Only one session at a time.
     func toggleAutoApprove(sessionId: String) {
         if autoApproveSessionId == sessionId {
@@ -1038,17 +1047,12 @@ final class AppState {
         }
     }
 
-    /// Auto-approve all pending queued permissions for a session using simple allow.
-    /// We intentionally do NOT send setMode:bypassPermissions — once CLI enters that
-    /// mode it stops sending PermissionRequests entirely, making it impossible to
-    /// detect when the user manually changes their permission mode back.
+    /// Auto-approve all pending queued permissions for a session using setMode bypassPermissions
     private func flushPendingPermissionsForAutoApprove(sessionId: String) {
         var didFlush = false
         while let idx = permissionQueue.firstIndex(where: { $0.event.sessionId == sessionId }) {
             let pending = permissionQueue.remove(at: idx)
-            // Use simple allow instead of setAutoApproveResponse
-            let allowResponse = Data(#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#.utf8)
-            pending.continuation.resume(returning: allowResponse)
+            pending.continuation.resume(returning: Self.setAutoApproveResponse)
             didFlush = true
         }
         if didFlush {
@@ -1057,6 +1061,24 @@ final class AppState {
             refreshDerivedState()
         }
     }
+
+    /// JSON response that switches session to bypassPermissions mode
+    static let setAutoApproveResponse: Data = {
+        let obj: [String: Any] = [
+            "hookSpecificOutput": [
+                "hookEventName": "PermissionRequest",
+                "decision": [
+                    "behavior": "allow",
+                    "updatedPermissions": [[
+                        "type": "setMode",
+                        "mode": "bypassPermissions",
+                        "destination": "session"
+                    ]]
+                ] as [String: Any]
+            ] as [String: Any]
+        ]
+        return (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
+    }()
 
     func dismissPermissionPrompt() {
         guard let pending = permissionQueue.first else { return }
