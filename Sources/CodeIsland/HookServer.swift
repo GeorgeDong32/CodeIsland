@@ -156,9 +156,12 @@ class HookServer {
                 return
             }
 
-            // Auto-approve if session has auto-approve enabled — send setMode bypassPermissions
+            // Auto-approve if session has auto-approve enabled
+            // Use simple allow (no setMode) so user's manual permission mode changes are respected.
+            // setMode bypassPermissions is sent only once during flushPendingPermissionsForAutoApprove.
             if appState.isAutoApproveActive(for: sessionId) {
-                sendResponse(connection: connection, data: AppState.setAutoApproveResponse)
+                let response = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
+                sendResponse(connection: connection, data: Data(response.utf8))
                 return
             }
 
