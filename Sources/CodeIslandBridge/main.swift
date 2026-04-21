@@ -19,6 +19,11 @@ import CodeIslandCore
 // Never let a broken pipe kill the bridge — just fail the write silently
 signal(SIGPIPE, SIG_IGN)
 
+// Graceful shutdown on SIGINT — prevents mid-write socket corruption
+// when Claude Code is interrupted (ESC). The bridge is stateless so
+// _exit(0) is safe; no atexit handlers needed.
+signal(SIGINT) { _ in _exit(0) }
+
 // Hard deadline: if anything hangs beyond this, bail out cleanly.
 // Non-blocking events get 8s; blocking (permission/question) gets no alarm
 // since those legitimately wait for user interaction.

@@ -171,6 +171,23 @@ final class AppState {
             }
         }
 
+        // 2c. Sessions stuck in .running with a tool but no hook activity.
+        //     Claude Code does NOT send Stop on user interrupt (ESC double-tap),
+        //     so the session stays in .running with currentTool set indefinitely.
+        //     300s timeout is generous to avoid false-idle during long tool executions.
+        let monitoredRunningTimeout: TimeInterval = 300
+        for (key, session) in sessions
+            where processMonitors[key] != nil
+            && session.status == .running
+            && session.currentTool != nil {
+            let elapsed = -session.lastActivity.timeIntervalSinceNow
+            if elapsed > monitoredRunningTimeout {
+                sessions[key]?.status = .idle
+                sessions[key]?.currentTool = nil
+                sessions[key]?.toolDescription = nil
+            }
+        }
+
         // 3. Verify PID liveness for sessions without monitors but with a known PID.
         //    If the process died: idle sessions are removed directly (no grace needed),
         //    non-idle sessions go through handleProcessExit for the 5s grace period.
