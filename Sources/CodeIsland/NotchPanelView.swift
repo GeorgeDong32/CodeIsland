@@ -936,9 +936,10 @@ private struct ApprovalBar: View {
                 .onTapGesture { toggleAutoApprove() }
             } else {
                 HStack(spacing: 6) {
-                    // Dismiss as compact X icon on far left
+                    // Dismiss as compact X icon on far left (36pt to meet min tap target)
                     PixelButton(label: "✕", fg: .white.opacity(0.7), bg: Color(red: 0.2, green: 0.2, blue: 0.2), border: Color.white.opacity(0.15), compact: true, action: onDismiss)
-                        .frame(width: 32)
+                        .frame(width: 36)
+                        .accessibilityLabel(L10n.shared["dismiss"])
 
                     // Action buttons
                     PixelButton(label: L10n.shared["deny"], fg: .white.opacity(0.95), bg: Color(red: 0.45, green: 0.12, blue: 0.12), border: Color(red: 0.7, green: 0.25, blue: 0.25), action: onDeny)
