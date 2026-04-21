@@ -1543,7 +1543,6 @@ private struct PixelButton: View {
     let bg: Color
     let border: Color
     var compact: Bool = false
-    var onLongPress: (() -> Void)? = nil
     let action: () -> Void
     @State private var hovering = false
 
@@ -1556,7 +1555,7 @@ private struct PixelButton: View {
                 .padding(.vertical, 7)
                 .background(
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(hovering ? bg.opacity(1.5) : bg)
+                        .fill(hovering ? bg.opacity(0.85) : bg)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
