@@ -1058,27 +1058,6 @@ final class AppState {
         }
     }
 
-    /// Legacy response that switches session to bypassPermissions mode.
-    /// Kept for reference but no longer used — bypassPermissions mode prevents
-    /// the CLI from sending PermissionRequests, which makes it impossible to
-    /// respect user manual permission mode changes.
-    static let _legacy_setAutoApproveResponse: Data = {
-        let obj: [String: Any] = [
-            "hookSpecificOutput": [
-                "hookEventName": "PermissionRequest",
-                "decision": [
-                    "behavior": "allow",
-                    "updatedPermissions": [[
-                        "type": "setMode",
-                        "mode": "bypassPermissions",
-                        "destination": "session"
-                    ]]
-                ] as [String: Any]
-            ] as [String: Any]
-        ]
-        return (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
-    }()
-
     func dismissPermissionPrompt() {
         guard let pending = permissionQueue.first else { return }
 
