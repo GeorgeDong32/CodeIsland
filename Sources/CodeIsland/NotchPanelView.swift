@@ -916,7 +916,7 @@ private struct ApprovalBar: View {
                         .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(Color(red: 1.0, green: 0.84, blue: 0.0))
                     Spacer()
-                    Text(L10n.shared["long_press_to_disable"])
+                    Text(L10n.shared["click_to_disable"])
                         .font(.system(size: 9))
                         .foregroundStyle(.white.opacity(0.4))
                 }
@@ -933,17 +933,22 @@ private struct ApprovalBar: View {
                 .shadow(color: Color(red: 1.0, green: 0.27, blue: 0.27).opacity(0.4), radius: 4)
                 .padding(.horizontal, 14)
                 .contentShape(Rectangle())
-                .help(L10n.shared["long_press_auto_approve_tooltip"])
-                .onLongPressGesture(minimumDuration: 2.0) {
-                    toggleAutoApprove()
-                }
+                .onTapGesture { toggleAutoApprove() }
             } else {
                 HStack(spacing: 6) {
+                    // Dismiss as compact X icon on far left (36pt to meet min tap target)
+                    PixelButton(label: "✕", fg: .white.opacity(0.7), bg: Color(red: 0.2, green: 0.2, blue: 0.2), border: Color.white.opacity(0.15), compact: true, action: onDismiss)
+                        .frame(width: 36)
+                        .accessibilityLabel(L10n.shared["dismiss"])
+
+                    // Action buttons
                     PixelButton(label: L10n.shared["deny"], fg: .white.opacity(0.95), bg: Color(red: 0.45, green: 0.12, blue: 0.12), border: Color(red: 0.7, green: 0.25, blue: 0.25), action: onDeny)
-                    PixelButton(label: L10n.shared["dismiss"], fg: .white.opacity(0.95), bg: Color(red: 0.25, green: 0.25, blue: 0.25), border: Color.white.opacity(0.28), action: onDismiss)
                     PixelButton(label: L10n.shared["allow_once"], fg: .white.opacity(0.95), bg: Color(red: 0.16, green: 0.38, blue: 0.18), border: Color(red: 0.28, green: 0.62, blue: 0.32), action: onAllow)
-                    PixelButton(label: "\(L10n.shared["always"]) ⏵⏵", fg: .white.opacity(0.95), bg: Color(red: 0.14, green: 0.28, blue: 0.52), border: Color(red: 0.28, green: 0.48, blue: 0.82), onLongPress: { toggleAutoApprove() }, action: onAlwaysAllow)
-                        .help(L10n.shared["long_press_auto_approve_tooltip"])
+                    PixelButton(label: L10n.shared["always"], fg: .white.opacity(0.95), bg: Color(red: 0.14, green: 0.28, blue: 0.52), border: Color(red: 0.28, green: 0.48, blue: 0.82), action: onAlwaysAllow)
+
+                    // Independent auto-approve toggle button
+                    PixelButton(label: "⏵⏵", fg: .white.opacity(0.95), bg: Color(red: 0.14, green: 0.28, blue: 0.52), border: Color(red: 0.28, green: 0.48, blue: 0.82), action: toggleAutoApprove)
+                        .help(L10n.shared["bypass_permission_tooltip"])
                 }
                 .padding(.horizontal, 14)
             }
@@ -1538,20 +1543,20 @@ private struct PixelButton: View {
     let fg: Color
     let bg: Color
     let border: Color
-    var onLongPress: (() -> Void)? = nil
+    var compact: Bool = false
     let action: () -> Void
     @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: compact ? 12 : 10, weight: .semibold))
                 .foregroundStyle(fg)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 7)
                 .background(
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(hovering ? bg.opacity(1.5) : bg)
+                        .fill(hovering ? bg.opacity(0.85) : bg)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
@@ -1560,10 +1565,6 @@ private struct PixelButton: View {
         }
         .buttonStyle(.plain)
         .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
-        .contentShape(Rectangle())
-        .onLongPressGesture(minimumDuration: 2.0) {
-            onLongPress?()
-        }
     }
 }
 
