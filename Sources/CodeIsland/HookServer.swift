@@ -142,14 +142,8 @@ class HookServer {
         case .permission:
             let sessionId = event.sessionId ?? "default"
 
-            // Auto-approve safe internal tools without showing UI
-            if let toolName = event.toolName, SettingsManager.shared.isAutoApproveTool(toolName) {
-                sendResponse(connection: connection, data: AppState.simpleAllowResponse)
-                return
-            }
-
-            // AskUserQuestion is a question, not a permission — always route to QuestionBar
-            // even when auto-approve is active.
+            // AskUserQuestion is a question, not a permission — always route to
+            // QuestionBar regardless of auto-approve settings or tool whitelist.
             if event.toolName == "AskUserQuestion" {
                 monitorPeerDisconnect(connection: connection, sessionId: sessionId)
                 Task {
@@ -158,6 +152,12 @@ class HookServer {
                     }
                     self.sendResponse(connection: connection, data: responseBody)
                 }
+                return
+            }
+
+            // Auto-approve safe internal tools without showing UI
+            if let toolName = event.toolName, SettingsManager.shared.isAutoApproveTool(toolName) {
+                sendResponse(connection: connection, data: AppState.simpleAllowResponse)
                 return
             }
 
