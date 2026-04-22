@@ -161,19 +161,13 @@ class HookServer {
                 return
             }
 
-            // If auto-approve is active and a PermissionRequest arrived:
-            // - Claude Code: bypass was active, user must have exited bypass in CLI
-            //   → clear flag, show normal approval UI
-            // - Other CLIs (and Claude Code without bypass support): auto-allow each
-            //   request with simple allow, keep flag active
+            // If auto-approve is active but a PermissionRequest arrived:
+            // CLI either ignored setMode:bypassPermissions or user exited bypass.
+            // In either case, auto-allow with simple allow and keep flag active.
+            // User can disable via badge tap or ApprovalBar status bar.
             if appState.isAutoApproveActive(for: sessionId) {
-                let isClaudeCode = appState.sessions[sessionId]?.isClaude == true
-                if isClaudeCode {
-                    appState.clearAutoApprove(sessionId: sessionId)
-                } else {
-                    sendResponse(connection: connection, data: AppState.simpleAllowResponse)
-                    return
-                }
+                sendResponse(connection: connection, data: AppState.simpleAllowResponse)
+                return
             }
 
             monitorPeerDisconnect(connection: connection, sessionId: sessionId)
