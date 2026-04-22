@@ -1796,12 +1796,27 @@ private struct SessionIdentityLine: View {
                     .fixedSize()
             }
 
-            // Auto-approve active indicator (display-only; cannot remotely
-            // exit CLI bypass mode without an active PermissionRequest)
+            // Auto-approve active indicator
             if appState.isAutoApproveActive(for: sessionId) {
-                Text("⏵⏵")
-                    .font(.system(size: sessionFontSize + 2, weight: .bold))
-                    .foregroundStyle(Color(red: 1.0, green: 0.27, blue: 0.27))
+                if session.source == "claude" {
+                    // Claude Code: display-only, cannot remotely exit CLI bypass
+                    Text("⏵⏵")
+                        .font(.system(size: sessionFontSize + 2, weight: .bold))
+                        .foregroundStyle(Color(red: 1.0, green: 0.27, blue: 0.27))
+                } else {
+                    // Other CLIs: tappable to disable auto-approve
+                    Text("⏵⏵")
+                        .font(.system(size: sessionFontSize + 2, weight: .bold))
+                        .foregroundStyle(Color(red: 1.0, green: 0.27, blue: 0.27))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 2)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            appState.toggleAutoApprove(sessionId: sessionId)
+                            SoundManager.shared.preview("8bit_complete")
+                        }
+                        .help(L10n.shared["click_to_disable"])
+                }
             }
         }
     }

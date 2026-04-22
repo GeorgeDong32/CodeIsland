@@ -1056,12 +1056,17 @@ final class AppState {
         }
     }
 
-    /// Auto-approve all pending queued permissions for a session using setMode bypassPermissions
+    /// Auto-approve all pending queued permissions for a session.
+    /// Uses setMode:bypassPermissions for Claude Code, simple allow for other CLIs.
     private func flushPendingPermissionsForAutoApprove(sessionId: String) {
+        // Defaults to simple allow when source is nil (session gone) — safe fallback
+        let isClaudeCode = sessions[sessionId]?.source == "claude"
+        let response = isClaudeCode ? Self.setAutoApproveResponse : Self.simpleAllowResponse
+
         var didFlush = false
         while let idx = permissionQueue.firstIndex(where: { $0.event.sessionId == sessionId }) {
             let pending = permissionQueue.remove(at: idx)
-            pending.continuation.resume(returning: Self.setAutoApproveResponse)
+            pending.continuation.resume(returning: response)
             didFlush = true
         }
         if didFlush {
@@ -1070,6 +1075,13 @@ final class AppState {
             refreshDerivedState()
         }
     }
+
+    /// Simple allow response for non-Claude-Code CLIs (no setMode).
+    /// Same payload as HookServer.simpleAllowResponse; kept separate as AppState
+    /// cannot reference HookServer's private constant.
+    private static let simpleAllowResponse = Data(
+        #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#.utf8
+    )
 
     /// JSON response that switches session to bypassPermissions mode
     static let setAutoApproveResponse: Data = {

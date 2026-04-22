@@ -151,18 +151,19 @@ class HookServer {
                 return
             }
 
-            // If auto-approve was active but PermissionRequest arrived anyway,
-            // the user must have manually exited bypass in CLI — clear the flag
-            // so the Session Card badge updates and normal approval flow resumes.
-            //
-            // Note: We intentionally do NOT auto-allow with simple allow here.
-            // Once setMode:bypassPermissions takes effect, CLI stops sending
-            // PermissionRequest hooks entirely (CLI auto-approves internally).
-            // A PermissionRequest arriving after activation means the user
-            // explicitly exited bypass mode in CLI. Using simple allow would
-            // silently override the user's manual permission mode choice.
+            // If auto-approve is active and a PermissionRequest arrived:
+            // - Claude Code: bypass was active, user must have exited bypass in CLI
+            //   → clear flag, show normal approval UI
+            // - Other CLIs: no bypass mode support, auto-allow each request
+            //   → simple allow, keep flag active
             if appState.isAutoApproveActive(for: sessionId) {
-                appState.clearAutoApprove(sessionId: sessionId)
+                let isClaudeCode = appState.sessions[sessionId]?.source == "claude"
+                if isClaudeCode {
+                    appState.clearAutoApprove(sessionId: sessionId)
+                } else {
+                    sendResponse(connection: connection, data: Self.simpleAllowResponse)
+                    return
+                }
             }
 
             // AskUserQuestion is a question, not a permission — route to QuestionBar
