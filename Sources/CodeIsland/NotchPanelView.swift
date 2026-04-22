@@ -138,6 +138,9 @@ struct NotchPanelView: View {
                                 sessionContext: session?.cwd,
                                 queuePosition: 1,
                                 queueTotal: appState.questionQueue.count,
+                                session: session,
+                                sessionId: sid,
+                                appState: appState,
                                 onAnswer: { appState.answerQuestion($0) },
                                 onAnswerMulti: { appState.answerQuestionMulti($0) },
                                 onSkip: { appState.skipQuestion() }
@@ -153,6 +156,9 @@ struct NotchPanelView: View {
                                 sessionContext: session?.cwd,
                                 queuePosition: 1,
                                 queueTotal: 1,
+                                session: session,
+                                sessionId: sid,
+                                appState: appState,
                                 onAnswer: { _ in },
                                 onAnswerMulti: { _ in },
                                 onSkip: { }
@@ -1059,6 +1065,9 @@ private struct QuestionBar: View {
     let sessionContext: String?
     let queuePosition: Int
     let queueTotal: Int
+    let session: SessionSnapshot?
+    let sessionId: String
+    let appState: AppState
     let onAnswer: (String) -> Void
     let onAnswerMulti: ([(question: String, answer: String)]) -> Void
     let onSkip: () -> Void
@@ -1066,6 +1075,11 @@ private struct QuestionBar: View {
     @State private var textInput = ""
     @FocusState private var isFocused: Bool
     @State private var selectedIndex: Int? = nil
+
+    // Jump validation state for click-to-jump on header
+    @State private var failureShakeOffset: CGFloat = 0
+    @State private var jumpValidationTask: Task<Void, Never>?
+    @AppStorage(SettingsKey.autoCollapseAfterSessionJump) private var autoCollapseAfterSessionJump = SettingsDefaults.autoCollapseAfterSessionJump
 
     // Multi-question wizard state
     @State private var currentQuestionIndex: Int = 0
@@ -1103,6 +1117,9 @@ private struct QuestionBar: View {
                     Spacer()
                 }
                 .padding(.horizontal, 14)
+                .contentShape(Rectangle())
+                .onTapGesture { handleHeaderClick() }
+                .help(L10n.shared["shortcut_jumpToTerminal_desc"])
             }
 
             if let item = currentItem {
@@ -1112,6 +1129,7 @@ private struct QuestionBar: View {
             }
         }
         .padding(.vertical, 10)
+        .offset(x: failureShakeOffset)
         .onAppear { isFocused = true }
     }
 
@@ -1347,6 +1365,71 @@ private struct QuestionBar: View {
         showOtherInput = false
         otherText = ""
         textInput = ""
+    }
+
+    // MARK: - Click-to-jump on header
+
+    private func handleHeaderClick() {
+        guard let session = session else {
+            Task { @MainActor in
+                SoundManager.shared.preview("8bit_error")
+                await runJumpFailureShakeAnimation()
+            }
+            return
+        }
+        guard !session.isRemote else { return }
+
+        TerminalActivator.activate(session: session, sessionId: sessionId)
+
+        guard autoCollapseAfterSessionJump else { return }
+
+        jumpValidationTask?.cancel()
+        jumpValidationTask = Task {
+            let delays: [UInt64] = [120_000_000, 320_000_000, 640_000_000]
+            let outcome = await evaluateJumpValidation(
+                delays: delays,
+                checkSucceeded: { await checkJumpSucceeded(session: session) }
+            )
+
+            switch outcome {
+            case .success:
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    switch appState.surface {
+                    case .questionCard:
+                        withAnimation(NotchAnimation.close) {
+                            appState.surface = .collapsed
+                        }
+                    default:
+                        break
+                    }
+                }
+            case .failed:
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    SoundManager.shared.preview("8bit_error")
+                }
+                guard !Task.isCancelled else { return }
+                await runJumpFailureShakeAnimation()
+            case .cancelled:
+                return
+            }
+        }
+    }
+
+    private func checkJumpSucceeded(session: SessionSnapshot) async -> Bool {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let succeeded = TerminalVisibilityDetector.isSessionTabVisible(session)
+                    || TerminalVisibilityDetector.isTerminalFrontmostForSession(session)
+                continuation.resume(returning: succeeded)
+            }
+        }
+    }
+
+    @MainActor
+    private func runJumpFailureShakeAnimation() async {
+        await JumpAnimationHelper.runShake(offset: $failureShakeOffset)
     }
 
     // MARK: - Legacy single-question content (Notification-based)
