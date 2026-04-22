@@ -154,6 +154,13 @@ class HookServer {
             // If auto-approve was active but PermissionRequest arrived anyway,
             // the user must have manually exited bypass in CLI — clear the flag
             // so the Session Card badge updates and normal approval flow resumes.
+            //
+            // Note: We intentionally do NOT auto-allow with simple allow here.
+            // Once setMode:bypassPermissions takes effect, CLI stops sending
+            // PermissionRequest hooks entirely (CLI auto-approves internally).
+            // A PermissionRequest arriving after activation means the user
+            // explicitly exited bypass mode in CLI. Using simple allow would
+            // silently override the user's manual permission mode choice.
             if appState.isAutoApproveActive(for: sessionId) {
                 appState.clearAutoApprove(sessionId: sessionId)
             }

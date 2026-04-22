@@ -171,17 +171,22 @@ final class AppState {
             }
         }
 
-        // 2c. Sessions stuck in .running with a tool but no hook activity.
-        //     Claude Code does NOT send Stop on user interrupt (ESC double-tap),
-        //     so the session stays in .running with currentTool set indefinitely.
-        //     300s timeout is generous to avoid false-idle during long tool executions.
-        let monitoredRunningTimeout: TimeInterval = 300
+        // 2c. Sessions in .running with a tool but no hook activity.
+        //     Only mark idle if the monitored process is confirmed dead.
+        //     Long-running builds/tests should not be falsely idled.
+        let monitoredRunningTimeout: TimeInterval = 1800  // 30 min first-pass filter
         for (key, session) in sessions
             where processMonitors[key] != nil
             && session.status == .running
             && session.currentTool != nil {
             let elapsed = -session.lastActivity.timeIntervalSinceNow
             if elapsed > monitoredRunningTimeout {
+                guard let monitor = processMonitors[key] else { continue }
+                if Self.isLiveProcess(monitor.process) {
+                    // Process alive — genuinely long-running, refresh activity
+                    sessions[key]?.lastActivity = Date()
+                    continue
+                }
                 sessions[key]?.status = .idle
                 sessions[key]?.currentTool = nil
                 sessions[key]?.toolDescription = nil
@@ -1040,6 +1045,10 @@ final class AppState {
             // Deactivate
             autoApproveSessionId = nil
         } else {
+            // Log if another session was in bypass (cannot revoke remotely)
+            if let previousId = autoApproveSessionId, previousId != sessionId {
+                log.info("Switching auto-approve from \(previousId) to \(sessionId). Previous session remains in CLI bypass mode.")
+            }
             // Activate (deactivates previous session if any)
             autoApproveSessionId = sessionId
             // Flush all pending permissions for this session
