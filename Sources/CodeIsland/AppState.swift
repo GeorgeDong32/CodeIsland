@@ -1030,15 +1030,6 @@ final class AppState {
         autoApproveSessionId == sessionId
     }
 
-    /// Clear auto-approve flag without toggling or flushing.
-    /// Called when a PermissionRequest arrives for a session that was in bypass mode —
-    /// meaning the user manually exited bypass in CLI.
-    func clearAutoApprove(sessionId: String) {
-        if autoApproveSessionId == sessionId {
-            autoApproveSessionId = nil
-        }
-    }
-
     /// Toggle auto-approve for a session. Only one session at a time.
     func toggleAutoApprove(sessionId: String) {
         if autoApproveSessionId == sessionId {
@@ -1059,7 +1050,10 @@ final class AppState {
     /// Auto-approve all pending queued permissions for a session.
     /// Uses setMode:bypassPermissions for Claude Code (so CLI stops sending
     /// PermissionRequests), simple allow for other CLIs.
+    /// Note: HookServer hot path always uses simpleAllow for follow-up requests
+    /// (bypass may have been ignored or user may have exited bypass mode).
     private func flushPendingPermissionsForAutoApprove(sessionId: String) {
+        // Session gone (nil) falls back to simpleAllow — safe default
         let isClaudeCode = sessions[sessionId]?.isClaude == true
         let response = isClaudeCode ? Self.setAutoApproveResponse : Self.simpleAllowResponse
 
