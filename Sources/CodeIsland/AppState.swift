@@ -1076,10 +1076,8 @@ final class AppState {
         }
     }
 
-    /// Simple allow response for non-Claude-Code CLIs (no setMode).
-    /// Same payload as HookServer.simpleAllowResponse; kept separate as AppState
-    /// cannot reference HookServer's private constant.
-    private static let simpleAllowResponse = Data(
+    /// Simple allow response for auto-approved permissions (no setMode)
+    static let simpleAllowResponse = Data(
         #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#.utf8
     )
 

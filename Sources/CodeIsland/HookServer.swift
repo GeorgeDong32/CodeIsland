@@ -126,9 +126,6 @@ class HookServer {
         return .event
     }
 
-    /// Simple allow response for auto-approved permissions (no setMode)
-    private static let simpleAllowResponse = Data(#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#.utf8)
-
     private func processRequest(data: Data, connection: NWConnection) {
         guard let event = HookEvent(from: data) else {
             sendResponse(connection: connection, data: Data("{\"error\":\"parse_failed\"}".utf8))
@@ -147,7 +144,7 @@ class HookServer {
 
             // Auto-approve safe internal tools without showing UI
             if let toolName = event.toolName, SettingsManager.shared.isAutoApproveTool(toolName) {
-                sendResponse(connection: connection, data: Self.simpleAllowResponse)
+                sendResponse(connection: connection, data: AppState.simpleAllowResponse)
                 return
             }
 
@@ -161,7 +158,7 @@ class HookServer {
                 if isClaudeCode {
                     appState.clearAutoApprove(sessionId: sessionId)
                 } else {
-                    sendResponse(connection: connection, data: Self.simpleAllowResponse)
+                    sendResponse(connection: connection, data: AppState.simpleAllowResponse)
                     return
                 }
             }
