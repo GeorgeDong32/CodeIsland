@@ -1060,7 +1060,7 @@ final class AppState {
     /// Uses setMode:bypassPermissions for Claude Code, simple allow for other CLIs.
     private func flushPendingPermissionsForAutoApprove(sessionId: String) {
         // Defaults to simple allow when source is nil (session gone) — safe fallback
-        let isClaudeCode = sessions[sessionId]?.source == "claude"
+        let isClaudeCode = sessions[sessionId]?.isClaude == true
         let response = isClaudeCode ? Self.setAutoApproveResponse : Self.simpleAllowResponse
 
         var didFlush = false

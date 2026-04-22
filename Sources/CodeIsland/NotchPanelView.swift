@@ -1798,7 +1798,7 @@ private struct SessionIdentityLine: View {
 
             // Auto-approve active indicator
             if appState.isAutoApproveActive(for: sessionId) {
-                if session.source == "claude" {
+                if session.isClaude {
                     // Claude Code: display-only, cannot remotely exit CLI bypass
                     Text("⏵⏵")
                         .font(.system(size: sessionFontSize + 2, weight: .bold))

@@ -154,7 +154,7 @@ class HookServer {
             // - Other CLIs: no bypass mode support, auto-allow each request
             //   → simple allow, keep flag active
             if appState.isAutoApproveActive(for: sessionId) {
-                let isClaudeCode = appState.sessions[sessionId]?.source == "claude"
+                let isClaudeCode = appState.sessions[sessionId]?.isClaude == true
                 if isClaudeCode {
                     appState.clearAutoApprove(sessionId: sessionId)
                 } else {
