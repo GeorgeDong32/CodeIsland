@@ -148,22 +148,8 @@ class HookServer {
                 return
             }
 
-            // If auto-approve is active and a PermissionRequest arrived:
-            // - Claude Code: bypass was active, user must have exited bypass in CLI
-            //   → clear flag, show normal approval UI
-            // - Other CLIs: no bypass mode support, auto-allow each request
-            //   → simple allow, keep flag active
-            if appState.isAutoApproveActive(for: sessionId) {
-                let isClaudeCode = appState.sessions[sessionId]?.isClaude == true
-                if isClaudeCode {
-                    appState.clearAutoApprove(sessionId: sessionId)
-                } else {
-                    sendResponse(connection: connection, data: AppState.simpleAllowResponse)
-                    return
-                }
-            }
-
-            // AskUserQuestion is a question, not a permission — route to QuestionBar
+            // AskUserQuestion is a question, not a permission — always route to QuestionBar
+            // even when auto-approve is active.
             if event.toolName == "AskUserQuestion" {
                 monitorPeerDisconnect(connection: connection, sessionId: sessionId)
                 Task {
@@ -174,6 +160,22 @@ class HookServer {
                 }
                 return
             }
+
+            // If auto-approve is active and a PermissionRequest arrived:
+            // - Claude Code: bypass was active, user must have exited bypass in CLI
+            //   → clear flag, show normal approval UI
+            // - Other CLIs (and Claude Code without bypass support): auto-allow each
+            //   request with simple allow, keep flag active
+            if appState.isAutoApproveActive(for: sessionId) {
+                let isClaudeCode = appState.sessions[sessionId]?.isClaude == true
+                if isClaudeCode {
+                    appState.clearAutoApprove(sessionId: sessionId)
+                } else {
+                    sendResponse(connection: connection, data: AppState.simpleAllowResponse)
+                    return
+                }
+            }
+
             monitorPeerDisconnect(connection: connection, sessionId: sessionId)
             Task {
                 let responseBody = await withCheckedContinuation { continuation in
