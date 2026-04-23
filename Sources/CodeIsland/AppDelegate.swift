@@ -40,6 +40,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panelController?.showPanel()
 
         appState.startSessionDiscovery()
+        appState.startCodexAppServerWatcher()
         RemoteManager.shared.startup()
 
         // Hooks auto-recovery: periodic + app activation trigger
@@ -105,6 +106,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appState.saveSessions()
         RemoteManager.shared.shutdown()
         hookServer?.stop()
+        appState.stopCodexAppServerWatcher()
         appState.stopSessionDiscovery()
     }
 

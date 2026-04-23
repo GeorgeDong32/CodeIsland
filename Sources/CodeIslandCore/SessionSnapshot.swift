@@ -43,6 +43,10 @@ public struct SessionSnapshot: Sendable {
     public var startTime: Date = Date()
     public var lastUserPrompt: String?
     public var lastAssistantMessage: String?
+    /// Absolute path to the JSONL transcript currently backing this session. Populated
+    /// by hooks (`transcript_path` field) and by filesystem discovery, consumed by the
+    /// JSONLTailer for incremental streaming of the latest assistant reply.
+    public var transcriptPath: String?
     /// Recent chat messages (max 3) for preview
     public var recentMessages: [ChatMessage] = []
     // Terminal info for window activation
@@ -734,6 +738,11 @@ public func extractMetadata(into sessions: inout [String: SessionSnapshot], sess
     }
     if let mode = event.rawJSON["permission_mode"] as? String {
         sessions[sessionId]?.permissionMode = mode
+    }
+    // Hooks frequently include the absolute transcript path — capture it so the tailer
+    // can attach to live appends without needing a filesystem scan to rediscover it.
+    if let transcriptPath = event.rawJSON["transcript_path"] as? String, !transcriptPath.isEmpty {
+        sessions[sessionId]?.transcriptPath = transcriptPath
     }
     // Terminal info (injected by hook script)
     if let app = event.rawJSON["_term_app"] as? String, !app.isEmpty, app != "unknown" {
