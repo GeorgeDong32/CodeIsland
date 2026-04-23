@@ -162,12 +162,20 @@ class HookServer {
             }
 
             // If auto-approve is active but a PermissionRequest arrived:
-            // CLI either ignored setMode:bypassPermissions or user exited bypass.
-            // In either case, auto-allow with simple allow and keep flag active.
-            // User can disable via badge tap or ApprovalBar status bar.
+            // For Claude Code: setMode bypassPermissions was sent once. A new request
+            // means user exited bypass in CLI. Deactivate auto-approve and show card.
+            // For other CLIs: no setMode support, keep silent approval (user controls
+            // via Session Card button).
             if appState.isAutoApproveActive(for: sessionId) {
-                sendResponse(connection: connection, data: AppState.simpleAllowResponse)
-                return
+                if appState.sessions[sessionId]?.isClaude == true {
+                    // Claude Code: user exited bypass, deactivate and show approval card
+                    appState.deactivateAutoApprove(sessionId: sessionId)
+                    // Fall through to normal permission handling below
+                } else {
+                    // Other CLIs: keep silent approval
+                    sendResponse(connection: connection, data: AppState.simpleAllowResponse)
+                    return
+                }
             }
 
             monitorPeerDisconnect(connection: connection, sessionId: sessionId)

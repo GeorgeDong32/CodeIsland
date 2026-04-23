@@ -1124,6 +1124,14 @@ final class AppState {
         autoApproveSessionId == sessionId
     }
 
+    /// Deactivate auto-approve for a session. Called when Claude Code
+    /// sends PermissionRequest despite bypassPermissions being set,
+    /// indicating user exited bypass mode in CLI.
+    func deactivateAutoApprove(sessionId: String) {
+        guard autoApproveSessionId == sessionId else { return }
+        autoApproveSessionId = nil
+    }
+
     /// Toggle auto-approve for a session. Only one session at a time.
     func toggleAutoApprove(sessionId: String) {
         if autoApproveSessionId == sessionId {
