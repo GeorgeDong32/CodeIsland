@@ -278,6 +278,13 @@ final class L10n: ObservableObject {
         "scroll_for_more": "Scroll for more",
         "scroll_hidden": "more below",
         "lines": "lines",
+
+        // Plan approval buttons
+        "plan_auto_accept": "Auto-Accept",
+        "plan_manual": "Manual",
+        "plan_request_changes": "Changes",
+        "feedback_placeholder": "Feedback...",
+        "send_feedback": "Send",
     ]
 
     private static let zh: [String: String] = [
@@ -520,6 +527,13 @@ final class L10n: ObservableObject {
         "scroll_for_more": "向下滚动查看更多",
         "scroll_hidden": "个未显示",
         "lines": "行",
+
+        // Plan approval buttons
+        "plan_auto_accept": "自动接受",
+        "plan_manual": "手动审批",
+        "plan_request_changes": "请求修改",
+        "feedback_placeholder": "反馈...",
+        "send_feedback": "发送",
     ]
 
     private static let ja: [String: String] = [
@@ -762,6 +776,13 @@ final class L10n: ObservableObject {
         "scroll_for_more": "さらに表示するにはスクロール",
         "scroll_hidden": "下にさらにあります",
         "lines": "行",
+
+        // Plan approval buttons
+        "plan_auto_accept": "自動承認",
+        "plan_manual": "手動承認",
+        "plan_request_changes": "変更要求",
+        "feedback_placeholder": "フィードバック...",
+        "send_feedback": "送信",
     ]
 
     private static let ko: [String: String] = [
@@ -1004,6 +1025,13 @@ final class L10n: ObservableObject {
         "scroll_for_more": "더 보려면 스크롤",
         "scroll_hidden": "아래에 더 있음",
         "lines": "줄",
+
+        // Plan approval buttons
+        "plan_auto_accept": "자동 승인",
+        "plan_manual": "수동 승인",
+        "plan_request_changes": "변경 요청",
+        "feedback_placeholder": "피드백...",
+        "send_feedback": "보내기",
     ]
 
     private static let tr: [String: String] = [
@@ -1246,5 +1274,12 @@ final class L10n: ObservableObject {
         "scroll_for_more": "Daha fazla için kaydır",
         "scroll_hidden": "aşağıda",
         "lines": "satır",
+
+        // Plan approval buttons
+        "plan_auto_accept": "Otomatik Kabul",
+        "plan_manual": "Manuel",
+        "plan_request_changes": "Değişiklik",
+        "feedback_placeholder": "Geri bildirim...",
+        "send_feedback": "Gönder",
     ]
 }

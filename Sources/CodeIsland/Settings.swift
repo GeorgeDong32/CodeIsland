@@ -129,9 +129,10 @@ struct SettingsDefaults {
     static let collapsedWidthScale = 100  // percentage
 
     // Tools that are auto-approved by default (backwards-compatible with previous hardcoded list)
+    // Note: ExitPlanMode removed — now has dedicated plan approval UI with Auto-Accept/Manual/Changes buttons
     static let autoApproveDefaultTools: Set<String> = [
         "TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskOutput", "TaskStop",
-        "TodoRead", "TodoWrite", "EnterPlanMode", "ExitPlanMode",
+        "TodoRead", "TodoWrite", "EnterPlanMode",
     ]
 }
 

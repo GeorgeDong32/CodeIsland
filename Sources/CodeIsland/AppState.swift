@@ -1023,6 +1023,100 @@ final class AppState {
         refreshDerivedState()
     }
 
+    // MARK: - Plan Approval (ExitPlanMode)
+
+    /// Extract setMode suggestion from ExitPlanMode permission_suggestions
+    func suggestedModeForPendingPlan() -> String? {
+        guard let pending = permissionQueue.first,
+              pending.event.toolName == "ExitPlanMode",
+              let suggestions = pending.event.rawJSON["permission_suggestions"] as? [[String: Any]] else {
+            return nil
+        }
+        for suggestion in suggestions {
+            if suggestion["type"] as? String == "setMode",
+               let mode = suggestion["mode"] as? String {
+                return mode
+            }
+        }
+        return nil
+    }
+
+    /// Approve ExitPlanMode with optional permission mode change
+    func approvePlanWithMode(_ mode: String?) {
+        guard !permissionQueue.isEmpty else { return }
+        let pending = permissionQueue.removeFirst()
+        let sessionId = pending.event.sessionId ?? "default"
+        dismissedPermissionSessionIds.remove(sessionId)
+
+        let responseData: Data
+        if let mode {
+            // Allow + setMode (e.g. "acceptEdits" or "bypassPermissions")
+            let obj: [String: Any] = [
+                "hookSpecificOutput": [
+                    "hookEventName": "PermissionRequest",
+                    "decision": [
+                        "behavior": "allow",
+                        "updatedPermissions": [[
+                            "type": "setMode",
+                            "mode": mode,
+                            "destination": "session"
+                        ]]
+                    ] as [String: Any]
+                ] as [String: Any]
+            ]
+            responseData = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
+        } else {
+            // Plain allow (manual approval mode)
+            let response = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
+            responseData = Data(response.utf8)
+        }
+
+        pending.continuation.resume(returning: responseData)
+        sessions[sessionId]?.status = .running
+        sessions[sessionId]?.currentTool = nil
+        sessions[sessionId]?.toolDescription = nil
+
+        showNextPending()
+        refreshDerivedState()
+    }
+
+    /// Deny permission with optional feedback message
+    func denyPermissionWithFeedback(_ feedback: String?) {
+        guard !permissionQueue.isEmpty else { return }
+        let pending = permissionQueue.removeFirst()
+        let sessionId = pending.event.sessionId ?? "default"
+        dismissedPermissionSessionIds.remove(sessionId)
+
+        let responseData: Data
+        if let feedback, !feedback.isEmpty {
+            // Deny with feedback message (use JSONSerialization for proper escaping)
+            let obj: [String: Any] = [
+                "hookSpecificOutput": [
+                    "hookEventName": "PermissionRequest",
+                    "decision": [
+                        "behavior": "deny",
+                        "message": feedback
+                    ] as [String: Any]
+                ] as [String: Any]
+            ]
+            responseData = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
+        } else {
+            let response = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#
+            responseData = Data(response.utf8)
+        }
+        pending.continuation.resume(returning: responseData)
+        sessions[sessionId]?.status = .idle
+        sessions[sessionId]?.currentTool = nil
+        sessions[sessionId]?.toolDescription = nil
+
+        if activeSessionId == sessionId {
+            activeSessionId = mostActiveSessionId()
+        }
+
+        showNextPending()
+        refreshDerivedState()
+    }
+
     // MARK: - Auto Approve
 
     /// Whether auto-approve is active for the given session

@@ -952,6 +952,10 @@ private struct ApprovalBar: View {
     @State private var jumpValidationTask: Task<Void, Never>?
     @AppStorage(SettingsKey.autoCollapseAfterSessionJump) private var autoCollapseAfterSessionJump = SettingsDefaults.autoCollapseAfterSessionJump
 
+    // Plan feedback state (ExitPlanMode only)
+    @State private var showFeedbackInput = false
+    @State private var feedbackText = ""
+
     // Auto-approve state
     private var isAutoApproveActive: Bool {
         appState.isAutoApproveActive(for: sessionId)
@@ -1042,6 +1046,65 @@ private struct ApprovalBar: View {
                 .padding(.horizontal, 14)
                 .contentShape(Rectangle())
                 .onTapGesture { toggleAutoApprove() }
+            } else if tool == "ExitPlanMode" {
+                // Plan-specific approval buttons
+                VStack(spacing: 6) {
+                    HStack(spacing: 6) {
+                        // Auto-Accept: approve + setMode acceptEdits
+                        PixelButton(
+                            label: L10n.shared["plan_auto_accept"],
+                            fg: .white.opacity(0.95),
+                            bg: Color(red: 0.16, green: 0.38, blue: 0.18),
+                            border: Color(red: 0.28, green: 0.62, blue: 0.32),
+                            action: {
+                                let mode = appState.suggestedModeForPendingPlan() ?? "acceptEdits"
+                                appState.approvePlanWithMode(mode)
+                            }
+                        )
+                        // Manual: plain allow, keep manual approval
+                        PixelButton(
+                            label: L10n.shared["plan_manual"],
+                            fg: .white.opacity(0.95),
+                            bg: Color(red: 0.14, green: 0.28, blue: 0.52),
+                            border: Color(red: 0.28, green: 0.48, blue: 0.82),
+                            action: { appState.approvePlanWithMode(nil) }
+                        )
+                        // Changes: toggle feedback input
+                        PixelButton(
+                            label: L10n.shared["plan_request_changes"],
+                            fg: .white.opacity(0.95),
+                            bg: Color(red: 0.52, green: 0.28, blue: 0.08),
+                            border: Color(red: 0.82, green: 0.48, blue: 0.12),
+                            action: { showFeedbackInput.toggle(); feedbackText = "" }
+                        )
+                    }
+                    // Conditional feedback input
+                    if showFeedbackInput {
+                        HStack(spacing: 6) {
+                            TextField(L10n.shared["feedback_placeholder"], text: $feedbackText)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.white.opacity(0.85))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .background(Color.white.opacity(0.08))
+                                .cornerRadius(4)
+                                .onSubmit {
+                                    appState.denyPermissionWithFeedback(feedbackText.isEmpty ? nil : feedbackText)
+                                }
+                            PixelButton(
+                                label: L10n.shared["send_feedback"],
+                                fg: .white.opacity(0.95),
+                                bg: Color(red: 0.45, green: 0.12, blue: 0.12),
+                                border: Color(red: 0.7, green: 0.25, blue: 0.25),
+                                action: {
+                                    appState.denyPermissionWithFeedback(feedbackText.isEmpty ? nil : feedbackText)
+                                }
+                            )
+                        }
+                    }
+                }
+                .padding(.horizontal, 14)
             } else {
                 HStack(spacing: 6) {
                     // Action buttons
