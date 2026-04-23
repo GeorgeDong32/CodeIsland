@@ -810,6 +810,9 @@ private struct ApprovalToolDetailView: View {
                     }
                 }
 
+            case "ExitPlanMode":
+                PlanPreview(toolInput: toolInput)
+
             default:
                 VStack(alignment: .leading, spacing: 2) {
                     if let input = toolInput {
@@ -827,6 +830,105 @@ private struct ApprovalToolDetailView: View {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+// MARK: - Plan Preview for ExitPlanMode
+
+/// Expandable plan content preview for ExitPlanMode permission requests.
+/// Collapsed: shows first 4 lines with fade overlay + line count.
+/// Expanded: ScrollView with full content, height-capped.
+private struct PlanPreview: View {
+    let toolInput: [String: Any]?
+    @State private var isExpanded = false
+
+    private var planText: String? {
+        guard let plan = toolInput?["plan"] as? String, !plan.isEmpty else { return nil }
+        return plan
+    }
+
+    private var lineCount: Int {
+        guard let text = planText else { return 0 }
+        return text.components(separatedBy: .newlines).count
+    }
+
+    private var allowedPromptsCount: Int {
+        (toolInput?["allowedPrompts"] as? [[String: String]] ?? []).count
+    }
+
+    private let planColor = Color(red: 0.5, green: 0.75, blue: 1.0)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if let text = planText {
+                if isExpanded {
+                    // Expanded: scrollable full content
+                    ScrollView(.vertical, showsIndicators: true) {
+                        Text(text)
+                            .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                            .foregroundStyle(planColor.opacity(0.85))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 180)
+                } else {
+                    // Collapsed: truncated preview with fade
+                    ZStack(alignment: .bottom) {
+                        Text(text)
+                            .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                            .foregroundStyle(planColor.opacity(0.85))
+                            .lineLimit(4)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        // Gradient fade at bottom of truncated text
+                        if lineCount > 4 {
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.08, green: 0.08, blue: 0.1).opacity(0),
+                                    Color(red: 0.08, green: 0.08, blue: 0.1)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                            .frame(height: 20)
+                            .allowsHitTesting(false)
+                        }
+                    }
+
+                    // Line count indicator
+                    if lineCount > 4 {
+                        HStack(spacing: 4) {
+                            Image(systemName: "doc.text")
+                                .font(.system(size: 8))
+                            Text(String(format: L10n.shared["plan_lines"], lineCount))
+                                .font(.system(size: 8.5))
+                        }
+                        .foregroundStyle(.white.opacity(0.4))
+                    }
+                }
+            } else {
+                // Empty plan fallback
+                Text(L10n.shared["plan_no_content"])
+                    .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.35))
+            }
+
+            // Allowed prompts count
+            if allowedPromptsCount > 0 {
+                HStack(spacing: 4) {
+                    Image(systemName: "terminal.fill")
+                        .font(.system(size: 8))
+                    Text(String(format: L10n.shared["plan_preapproved"], allowedPromptsCount))
+                        .font(.system(size: 8.5))
+                }
+                .foregroundStyle(.white.opacity(0.4))
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isExpanded.toggle()
             }
         }
     }
