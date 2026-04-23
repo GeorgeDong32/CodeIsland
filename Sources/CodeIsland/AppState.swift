@@ -1127,6 +1127,8 @@ final class AppState {
     /// Deactivate auto-approve for a session. Called when Claude Code
     /// sends PermissionRequest despite bypassPermissions being set,
     /// indicating user exited bypass mode in CLI.
+    /// Note: No refreshDerivedState() needed — @Observable auto-detects
+    /// autoApproveSessionId changes, and derived state doesn't depend on it.
     func deactivateAutoApprove(sessionId: String) {
         guard autoApproveSessionId == sessionId else { return }
         autoApproveSessionId = nil

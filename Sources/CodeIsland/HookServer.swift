@@ -167,14 +167,20 @@ class HookServer {
             // For other CLIs: no setMode support, keep silent approval (user controls
             // via Session Card button).
             if appState.isAutoApproveActive(for: sessionId) {
-                if appState.sessions[sessionId]?.isClaude == true {
-                    // Claude Code: user exited bypass, deactivate and show approval card
+                if let session = appState.sessions[sessionId] {
+                    if session.isClaude {
+                        // Claude Code: user exited bypass, deactivate and show approval card
+                        appState.deactivateAutoApprove(sessionId: sessionId)
+                        // Fall through to normal permission handling below
+                    } else {
+                        // Other CLIs: keep silent approval
+                        sendResponse(connection: connection, data: AppState.simpleAllowResponse)
+                        return
+                    }
+                } else {
+                    // Session gone: stale auto-approve state, deactivate and show card
                     appState.deactivateAutoApprove(sessionId: sessionId)
                     // Fall through to normal permission handling below
-                } else {
-                    // Other CLIs: keep silent approval
-                    sendResponse(connection: connection, data: AppState.simpleAllowResponse)
-                    return
                 }
             }
 
