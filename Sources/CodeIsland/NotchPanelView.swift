@@ -1047,64 +1047,83 @@ private struct ApprovalBar: View {
                 .contentShape(Rectangle())
                 .onTapGesture { toggleAutoApprove() }
             } else if tool == "ExitPlanMode" {
-                // Plan-specific approval buttons
-                VStack(spacing: 6) {
+                // Plan approval options (OptionRow style, consistent with AskQuestion)
+                let planColor = Color(red: 0.5, green: 0.75, blue: 1.0)
+                VStack(spacing: 4) {
+                    // Header with queue position
                     HStack(spacing: 6) {
-                        // Auto-Accept: approve + setMode acceptEdits
-                        PixelButton(
+                        Text("!")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(planColor)
+                        Text("ExitPlanMode")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(planColor)
+                        Spacer()
+                        if queueTotal > 1 {
+                            Text("\(queuePosition)/\(queueTotal)")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.4))
+                        }
+                    }
+                    .padding(.horizontal, 14)
+
+                    // Option rows
+                    VStack(spacing: 2) {
+                        OptionRow(
+                            index: 1,
                             label: L10n.shared["plan_auto_accept"],
-                            fg: .white.opacity(0.95),
-                            bg: Color(red: 0.16, green: 0.38, blue: 0.18),
-                            border: Color(red: 0.28, green: 0.62, blue: 0.32),
+                            description: L10n.shared["plan_auto_accept_desc"],
+                            isSelected: false,
+                            accent: planColor,
                             action: {
                                 let mode = appState.suggestedModeForPendingPlan() ?? "acceptEdits"
                                 appState.approvePlanWithMode(mode)
                             }
                         )
-                        // Manual: plain allow, keep manual approval
-                        PixelButton(
+                        OptionRow(
+                            index: 2,
                             label: L10n.shared["plan_manual"],
-                            fg: .white.opacity(0.95),
-                            bg: Color(red: 0.14, green: 0.28, blue: 0.52),
-                            border: Color(red: 0.28, green: 0.48, blue: 0.82),
+                            description: L10n.shared["plan_manual_desc"],
+                            isSelected: false,
+                            accent: planColor,
                             action: { appState.approvePlanWithMode(nil) }
                         )
-                        // Changes: toggle feedback input
-                        PixelButton(
+                        OptionRow(
+                            index: 3,
                             label: L10n.shared["plan_request_changes"],
-                            fg: .white.opacity(0.95),
-                            bg: Color(red: 0.52, green: 0.28, blue: 0.08),
-                            border: Color(red: 0.82, green: 0.48, blue: 0.12),
-                            action: { showFeedbackInput.toggle(); feedbackText = "" }
+                            description: L10n.shared["plan_request_changes_desc"],
+                            isSelected: showFeedbackInput,
+                            accent: planColor,
+                            action: { withAnimation(NotchAnimation.micro) { showFeedbackInput.toggle(); feedbackText = "" } }
                         )
                     }
-                    // Conditional feedback input
+                    .padding(.horizontal, 14)
+
+                    // Conditional feedback input (QuestionBar "Other" style)
                     if showFeedbackInput {
                         HStack(spacing: 6) {
+                            Text(">")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundStyle(Color(red: 0.3, green: 0.85, blue: 0.4))
                             TextField(L10n.shared["feedback_placeholder"], text: $feedbackText)
                                 .textFieldStyle(.plain)
-                                .font(.system(size: 11))
-                                .foregroundStyle(.white.opacity(0.85))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 5)
-                                .background(Color.white.opacity(0.08))
-                                .cornerRadius(4)
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(.white)
                                 .onSubmit {
                                     appState.denyPermissionWithFeedback(feedbackText.isEmpty ? nil : feedbackText)
                                 }
-                            PixelButton(
-                                label: L10n.shared["send_feedback"],
-                                fg: .white.opacity(0.95),
-                                bg: Color(red: 0.45, green: 0.12, blue: 0.12),
-                                border: Color(red: 0.7, green: 0.25, blue: 0.25),
-                                action: {
-                                    appState.denyPermissionWithFeedback(feedbackText.isEmpty ? nil : feedbackText)
-                                }
-                            )
                         }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.white.opacity(0.05))
+                        .cornerRadius(4)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+                        )
+                        .padding(.horizontal, 14)
                     }
                 }
-                .padding(.horizontal, 14)
             } else {
                 HStack(spacing: 6) {
                     // Action buttons
@@ -2296,6 +2315,35 @@ private struct SessionCard: View {
                 if session.status == .waitingApproval, let idx = approvalQueueIndex {
                     let tool = session.currentTool ?? (appState.permissionQueue[idx].event.toolName ?? "Unknown")
                     let input = appState.permissionQueue[idx].event.toolInput
+
+                    // ExitPlanMode: show plan summary + View Details button (jump to full card)
+                    if tool == "ExitPlanMode" {
+                        let planColor = Color(red: 0.5, green: 0.75, blue: 1.0)
+                        let planLines: Int = {
+                            guard let plan = input?["plan"] as? String else { return 0 }
+                            return plan.components(separatedBy: .newlines).count
+                        }()
+                        HStack(spacing: 8) {
+                            if planLines > 0 {
+                                Text("Plan \(planLines) lines")
+                                    .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(planColor.opacity(0.7))
+                            } else {
+                                Text(String(format: L10n.shared["approval_queue_label"], idx + 1, appState.permissionQueue.count, "ExitPlanMode"))
+                                    .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.white.opacity(0.65))
+                            }
+                            Spacer(minLength: 8)
+                            inlineActionButton(
+                                L10n.shared["approval_details_expand"],
+                                fg: planColor,
+                                bg: planColor.opacity(0.15),
+                                enabled: true,
+                                action: { appState.surface = .approvalCard(sessionId: sessionId) }
+                            )
+                        }
+                    } else {
+                    // Standard approval: Allow Once / Always / Deny
                     HStack(spacing: 8) {
                         Text(String(format: L10n.shared["approval_queue_label"], idx + 1, appState.permissionQueue.count, tool))
                             .font(.system(size: fontSize, weight: .medium, design: .monospaced))
@@ -2371,6 +2419,7 @@ private struct SessionCard: View {
                                     )
                             )
                     }
+                    } // end else (standard approval)
                 }
 
                 // Session title: first user prompt (hide when detailed mode shows chat history)

@@ -281,8 +281,11 @@ final class L10n: ObservableObject {
 
         // Plan approval buttons
         "plan_auto_accept": "Auto-Accept",
+        "plan_auto_accept_desc": "Approve plan and auto-accept file edits",
         "plan_manual": "Manual",
-        "plan_request_changes": "Changes",
+        "plan_manual_desc": "Approve plan, keep manual edit approval",
+        "plan_request_changes": "Request Changes",
+        "plan_request_changes_desc": "Reject plan with optional feedback",
         "feedback_placeholder": "Feedback...",
         "send_feedback": "Send",
     ]
@@ -530,8 +533,11 @@ final class L10n: ObservableObject {
 
         // Plan approval buttons
         "plan_auto_accept": "自动接受",
+        "plan_auto_accept_desc": "批准计划并自动接受文件编辑",
         "plan_manual": "手动审批",
+        "plan_manual_desc": "批准计划，保持手动编辑审批",
         "plan_request_changes": "请求修改",
+        "plan_request_changes_desc": "拒绝计划并附上可选反馈",
         "feedback_placeholder": "反馈...",
         "send_feedback": "发送",
     ]
@@ -779,8 +785,11 @@ final class L10n: ObservableObject {
 
         // Plan approval buttons
         "plan_auto_accept": "自動承認",
+        "plan_auto_accept_desc": "計画を承認しファイル編集を自動承認",
         "plan_manual": "手動承認",
+        "plan_manual_desc": "計画を承認し手動編集承認を維持",
         "plan_request_changes": "変更要求",
+        "plan_request_changes_desc": "オプションのフィードバック付きで計画を拒否",
         "feedback_placeholder": "フィードバック...",
         "send_feedback": "送信",
     ]
@@ -1028,8 +1037,11 @@ final class L10n: ObservableObject {
 
         // Plan approval buttons
         "plan_auto_accept": "자동 승인",
+        "plan_auto_accept_desc": "계획 승인 및 파일 편집 자동 승인",
         "plan_manual": "수동 승인",
+        "plan_manual_desc": "계획 승인, 수동 편집 승인 유지",
         "plan_request_changes": "변경 요청",
+        "plan_request_changes_desc": "선택적 피드백으로 계획 거부",
         "feedback_placeholder": "피드백...",
         "send_feedback": "보내기",
     ]
@@ -1277,8 +1289,11 @@ final class L10n: ObservableObject {
 
         // Plan approval buttons
         "plan_auto_accept": "Otomatik Kabul",
+        "plan_auto_accept_desc": "Planı onayla ve dosya düzenlemelerini otomatik kabul et",
         "plan_manual": "Manuel",
+        "plan_manual_desc": "Planı onayla, manuel düzenleme onayını koru",
         "plan_request_changes": "Değişiklik",
+        "plan_request_changes_desc": "Opsiyonel geri bildirimle planı reddet",
         "feedback_placeholder": "Geri bildirim...",
         "send_feedback": "Gönder",
     ]
