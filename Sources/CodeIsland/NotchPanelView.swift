@@ -1,6 +1,9 @@
 import SwiftUI
 import CodeIslandCore
 
+// Shared accent color for plan-related UI (PlanPreview, ApprovalBar ExitPlanMode, SessionCard)
+private let planApprovalColor = Color(red: 0.5, green: 0.75, blue: 1.0)
+
 struct NotchPanelView: View {
     var appState: AppState
     let hasNotch: Bool
@@ -858,7 +861,7 @@ private struct PlanPreview: View {
         (toolInput?["allowedPrompts"] as? [[String: String]] ?? []).count
     }
 
-    private let planColor = Color(red: 0.5, green: 0.75, blue: 1.0)
+    private let planColor = planApprovalColor
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -955,6 +958,7 @@ private struct ApprovalBar: View {
     // Plan feedback state (ExitPlanMode only)
     @State private var showFeedbackInput = false
     @State private var feedbackText = ""
+    @FocusState private var feedbackFocused: Bool
 
     // Auto-approve state
     private var isAutoApproveActive: Bool {
@@ -1048,7 +1052,7 @@ private struct ApprovalBar: View {
                 .onTapGesture { toggleAutoApprove() }
             } else if tool == "ExitPlanMode" {
                 // Plan approval options (OptionRow style, consistent with AskQuestion)
-                let planColor = Color(red: 0.5, green: 0.75, blue: 1.0)
+                let planColor = planApprovalColor
                 VStack(spacing: 4) {
                     // Header with queue position
                     HStack(spacing: 6) {
@@ -1109,6 +1113,7 @@ private struct ApprovalBar: View {
                                 .textFieldStyle(.plain)
                                 .font(.system(size: 10.5))
                                 .foregroundStyle(.white)
+                                .focused($feedbackFocused)
                                 .onSubmit {
                                     appState.denyPermissionWithFeedback(feedbackText.isEmpty ? nil : feedbackText)
                                 }
@@ -1122,6 +1127,7 @@ private struct ApprovalBar: View {
                                 .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
                         )
                         .padding(.horizontal, 14)
+                        .onAppear { feedbackFocused = true }
                     }
                 }
             } else {
@@ -2318,9 +2324,9 @@ private struct SessionCard: View {
 
                     // ExitPlanMode: show plan summary + View Details button (jump to full card)
                     if tool == "ExitPlanMode" {
-                        let planColor = Color(red: 0.5, green: 0.75, blue: 1.0)
+                        let planColor = planApprovalColor
                         let planLines: Int = {
-                            guard let plan = input?["plan"] as? String else { return 0 }
+                            guard let plan = input?["plan"] as? String, !plan.isEmpty else { return 0 }
                             return plan.components(separatedBy: .newlines).count
                         }()
                         HStack(spacing: 8) {

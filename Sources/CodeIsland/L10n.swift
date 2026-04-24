@@ -287,7 +287,6 @@ final class L10n: ObservableObject {
         "plan_request_changes": "Request Changes",
         "plan_request_changes_desc": "Reject plan with optional feedback",
         "feedback_placeholder": "Feedback...",
-        "send_feedback": "Send",
     ]
 
     private static let zh: [String: String] = [
@@ -539,7 +538,6 @@ final class L10n: ObservableObject {
         "plan_request_changes": "请求修改",
         "plan_request_changes_desc": "拒绝计划并附上可选反馈",
         "feedback_placeholder": "反馈...",
-        "send_feedback": "发送",
     ]
 
     private static let ja: [String: String] = [
@@ -791,7 +789,6 @@ final class L10n: ObservableObject {
         "plan_request_changes": "変更要求",
         "plan_request_changes_desc": "オプションのフィードバック付きで計画を拒否",
         "feedback_placeholder": "フィードバック...",
-        "send_feedback": "送信",
     ]
 
     private static let ko: [String: String] = [
@@ -1043,7 +1040,6 @@ final class L10n: ObservableObject {
         "plan_request_changes": "변경 요청",
         "plan_request_changes_desc": "선택적 피드백으로 계획 거부",
         "feedback_placeholder": "피드백...",
-        "send_feedback": "보내기",
     ]
 
     private static let tr: [String: String] = [
@@ -1295,6 +1291,5 @@ final class L10n: ObservableObject {
         "plan_request_changes": "Değişiklik",
         "plan_request_changes_desc": "Opsiyonel geri bildirimle planı reddet",
         "feedback_placeholder": "Geri bildirim...",
-        "send_feedback": "Gönder",
     ]
 }
