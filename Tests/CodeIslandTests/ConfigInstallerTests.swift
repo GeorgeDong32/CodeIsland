@@ -305,6 +305,41 @@ hooks:
         XCTAssertEqual(once, twice)
     }
 
+    func testMergeTraecliHooksPreservesUserCommentsAndKeyOrder() throws {
+        let original = """
+        # top-level comment about my config
+        model: GPT-5.4
+        # comment before hooks
+        hooks:
+          - type: command
+            command: 'echo my-hook'  # inline comment
+            matchers:
+              - event: stop
+        # trailing comment
+
+        """
+
+        let merged = ConfigInstaller.mergeTraecliHooks(into: original)
+
+        // Surgical path must keep all three comments verbatim.
+        XCTAssertTrue(merged.contains("# top-level comment about my config"),
+                      "Top-level comment was stripped — surgical path likely fell through to Yams round-trip")
+        XCTAssertTrue(merged.contains("# comment before hooks"))
+        XCTAssertTrue(merged.contains("# inline comment"))
+        XCTAssertTrue(merged.contains("# trailing comment"))
+
+        // Original key `model:` must come before `hooks:` (Yams.dump would sort alphabetically).
+        let modelIdx = try XCTUnwrap(merged.range(of: "model:")?.lowerBound)
+        let hooksIdx = try XCTUnwrap(merged.range(of: "hooks:")?.lowerBound)
+        XCTAssertLessThan(modelIdx, hooksIdx)
+
+        // And both the user hook and the managed hook must be present + valid YAML.
+        let hooks = try yamlHooks(merged)
+        let commands = hooks.compactMap { $0["command"] as? String }
+        XCTAssertTrue(commands.contains("echo my-hook"))
+        XCTAssertEqual(commands.filter { $0.contains("--source traecli") }.count, 1)
+    }
+
     func testMergeTraecliHooksRemovesManagedBlockEvenWithTrailingComments() {
         let original = """
 hooks:

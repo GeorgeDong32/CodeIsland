@@ -1016,6 +1016,25 @@ struct ConfigInstaller {
         ]
     }
 
+    /// Render the managed hook block as YAML text (2-space indent, list-item form).
+    /// Used by the surgical merge path that preserves user comments/key order.
+    private static func renderManagedTraecliHooksText(source: String = "traecli") -> String {
+        let quotedBridge = bridgeCommand.contains(" ") ? "\"\(bridgeCommand)\"" : bridgeCommand
+        let escapedCommand = "\(quotedBridge) --source \(source)".replacingOccurrences(of: "'", with: "''")
+
+        let events = defaultEvents(for: .traecli)
+        let timeout = events.map { $0.1 }.max() ?? 5
+
+        var lines: [String] = ["  - type: command"]
+        lines.append("    command: '\(escapedCommand)'")
+        lines.append("    timeout: '\(timeout)s'")
+        lines.append("    matchers:")
+        for (event, _, _) in events {
+            lines.append("      - event: \(event)")
+        }
+        return lines.joined(separator: "\n")
+    }
+
     private static func asStringKeyedDict(_ any: Any) -> [String: Any]? {
         if let d = any as? [String: Any] { return d }
         if let d = any as? [AnyHashable: Any] {
@@ -1354,6 +1373,15 @@ struct ConfigInstaller {
     }
 
     static func mergeTraecliHooks(into contents: String, source: String = "traecli") -> String {
+        // Path A — surgical string-level write. Preserves user comments + key
+        // ordering. Validated by re-parsing through Yams; if the result is
+        // invalid (e.g. user file has mixed indentation), fall through to B.
+        if let surgical = trySurgicalMergeTraecliHooks(into: contents, source: source) {
+            return surgical
+        }
+
+        // Path B — Yams round-trip. Re-serializes the whole file, so comments
+        // and key order are lost, but the output is guaranteed to be valid YAML.
         let normalized = contents.replacingOccurrences(of: "\r\n", with: "\n")
         let parseInputs = [normalized, normalizeTraecliHooksListIndentation(normalized)]
 
@@ -1388,6 +1416,57 @@ struct ConfigInstaller {
 
         // Still unparseable: last resort, do not clobber user data.
         return contents.hasSuffix("\n") ? contents : (contents + "\n")
+    }
+
+    /// Surgical merge: drop existing managed block via string scan (preserves
+    /// surrounding comments + key order), then insert a freshly-rendered one
+    /// under the `hooks:` key. Returns `nil` if the result fails Yams validation,
+    /// signaling the caller to fall back to the round-trip path.
+    private static func trySurgicalMergeTraecliHooks(into contents: String, source: String) -> String? {
+        let cleaned = removeManagedTraecliHooksLegacy(from: contents, source: source)
+        let managedLines = renderManagedTraecliHooksText(source: source).components(separatedBy: "\n")
+        var lines = cleaned.components(separatedBy: "\n")
+
+        if let hooksIndex = lines.firstIndex(where: { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard line == trimmed else { return false }  // top-level only
+            return trimmed.range(of: #"^hooks:\s*(\[\s*\]|\{\s*\}|null|~)?\s*(#.*)?$"#, options: .regularExpression) != nil
+        }) {
+            let trimmed = lines[hooksIndex].trimmingCharacters(in: .whitespaces)
+            if trimmed.range(of: #"^hooks:\s*(\[\s*\]|\{\s*\}|null|~)\s*(#.*)?$"#, options: .regularExpression) != nil {
+                lines[hooksIndex] = "hooks:"
+            }
+            lines.insert(contentsOf: managedLines, at: hooksIndex + 1)
+        } else {
+            while !lines.isEmpty && lines.last == "" {
+                lines.removeLast()
+            }
+            if !lines.isEmpty {
+                lines.append("")
+            }
+            lines.append("hooks:")
+            lines.append(contentsOf: managedLines)
+        }
+
+        var merged = lines.joined(separator: "\n")
+        if !merged.hasSuffix("\n") { merged.append("\n") }
+
+        // Validate: must parse, and contain exactly one of our managed hooks.
+        do {
+            guard let loaded = try Yams.load(yaml: merged),
+                  let root = asStringKeyedDict(loaded),
+                  let hooks = root["hooks"] as? [Any] else { return nil }
+            let managedCount = hooks.filter { item in
+                guard let hook = asStringKeyedDict(item),
+                      let command = hook["command"] as? String else { return false }
+                return isOurTraecliInjectedCommand(command, source: source)
+            }.count
+            guard managedCount == 1 else { return nil }
+        } catch {
+            return nil
+        }
+
+        return merged
     }
 
     @discardableResult
