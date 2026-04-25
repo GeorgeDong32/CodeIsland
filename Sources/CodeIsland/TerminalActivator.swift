@@ -22,7 +22,7 @@ struct TerminalActivator {
 
     /// Reverse map: source → native app bundle ID. Used as a fallback when
     /// termBundleId is missing but the source's desktop app is running.
-    private static let sourceToNativeAppBundleId: [String: String] = [
+    static let sourceToNativeAppBundleId: [String: String] = [
         "codex": "com.openai.codex",
         "cursor": "com.todesktop.230313mzl4w4u92",
         "trae": "com.trae.app",
