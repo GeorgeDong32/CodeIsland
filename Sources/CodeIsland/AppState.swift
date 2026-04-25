@@ -124,9 +124,16 @@ final class AppState {
         //    - No tool + no monitor: 300s (agents can think for several minutes)
         //    - Has tool + no monitor: 180s (long build / deep thinking with missed exit)
         //    - waitingApproval/Question + no monitor: 300s (connection likely dropped)
+        //
+        //    Skip remote sessions: they NEVER have a local process monitor (the CLI runs
+        //    on the remote host), and a long-running remote task that doesn't fire hook
+        //    events for >180s shouldn't be force-flipped to idle here — it'll then be
+        //    swept by Section 4. Remote session lifecycle is driven by remote-end hooks
+        //    and SSH connection state in RemoteManager, not by local timeouts. (#121)
         for (key, session) in sessions
             where processMonitors[key] == nil
-            && session.status != .idle {
+            && session.status != .idle
+            && !session.isRemote {
             let elapsed = -session.lastActivity.timeIntervalSinceNow
             let threshold: TimeInterval
             switch session.status {
