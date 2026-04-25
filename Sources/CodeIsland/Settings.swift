@@ -81,9 +81,11 @@ enum SettingsKey {
     // Island collapsed width scale for non-notch screens (percentage: 50–150, default 100)
     static let collapsedWidthScale = "collapsedWidthScale"
 
-    // Auto-approve tool toggles (prefixed keys: autoApproveTool_{toolName})
-    static func autoApproveTool(_ tool: String) -> String { "autoApproveTool_\(tool)" }
+    // Default mascot source when no sessions exist (falls back to this instead of always "claude")
+    static let defaultSource = "defaultSource"
 
+    // Auto-approve tools (comma-separated tool names)
+    static let autoApproveTools = "autoApproveTools"
 }
 
 struct SettingsDefaults {
@@ -128,12 +130,9 @@ struct SettingsDefaults {
 
     static let collapsedWidthScale = 100  // percentage
 
-    // Tools that are auto-approved by default (backwards-compatible with previous hardcoded list)
-    // Note: ExitPlanMode removed — now has dedicated plan approval UI with Auto-Accept/Manual/Changes buttons
-    static let autoApproveDefaultTools: Set<String> = [
-        "TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskOutput", "TaskStop",
-        "TodoRead", "TodoWrite", "EnterPlanMode",
-    ]
+    static let defaultSource = "claude"
+
+    static let autoApproveTools = "TaskCreate,TaskUpdate,TaskGet,TaskList,TaskOutput,TaskStop,TodoRead,TodoWrite,EnterPlanMode"
 }
 
 @MainActor
@@ -176,6 +175,8 @@ class SettingsManager {
             SettingsKey.sessionGroupingMode: SettingsDefaults.sessionGroupingMode,
             SettingsKey.showToolStatus: SettingsDefaults.showToolStatus,
             SettingsKey.collapsedWidthScale: SettingsDefaults.collapsedWidthScale,
+            SettingsKey.defaultSource: SettingsDefaults.defaultSource,
+            SettingsKey.autoApproveTools: SettingsDefaults.autoApproveTools,
         ])
     }
 
@@ -284,27 +285,45 @@ class SettingsManager {
         set { defaults.set(newValue, forKey: SettingsKey.sessionGroupingMode) }
     }
 
-    // MARK: - Auto-Approve Tool Configuration
-
-    /// Sorted list of all tools that can be auto-approved (displayed in settings UI)
-    static let allAutoApproveTools = SettingsDefaults.autoApproveDefaultTools.sorted()
-
-    /// Check if a specific tool should be auto-approved.
-    /// Called from HookServer (also @MainActor) via SettingsManager.shared.
-    /// UserDefaults.bool is thread-safe, but actor isolation is assumed —
-    /// if HookServer ever moves off MainActor, this must be dispatched to main actor.
-    func isAutoApproveTool(_ tool: String) -> Bool {
-        let key = SettingsKey.autoApproveTool(tool)
-        // If no override exists, use the default set
-        if defaults.object(forKey: key) == nil {
-            return SettingsDefaults.autoApproveDefaultTools.contains(tool)
-        }
-        return defaults.bool(forKey: key)
+    var defaultSource: String {
+        get { defaults.string(forKey: SettingsKey.defaultSource) ?? SettingsDefaults.defaultSource }
+        set { defaults.set(newValue, forKey: SettingsKey.defaultSource) }
     }
 
-    /// Set auto-approve preference for a specific tool
-    func setAutoApproveTool(_ tool: String, enabled: Bool) {
-        defaults.set(enabled, forKey: SettingsKey.autoApproveTool(tool))
+    /// All known auto-approvable tool names (for UI display).
+    static let allAutoApproveTools: [(name: String, description: String)] = [
+        ("TaskCreate", "Create task"),
+        ("TaskUpdate", "Update task"),
+        ("TaskGet", "Get task"),
+        ("TaskList", "List tasks"),
+        ("TaskOutput", "Get task output"),
+        ("TaskStop", "Stop task"),
+        ("TodoRead", "Read todos"),
+        ("TodoWrite", "Write todos"),
+        ("EnterPlanMode", "Enter plan mode"),
+        ("ExitPlanMode", "Exit plan mode"),
+    ]
+
+    var autoApproveTools: Set<String> {
+        get {
+            let raw = defaults.string(forKey: SettingsKey.autoApproveTools) ?? SettingsDefaults.autoApproveTools
+            return Set(raw.split(separator: ",").map(String.init))
+        }
+        set {
+            defaults.set(newValue.sorted().joined(separator: ","), forKey: SettingsKey.autoApproveTools)
+        }
+    }
+}
+
+// MARK: - AppStorage-compatible Set<String>
+
+extension Set<String>: @retroactive RawRepresentable {
+    public var rawValue: String {
+        sorted().joined(separator: ",")
+    }
+
+    public init?(rawValue: String) {
+        self = Set(rawValue.split(separator: ",").map(String.init))
     }
 }
 

@@ -115,6 +115,12 @@ class HookServer {
         }
     }
 
+    /// Internal tools that are safe to auto-approve without user confirmation.
+    /// Read from user settings; defaults to all known internal tools.
+    private static var autoApproveTools: Set<String> {
+        SettingsManager.shared.autoApproveTools
+    }
+
     static func routeKind(for event: HookEvent) -> RouteKind {
         let normalizedEventName = EventNormalizer.normalize(event.eventName)
         if normalizedEventName == "PermissionRequest" {
@@ -142,8 +148,14 @@ class HookServer {
         case .permission:
             let sessionId = event.sessionId ?? "default"
 
-            // AskUserQuestion is a question, not a permission — always route to
-            // QuestionBar regardless of auto-approve settings or tool whitelist.
+            // Auto-approve safe internal tools without showing UI
+            if let toolName = event.toolName, Self.autoApproveTools.contains(toolName) {
+                let response = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
+                sendResponse(connection: connection, data: Data(response.utf8))
+                return
+            }
+
+            // AskUserQuestion is a question, not a permission — route to QuestionBar
             if event.toolName == "AskUserQuestion" {
                 monitorPeerDisconnect(connection: connection, sessionId: sessionId)
                 Task {
@@ -154,36 +166,6 @@ class HookServer {
                 }
                 return
             }
-
-            // Auto-approve safe internal tools without showing UI
-            if let toolName = event.toolName, SettingsManager.shared.isAutoApproveTool(toolName) {
-                sendResponse(connection: connection, data: AppState.simpleAllowResponse)
-                return
-            }
-
-            // If auto-approve is active but a PermissionRequest arrived:
-            // For Claude Code: setMode bypassPermissions was sent once. A new request
-            // means user exited bypass in CLI. Deactivate auto-approve and show card.
-            // For other CLIs: no setMode support, keep silent approval (user controls
-            // via Session Card button).
-            if appState.isAutoApproveActive(for: sessionId) {
-                if let session = appState.sessions[sessionId] {
-                    if session.isClaude {
-                        // Claude Code: user exited bypass, deactivate and show approval card
-                        appState.deactivateAutoApprove(sessionId: sessionId)
-                        // Fall through to normal permission handling below
-                    } else {
-                        // Other CLIs: keep silent approval
-                        sendResponse(connection: connection, data: AppState.simpleAllowResponse)
-                        return
-                    }
-                } else {
-                    // Session gone: stale auto-approve state, deactivate and show card
-                    appState.deactivateAutoApprove(sessionId: sessionId)
-                    // Fall through to normal permission handling below
-                }
-            }
-
             monitorPeerDisconnect(connection: connection, sessionId: sessionId)
             Task {
                 let responseBody = await withCheckedContinuation { continuation in

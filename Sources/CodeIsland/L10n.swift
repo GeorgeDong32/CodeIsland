@@ -94,9 +94,6 @@ final class L10n: ObservableObject {
         "shortcut_skipQuestion_desc": "Skip current question prompt",
         "shortcut_jumpToTerminal": "Jump to Terminal",
         "shortcut_jumpToTerminal_desc": "Switch to the active session's terminal",
-        "plan_lines": "%d lines",
-        "plan_preapproved": "%d pre-approved commands",
-        "plan_no_content": "No plan content",
         "shortcut_conflict": "Conflicts with",
         "sessions": "Sessions",
         "session_cleanup": "Idle Session Cleanup",
@@ -116,8 +113,18 @@ final class L10n: ObservableObject {
         "tool_history_limit_desc": "Max number of recent tool calls shown per session",
 
         // Auto-approve tools
-        "auto_approve_tools": "Auto-Approve Tools",
-        "auto_approve_tools_desc": "Tools that skip permission confirmation. Turn off to require manual approval.",
+        "auto_approve_tools": "Auto-approve Tools",
+        "auto_approve_tools_desc": "These internal tools are auto-approved without showing a confirmation dialog. Disable tools you want to review manually.",
+        "auto_approve_TaskCreate": "Create a new task",
+        "auto_approve_TaskUpdate": "Update an existing task",
+        "auto_approve_TaskGet": "Get task details",
+        "auto_approve_TaskList": "List all tasks",
+        "auto_approve_TaskOutput": "Get task output",
+        "auto_approve_TaskStop": "Stop a running task",
+        "auto_approve_TodoRead": "Read todo list",
+        "auto_approve_TodoWrite": "Write todo list",
+        "auto_approve_EnterPlanMode": "Enter plan mode",
+        "auto_approve_ExitPlanMode": "Exit plan mode and request approval",
 
         // Appearance
         "preview": "Preview",
@@ -156,6 +163,8 @@ final class L10n: ObservableObject {
         "speed_normal": "1× Normal",
         "speed_fast": "1.5× Fast",
         "speed_very_fast": "2× Very Fast",
+        "default_mascot": "Default Mascot",
+        "default_mascot_desc": "Shown in the island when no sessions are active",
 
         // Sound
         "enable_sound": "Enable Sound Effects",
@@ -257,9 +266,6 @@ final class L10n: ObservableObject {
         "approval_queue_label": "Approval %d/%d: %@",
         "approval_details_expand": "Details",
         "approval_details_collapse": "Collapse",
-        "click_to_disable": "Click to disable",
-        "auto_approve": "BYPASS PERMISSION",
-        "bypass_permission_tooltip": "Toggle bypass permission (auto-approve all)",
         "type_answer": "Type your answer...",
         "skip": "SKIP",
         "back": "BACK",
@@ -278,15 +284,6 @@ final class L10n: ObservableObject {
         "scroll_for_more": "Scroll for more",
         "scroll_hidden": "more below",
         "lines": "lines",
-
-        // Plan approval buttons
-        "plan_auto_accept": "Auto-Accept",
-        "plan_auto_accept_desc": "Approve plan and auto-accept file edits",
-        "plan_manual": "Manual",
-        "plan_manual_desc": "Approve plan, keep manual edit approval",
-        "plan_request_changes": "Request Changes",
-        "plan_request_changes_desc": "Reject plan with optional feedback",
-        "feedback_placeholder": "Feedback...",
     ]
 
     private static let zh: [String: String] = [
@@ -345,9 +342,6 @@ final class L10n: ObservableObject {
         "shortcut_skipQuestion_desc": "跳过当前问答提示",
         "shortcut_jumpToTerminal": "跳转终端",
         "shortcut_jumpToTerminal_desc": "切换到当前活跃会话的终端",
-        "plan_lines": "%d 行",
-        "plan_preapproved": "%d 个预批准命令",
-        "plan_no_content": "无计划内容",
         "shortcut_conflict": "与以下快捷键冲突:",
         "sessions": "会话",
         "session_cleanup": "空闲会话清理",
@@ -367,8 +361,18 @@ final class L10n: ObservableObject {
         "tool_history_limit_desc": "每个会话显示的最近工具调用数量上限",
 
         // Auto-approve tools
-        "auto_approve_tools": "自动审批工具",
-        "auto_approve_tools_desc": "跳过权限确认的工具。关闭后需要手动审批。",
+        "auto_approve_tools": "自动批准工具",
+        "auto_approve_tools_desc": "这些内部工具会自动批准，无需弹出确认对话框。关闭你想要手动审核的工具。",
+        "auto_approve_TaskCreate": "创建新任务",
+        "auto_approve_TaskUpdate": "更新已有任务",
+        "auto_approve_TaskGet": "获取任务详情",
+        "auto_approve_TaskList": "列出所有任务",
+        "auto_approve_TaskOutput": "获取任务输出",
+        "auto_approve_TaskStop": "停止运行中的任务",
+        "auto_approve_TodoRead": "读取待办列表",
+        "auto_approve_TodoWrite": "写入待办列表",
+        "auto_approve_EnterPlanMode": "进入计划模式",
+        "auto_approve_ExitPlanMode": "退出计划模式并请求审批",
 
         // Appearance
         "preview": "预览",
@@ -407,6 +411,8 @@ final class L10n: ObservableObject {
         "speed_normal": "1× 正常",
         "speed_fast": "1.5× 快速",
         "speed_very_fast": "2× 极速",
+        "default_mascot": "默认角色",
+        "default_mascot_desc": "没有活跃会话时在灵动岛显示的角色",
 
         // Sound
         "enable_sound": "启用音效",
@@ -508,9 +514,6 @@ final class L10n: ObservableObject {
         "approval_queue_label": "审批 %d/%d：%@",
         "approval_details_expand": "详情",
         "approval_details_collapse": "收起",
-        "click_to_disable": "点击关闭",
-        "auto_approve": "自动批准",
-        "bypass_permission_tooltip": "切换绕过权限（自动批准全部）",
         "type_answer": "输入回答…",
         "skip": "跳过",
         "back": "返回",
@@ -529,15 +532,6 @@ final class L10n: ObservableObject {
         "scroll_for_more": "向下滚动查看更多",
         "scroll_hidden": "个未显示",
         "lines": "行",
-
-        // Plan approval buttons
-        "plan_auto_accept": "自动接受",
-        "plan_auto_accept_desc": "批准计划并自动接受文件编辑",
-        "plan_manual": "手动审批",
-        "plan_manual_desc": "批准计划，保持手动编辑审批",
-        "plan_request_changes": "请求修改",
-        "plan_request_changes_desc": "拒绝计划并附上可选反馈",
-        "feedback_placeholder": "反馈...",
     ]
 
     private static let ja: [String: String] = [
@@ -596,9 +590,6 @@ final class L10n: ObservableObject {
         "shortcut_skipQuestion_desc": "現在の質問プロンプトをスキップします",
         "shortcut_jumpToTerminal": "ターミナルへ移動",
         "shortcut_jumpToTerminal_desc": "アクティブなセッションのターミナルへ切り替えます",
-        "plan_lines": "%d 行",
-        "plan_preapproved": "%d 件の事前承認コマンド",
-        "plan_no_content": "プラン内容なし",
         "shortcut_conflict": "次のショートカットと競合:",
         "sessions": "セッション",
         "session_cleanup": "アイドルセッションの整理",
@@ -619,7 +610,17 @@ final class L10n: ObservableObject {
 
         // Auto-approve tools
         "auto_approve_tools": "自動承認ツール",
-        "auto_approve_tools_desc": "権限確認をスキップするツール。オフにすると手動承認が必要です。",
+        "auto_approve_tools_desc": "これらの内部ツールは確認ダイアログなしで自動承認されます。手動で確認したいツールはオフにしてください。",
+        "auto_approve_TaskCreate": "新しいタスクを作成",
+        "auto_approve_TaskUpdate": "既存のタスクを更新",
+        "auto_approve_TaskGet": "タスクの詳細を取得",
+        "auto_approve_TaskList": "すべてのタスクを一覧表示",
+        "auto_approve_TaskOutput": "タスクの出力を取得",
+        "auto_approve_TaskStop": "実行中のタスクを停止",
+        "auto_approve_TodoRead": "Todoリストを読み取り",
+        "auto_approve_TodoWrite": "Todoリストに書き込み",
+        "auto_approve_EnterPlanMode": "プランモードに移行",
+        "auto_approve_ExitPlanMode": "プランモードを終了して承認を要求",
 
         // Appearance
         "preview": "プレビュー",
@@ -658,6 +659,8 @@ final class L10n: ObservableObject {
         "speed_normal": "1× 通常",
         "speed_fast": "1.5× 高速",
         "speed_very_fast": "2× 超高速",
+        "default_mascot": "デフォルトキャラ",
+        "default_mascot_desc": "アクティブなセッションがないときにノッチに表示",
 
         // Sound
         "enable_sound": "効果音を有効化",
@@ -759,9 +762,6 @@ final class L10n: ObservableObject {
         "approval_queue_label": "承認 %d/%d: %@",
         "approval_details_expand": "詳細",
         "approval_details_collapse": "折りたたむ",
-        "click_to_disable": "クリックで解除",
-        "auto_approve": "自動承認",
-        "bypass_permission_tooltip": "クリックで自動承認を切り替え",
         "type_answer": "回答を入力してください...",
         "skip": "スキップ",
         "back": "戻る",
@@ -780,15 +780,6 @@ final class L10n: ObservableObject {
         "scroll_for_more": "さらに表示するにはスクロール",
         "scroll_hidden": "下にさらにあります",
         "lines": "行",
-
-        // Plan approval buttons
-        "plan_auto_accept": "自動承認",
-        "plan_auto_accept_desc": "計画を承認しファイル編集を自動承認",
-        "plan_manual": "手動承認",
-        "plan_manual_desc": "計画を承認し手動編集承認を維持",
-        "plan_request_changes": "変更要求",
-        "plan_request_changes_desc": "オプションのフィードバック付きで計画を拒否",
-        "feedback_placeholder": "フィードバック...",
     ]
 
     private static let ko: [String: String] = [
@@ -847,9 +838,6 @@ final class L10n: ObservableObject {
         "shortcut_skipQuestion_desc": "현재 질문 프롬프트를 건너뜁니다",
         "shortcut_jumpToTerminal": "터미널로 이동",
         "shortcut_jumpToTerminal_desc": "활성 세션의 터미널로 전환합니다",
-        "plan_lines": "%d줄",
-        "plan_preapproved": "%d개 사전 승인 명령",
-        "plan_no_content": "계획 내용 없음",
         "shortcut_conflict": "다음 단축키와 충돌:",
         "sessions": "세션",
         "session_cleanup": "유휴 세션 정리",
@@ -870,7 +858,17 @@ final class L10n: ObservableObject {
 
         // Auto-approve tools
         "auto_approve_tools": "자동 승인 도구",
-        "auto_approve_tools_desc": "권한 확인을 건너뛰는 도구입니다. 끄면 수동 승인이 필요합니다.",
+        "auto_approve_tools_desc": "이 내부 도구들은 확인 대화상자 없이 자동 승인됩니다. 수동으로 검토하려는 도구는 비활성화하세요.",
+        "auto_approve_TaskCreate": "새 작업 만들기",
+        "auto_approve_TaskUpdate": "기존 작업 업데이트",
+        "auto_approve_TaskGet": "작업 상세 정보 가져오기",
+        "auto_approve_TaskList": "모든 작업 나열",
+        "auto_approve_TaskOutput": "작업 출력 가져오기",
+        "auto_approve_TaskStop": "실행 중인 작업 중지",
+        "auto_approve_TodoRead": "할 일 목록 읽기",
+        "auto_approve_TodoWrite": "할 일 목록 쓰기",
+        "auto_approve_EnterPlanMode": "계획 모드 진입",
+        "auto_approve_ExitPlanMode": "계획 모드 종료 및 승인 요청",
 
         // Appearance
         "preview": "미리보기",
@@ -909,6 +907,8 @@ final class L10n: ObservableObject {
         "speed_normal": "1× 보통",
         "speed_fast": "1.5× 빠름",
         "speed_very_fast": "2× 매우 빠름",
+        "default_mascot": "기본 캐릭터",
+        "default_mascot_desc": "활성 세션이 없을 때 노치에 표시",
 
         // Sound
         "enable_sound": "사운드 효과 사용",
@@ -1010,9 +1010,6 @@ final class L10n: ObservableObject {
         "approval_queue_label": "승인 %d/%d: %@",
         "approval_details_expand": "세부 정보",
         "approval_details_collapse": "접기",
-        "click_to_disable": "클릭하여 비활성화",
-        "auto_approve": "자동 승인",
-        "bypass_permission_tooltip": "클릭으로 모든 권한 자동 승인 전환",
         "type_answer": "답변을 입력하세요...",
         "skip": "건너뛰기",
         "back": "뒤로",
@@ -1031,15 +1028,6 @@ final class L10n: ObservableObject {
         "scroll_for_more": "더 보려면 스크롤",
         "scroll_hidden": "아래에 더 있음",
         "lines": "줄",
-
-        // Plan approval buttons
-        "plan_auto_accept": "자동 승인",
-        "plan_auto_accept_desc": "계획 승인 및 파일 편집 자동 승인",
-        "plan_manual": "수동 승인",
-        "plan_manual_desc": "계획 승인, 수동 편집 승인 유지",
-        "plan_request_changes": "변경 요청",
-        "plan_request_changes_desc": "선택적 피드백으로 계획 거부",
-        "feedback_placeholder": "피드백...",
     ]
 
     private static let tr: [String: String] = [
@@ -1098,9 +1086,6 @@ final class L10n: ObservableObject {
         "shortcut_skipQuestion_desc": "Mevcut soru istemini atla",
         "shortcut_jumpToTerminal": "Terminale Git",
         "shortcut_jumpToTerminal_desc": "Aktif oturumun terminaline geç",
-        "plan_lines": "%d satır",
-        "plan_preapproved": "%d ön onaylı komut",
-        "plan_no_content": "Plan içeriği yok",
         "shortcut_conflict": "Şu kısayolla çakışıyor:",
         "sessions": "Oturumlar",
         "session_cleanup": "Boş Oturum Temizleme",
@@ -1121,7 +1106,17 @@ final class L10n: ObservableObject {
 
         // Auto-approve tools
         "auto_approve_tools": "Otomatik Onay Araçları",
-        "auto_approve_tools_desc": "İzin onayını atlayan araçlar. Kapatmak manuel onay gerektirir.",
+        "auto_approve_tools_desc": "Bu iç araçlar onay iletişim kutusu gösterilmeden otomatik olarak onaylanır. Manuel olarak incelemek istediğiniz araçları devre dışı bırakın.",
+        "auto_approve_TaskCreate": "Yeni görev oluştur",
+        "auto_approve_TaskUpdate": "Mevcut görevi güncelle",
+        "auto_approve_TaskGet": "Görev detaylarını al",
+        "auto_approve_TaskList": "Tüm görevleri listele",
+        "auto_approve_TaskOutput": "Görev çıktısını al",
+        "auto_approve_TaskStop": "Çalışan görevi durdur",
+        "auto_approve_TodoRead": "Yapılacaklar listesini oku",
+        "auto_approve_TodoWrite": "Yapılacaklar listesine yaz",
+        "auto_approve_EnterPlanMode": "Plan moduna gir",
+        "auto_approve_ExitPlanMode": "Plan modundan çık ve onay iste",
 
         // Appearance
         "preview": "Önizleme",
@@ -1160,6 +1155,8 @@ final class L10n: ObservableObject {
         "speed_normal": "1× Normal",
         "speed_fast": "1.5× Hızlı",
         "speed_very_fast": "2× Çok Hızlı",
+        "default_mascot": "Varsayılan Maskot",
+        "default_mascot_desc": "Aktif oturum yokken çentikte gösterilir",
 
         // Sound
         "enable_sound": "Ses Efektlerini Etkinleştir",
@@ -1261,9 +1258,6 @@ final class L10n: ObservableObject {
         "approval_queue_label": "Onay %d/%d: %@",
         "approval_details_expand": "Ayrıntılar",
         "approval_details_collapse": "Daralt",
-        "click_to_disable": "Devre dışı bırakmak için tıklayın",
-        "auto_approve": "OTOMATİK ONAY",
-        "bypass_permission_tooltip": "Tüm izinleri otomatik onayla geçişi",
         "type_answer": "Cevabınızı yazın...",
         "skip": "ATLA",
         "back": "GERİ",
@@ -1282,14 +1276,5 @@ final class L10n: ObservableObject {
         "scroll_for_more": "Daha fazla için kaydır",
         "scroll_hidden": "aşağıda",
         "lines": "satır",
-
-        // Plan approval buttons
-        "plan_auto_accept": "Otomatik Kabul",
-        "plan_auto_accept_desc": "Planı onayla ve dosya düzenlemelerini otomatik kabul et",
-        "plan_manual": "Manuel",
-        "plan_manual_desc": "Planı onayla, manuel düzenleme onayını koru",
-        "plan_request_changes": "Değişiklik",
-        "plan_request_changes_desc": "Opsiyonel geri bildirimle planı reddet",
-        "feedback_placeholder": "Geri bildirim...",
     ]
 }
