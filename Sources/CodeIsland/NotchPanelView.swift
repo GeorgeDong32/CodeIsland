@@ -146,7 +146,8 @@ struct NotchPanelView: View {
                                 appState: appState,
                                 onAnswer: { appState.answerQuestion($0) },
                                 onAnswerMulti: { appState.answerQuestionMulti($0) },
-                                onSkip: { appState.skipQuestion() }
+                                onSkip: { appState.skipQuestion() },
+                                onDismiss: { appState.dismissQuestion() }
                             )
                             .transition(.blurFade.combined(with: .scale(scale: 0.96, anchor: .top)))
                         } else if let preview = appState.previewQuestionPayload {
@@ -164,7 +165,8 @@ struct NotchPanelView: View {
                                 appState: appState,
                                 onAnswer: { _ in },
                                 onAnswerMulti: { _ in },
-                                onSkip: { }
+                                onSkip: { },
+                                onDismiss: { }
                             )
                             .transition(.blurFade.combined(with: .scale(scale: 0.96, anchor: .top)))
                         }
@@ -1129,6 +1131,27 @@ private struct ApprovalBar: View {
                         .padding(.horizontal, 14)
                         .onAppear { feedbackFocused = true }
                     }
+
+                    // Skip and dismiss buttons
+                    HStack(spacing: 3) {
+                        PixelButton(
+                            label: L10n.shared["skip"],
+                            fg: .white.opacity(0.6),
+                            bg: Color.white.opacity(0.06),
+                            border: Color.white.opacity(0.12),
+                            action: { appState.skipQuestion() }
+                        )
+                        .frame(maxWidth: .infinity/2)
+                        PixelButton(
+                            label: L10n.shared["dismiss"],
+                            fg: .white.opacity(0.6),
+                            bg: Color.white.opacity(0.06),
+                            border: Color.white.opacity(0.12),
+                            action: onDismiss
+                        )
+                        .frame(maxWidth: .infinity/2)
+                    }
+                    .padding(.horizontal, 14)
                 }
             } else {
                 HStack(spacing: 6) {
@@ -1261,6 +1284,7 @@ private struct QuestionBar: View {
     let onAnswer: (String) -> Void
     let onAnswerMulti: ([(question: String, answer: String)]) -> Void
     let onSkip: () -> Void
+    let onDismiss: () -> Void
 
     @State private var textInput = ""
     @FocusState private var isFocused: Bool
@@ -1457,13 +1481,24 @@ private struct QuestionBar: View {
                     action: goBack
                 )
             }
-            PixelButton(
-                label: L10n.shared["skip"],
-                fg: .white.opacity(0.6),
-                bg: Color.white.opacity(0.06),
-                border: Color.white.opacity(0.12),
-                action: onSkip
-            )
+            HStack(spacing: 3) {
+                PixelButton(
+                    label: L10n.shared["skip"],
+                    fg: .white.opacity(0.6),
+                    bg: Color.white.opacity(0.06),
+                    border: Color.white.opacity(0.12),
+                    action: onSkip
+                )
+                .frame(maxWidth: .infinity/2)
+                PixelButton(
+                    label: L10n.shared["dismiss"],
+                    fg: .white.opacity(0.6),
+                    bg: Color.white.opacity(0.06),
+                    border: Color.white.opacity(0.12),
+                    action: onDismiss
+                )
+                .frame(maxWidth: .infinity/2)
+            }
             if item.multiSelect {
                 PixelButton(
                     label: L10n.shared["confirm"],
@@ -1683,7 +1718,7 @@ private struct QuestionBar: View {
             .padding(.horizontal, 14)
         }
 
-        HStack(spacing: 6) {
+        HStack(spacing: 3) {
             PixelButton(
                 label: L10n.shared["skip"],
                 fg: .white.opacity(0.6),
@@ -1691,6 +1726,15 @@ private struct QuestionBar: View {
                 border: Color.white.opacity(0.12),
                 action: onSkip
             )
+            .frame(maxWidth: .infinity/2)
+            PixelButton(
+                label: L10n.shared["dismiss"],
+                fg: .white.opacity(0.6),
+                bg: Color.white.opacity(0.06),
+                border: Color.white.opacity(0.12),
+                action: onDismiss
+            )
+            .frame(maxWidth: .infinity/2)
             if options == nil || options?.isEmpty == true {
                 PixelButton(
                     label: L10n.shared["submit"],

@@ -1514,6 +1514,19 @@ final class AppState {
         refreshDerivedState()
     }
 
+    /// Dismiss question without sending response (just close UI)
+    func dismissQuestion() {
+        guard !questionQueue.isEmpty else { return }
+        let pending = questionQueue.removeFirst()
+        // Return empty response to unblock CLI
+        pending.continuation.resume(returning: Data("{}".utf8))
+        let sessionId = pending.event.sessionId ?? "default"
+        sessions[sessionId]?.status = .processing
+
+        showNextPending()
+        refreshDerivedState()
+    }
+
     /// Drain all queued permissions for a specific session, resuming their continuations with deny
     private func drainPermissions(forSession sessionId: String) {
         dismissedPermissionSessionIds.remove(sessionId)
