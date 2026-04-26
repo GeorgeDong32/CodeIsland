@@ -1181,7 +1181,6 @@ private struct SoundEventRow: View {
 
 private struct AboutPage: View {
     @ObservedObject private var l10n = L10n.shared
-    @ObservedObject private var updater = UpdateChecker.shared
 
     var body: some View {
         VStack {
@@ -1212,9 +1211,6 @@ private struct AboutPage: View {
                     aboutLink("Issues", icon: "ladybug", url: "https://github.com/wxtsky/CodeIsland/issues")
                 }
 
-                // In-app update section
-                updateSection
-
                 Button {
                     DiagnosticsExporter.export()
                 } label: {
@@ -1240,110 +1236,6 @@ private struct AboutPage: View {
             .frame(maxWidth: .infinity)
 
             Spacer()
-        }
-    }
-
-    @ViewBuilder
-    private var updateSection: some View {
-        switch updater.state {
-        case .idle:
-            aboutButton(l10n["check_for_updates"], icon: "arrow.triangle.2.circlepath") {
-                updater.checkForUpdates()
-            }
-
-        case .checking:
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text(l10n["check_for_updates"])
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-
-        case .upToDate:
-            Button {
-                updater.checkForUpdates()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .font(.system(size: 13))
-                    Text(String(format: l10n["no_update_body"], AppVersion.current))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .buttonStyle(.plain)
-            .onHover { h in
-                if h { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-            }
-
-        case let .available(version, _, _):
-            VStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .foregroundStyle(.blue)
-                        .font(.system(size: 13))
-                    Text(String(format: l10n["update_available_body"], version, AppVersion.current))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-
-                if updater.isHomebrewInstall {
-                    HStack(spacing: 8) {
-                        Text(l10n["update_homebrew_command"])
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .controlBackgroundColor)))
-                        aboutButton(l10n["update_copy_command"], icon: "doc.on.doc") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(l10n["update_homebrew_command"], forType: .string)
-                        }
-                    }
-                } else {
-                    aboutButton(l10n["update_now"], icon: "arrow.down.to.line") {
-                        updater.performUpdate()
-                    }
-                }
-            }
-
-        case let .downloading(progress):
-            VStack(spacing: 6) {
-                Text(l10n["update_downloading"])
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                ProgressView(value: progress)
-                    .frame(width: 200)
-                Text("\(Int(progress * 100))%")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-            }
-
-        case .installing:
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text(l10n["update_installing"])
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-
-        case let .failed(message):
-            VStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                        .font(.system(size: 13))
-                    Text(String(format: l10n["update_failed_body"], message))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-                aboutButton(l10n["update_retry"], icon: "arrow.clockwise") {
-                    updater.checkForUpdates()
-                }
-            }
         }
     }
 
