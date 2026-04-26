@@ -1132,25 +1132,14 @@ private struct ApprovalBar: View {
                         .onAppear { feedbackFocused = true }
                     }
 
-                    // Skip and dismiss buttons
-                    HStack(spacing: 3) {
-                        PixelButton(
-                            label: L10n.shared["skip"],
-                            fg: .white.opacity(0.6),
-                            bg: Color.white.opacity(0.06),
-                            border: Color.white.opacity(0.12),
-                            action: { appState.skipQuestion() }
-                        )
-                        .frame(maxWidth: .infinity/2)
-                        PixelButton(
-                            label: L10n.shared["dismiss"],
-                            fg: .white.opacity(0.6),
-                            bg: Color.white.opacity(0.06),
-                            border: Color.white.opacity(0.12),
-                            action: onDismiss
-                        )
-                        .frame(maxWidth: .infinity/2)
-                    }
+                    // Dismiss button (ExitPlanMode requires decision, no skip)
+                    PixelButton(
+                        label: L10n.shared["dismiss"],
+                        fg: .white.opacity(0.6),
+                        bg: Color.white.opacity(0.06),
+                        border: Color.white.opacity(0.12),
+                        action: onDismiss
+                    )
                     .padding(.horizontal, 14)
                 }
             } else {
