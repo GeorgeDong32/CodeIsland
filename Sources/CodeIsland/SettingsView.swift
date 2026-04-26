@@ -454,33 +454,6 @@ private struct BehaviorPage: View {
                     Text(l10n["tool_history_limit_desc"])
                 }
             }
-
-            // Auto-approve tool toggles
-            Section(l10n["auto_approve_tools"]) {
-                Text(l10n["auto_approve_tools_desc"])
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ForEach(SettingsManager.allAutoApproveTools, id: \.name) { tool in
-                    Toggle(isOn: Binding(
-                        get: { autoApproveSet.contains(tool.name) },
-                        set: { isOn in
-                            if isOn {
-                                autoApproveSet.insert(tool.name)
-                            } else {
-                                autoApproveSet.remove(tool.name)
-                            }
-                        }
-                    )) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(tool.name)
-                                .font(.system(size: 12, design: .monospaced))
-                            Text(l10n["auto_approve_\(tool.name)"])
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
         }
         .formStyle(.grouped)
     }
