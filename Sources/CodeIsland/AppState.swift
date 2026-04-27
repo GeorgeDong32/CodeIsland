@@ -1242,12 +1242,14 @@ final class AppState {
 
     /// Simple allow response for auto-approved permissions (no setMode)
     static let simpleAllowResponse = Data(
-        #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#.utf8
+        #"{"continue":true,"suppressOutput":true,"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#.utf8
     )
 
     /// JSON response that switches session to bypassPermissions mode
     static let setAutoApproveResponse: Data = {
         let obj: [String: Any] = [
+            "continue": true,
+            "suppressOutput": true,
             "hookSpecificOutput": [
                 "hookEventName": "PermissionRequest",
                 "decision": [
@@ -1514,6 +1516,8 @@ final class AppState {
             }
 
             let obj: [String: Any] = [
+                "continue": true,
+                "suppressOutput": true,
                 "hookSpecificOutput": [
                     "hookEventName": "PermissionRequest",
                     "decision": [
