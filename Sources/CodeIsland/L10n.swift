@@ -126,6 +126,10 @@ final class L10n: ObservableObject {
         "auto_approve_EnterPlanMode": "Enter plan mode",
         "auto_approve_ExitPlanMode": "Exit plan mode and request approval",
 
+        // Permission buttons
+        "auto_approve": "AUTO",
+        "bypass_permission_tooltip": "Auto-approve this tool for the rest of the session",
+
         // Appearance
         "preview": "Preview",
         "panel": "Panel",
@@ -373,6 +377,10 @@ final class L10n: ObservableObject {
         "auto_approve_TodoWrite": "写入待办列表",
         "auto_approve_EnterPlanMode": "进入计划模式",
         "auto_approve_ExitPlanMode": "退出计划模式并请求审批",
+
+        // Permission buttons
+        "auto_approve": "自动批准",
+        "bypass_permission_tooltip": "本次会话期间自动批准此工具",
 
         // Appearance
         "preview": "预览",
@@ -622,6 +630,10 @@ final class L10n: ObservableObject {
         "auto_approve_EnterPlanMode": "プランモードに移行",
         "auto_approve_ExitPlanMode": "プランモードを終了して承認を要求",
 
+        // Permission buttons
+        "auto_approve": "自動承認",
+        "bypass_permission_tooltip": "このセッション中、このツールを自動承認",
+
         // Appearance
         "preview": "プレビュー",
         "panel": "パネル",
@@ -870,6 +882,10 @@ final class L10n: ObservableObject {
         "auto_approve_EnterPlanMode": "계획 모드 진입",
         "auto_approve_ExitPlanMode": "계획 모드 종료 및 승인 요청",
 
+        // Permission buttons
+        "auto_approve": "자동 승인",
+        "bypass_permission_tooltip": "이 세션 중 이 도구 자동 승인",
+
         // Appearance
         "preview": "미리보기",
         "panel": "패널",
@@ -1117,6 +1133,10 @@ final class L10n: ObservableObject {
         "auto_approve_TodoWrite": "Yapılacaklar listesine yaz",
         "auto_approve_EnterPlanMode": "Plan moduna gir",
         "auto_approve_ExitPlanMode": "Plan modundan çık ve onay iste",
+
+        // Permission buttons
+        "auto_approve": "OTOMATIK ONAY",
+        "bypass_permission_tooltip": "Bu oturum için bu aracı otomatik onayla",
 
         // Appearance
         "preview": "Önizleme",
