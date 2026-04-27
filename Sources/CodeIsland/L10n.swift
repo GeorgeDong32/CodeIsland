@@ -288,6 +288,19 @@ final class L10n: ObservableObject {
         "scroll_for_more": "Scroll for more",
         "scroll_hidden": "more below",
         "lines": "lines",
+
+        // ExitPlanMode
+        "plan_auto_accept": "Auto Accept",
+        "plan_auto_accept_desc": "Approve plan and execute",
+        "plan_manual": "Manual",
+        "plan_manual_desc": "Review changes step by step",
+        "plan_request_changes": "Request Changes",
+        "plan_request_changes_desc": "Provide feedback for revision",
+        "feedback_placeholder": "Enter your feedback...",
+        "plan_lines": "%d lines",
+        "plan_no_content": "No content to preview",
+        "plan_preapproved": "%d prompts pre-approved",
+        "click_to_disable": "Click to disable",
     ]
 
     private static let zh: [String: String] = [
@@ -540,6 +553,19 @@ final class L10n: ObservableObject {
         "scroll_for_more": "向下滚动查看更多",
         "scroll_hidden": "个未显示",
         "lines": "行",
+
+        // ExitPlanMode
+        "plan_auto_accept": "自动接受",
+        "plan_auto_accept_desc": "批准计划并执行",
+        "plan_manual": "手动",
+        "plan_manual_desc": "逐步审查更改",
+        "plan_request_changes": "请求更改",
+        "plan_request_changes_desc": "提供反馈以便修订",
+        "feedback_placeholder": "输入您的反馈...",
+        "plan_lines": "%d 行",
+        "plan_no_content": "无内容可预览",
+        "plan_preapproved": "%d 个提示已预批准",
+        "click_to_disable": "点击禁用",
     ]
 
     private static let ja: [String: String] = [
@@ -792,6 +818,19 @@ final class L10n: ObservableObject {
         "scroll_for_more": "さらに表示するにはスクロール",
         "scroll_hidden": "下にさらにあります",
         "lines": "行",
+
+        // ExitPlanMode
+        "plan_auto_accept": "自動承認",
+        "plan_auto_accept_desc": "計画を承認して実行",
+        "plan_manual": "手動",
+        "plan_manual_desc": "変更をステップごとに確認",
+        "plan_request_changes": "変更を要求",
+        "plan_request_changes_desc": "修正のためフィードバックを提供",
+        "feedback_placeholder": "フィードバックを入力...",
+        "plan_lines": "%d 行",
+        "plan_no_content": "プレビューする内容がありません",
+        "plan_preapproved": "%d プロンプトが事前承認済み",
+        "click_to_disable": "クリックで無効化",
     ]
 
     private static let ko: [String: String] = [
@@ -1044,6 +1083,19 @@ final class L10n: ObservableObject {
         "scroll_for_more": "더 보려면 스크롤",
         "scroll_hidden": "아래에 더 있음",
         "lines": "줄",
+
+        // ExitPlanMode
+        "plan_auto_accept": "자동 승인",
+        "plan_auto_accept_desc": "계획 승인 후 실행",
+        "plan_manual": "수동",
+        "plan_manual_desc": "변경 사항 단계별 확인",
+        "plan_request_changes": "변경 요청",
+        "plan_request_changes_desc": "수정용 피드백 제공",
+        "feedback_placeholder": "피드백 입력...",
+        "plan_lines": "%d 줄",
+        "plan_no_content": "미리보기할 내용 없음",
+        "plan_preapproved": "%d 프롬프트 사전 승인됨",
+        "click_to_disable": "클릭하여 비활성화",
     ]
 
     private static let tr: [String: String] = [
@@ -1296,5 +1348,18 @@ final class L10n: ObservableObject {
         "scroll_for_more": "Daha fazla için kaydır",
         "scroll_hidden": "aşağıda",
         "lines": "satır",
+
+        // ExitPlanMode
+        "plan_auto_accept": "Otomatik Kabul",
+        "plan_auto_accept_desc": "Planı kabul et ve çalıştır",
+        "plan_manual": "Manuel",
+        "plan_manual_desc": "Değişiklikleri adım adım incele",
+        "plan_request_changes": "Değişiklik İste",
+        "plan_request_changes_desc": "Düzeltme için geri bildirim sağla",
+        "feedback_placeholder": "Geri bildirim girin...",
+        "plan_lines": "%d satır",
+        "plan_no_content": "Önizleme içeriği yok",
+        "plan_preapproved": "%d prompt ön onaylı",
+        "click_to_disable": "Devre dışı bırakmak için tıkla",
     ]
 }
