@@ -1457,23 +1457,69 @@ final class AppState {
         let responseData: Data
         if pending.isFromPermission {
             var answersDict: [String: String] = [:]
+            var questionsArray: [[String: Any]] = []
+
             if let askState = pending.askUserQuestionState {
-                // Match by position — wizard collects answers in the same order as items
+                // Build questions array and answers dict
+                // Key must be question TEXT (not header) per Claude docs
                 for (index, item) in askState.items.enumerated() {
+                    // Build question object for questions array
+                    var questionObj: [String: Any] = [
+                        "question": item.payload.question,
+                        "multiSelect": item.multiSelect
+                    ]
+                    if let header = item.payload.header {
+                        questionObj["header"] = header
+                    }
+                    if let options = item.payload.options {
+                        var optionsArray: [[String: Any]] = []
+                        let descs = item.payload.descriptions
+                        for (optIndex, label) in options.enumerated() {
+                            var optObj: [String: Any] = ["label": label]
+                            if let descs, optIndex < descs.count {
+                                optObj["description"] = descs[optIndex]
+                            }
+                            optionsArray.append(optObj)
+                        }
+                        questionObj["options"] = optionsArray
+                    }
+                    questionsArray.append(questionObj)
+
+                    // Answer key is the question text
                     if index < answers.count {
-                        answersDict[item.answerKey] = answers[index].answer
+                        answersDict[item.payload.question] = answers[index].answer
                     }
                 }
             } else {
-                let answerKey = pending.question.header ?? "answer"
-                answersDict[answerKey] = answers.first?.answer ?? ""
+                // Single question fallback
+                let questionText = pending.question.question
+                var questionObj: [String: Any] = ["question": questionText, "multiSelect": false]
+                if let header = pending.question.header {
+                    questionObj["header"] = header
+                }
+                if let options = pending.question.options {
+                    var optionsArray: [[String: Any]] = []
+                    let descs = pending.question.descriptions
+                    for (optIndex, label) in options.enumerated() {
+                        var optObj: [String: Any] = ["label": label]
+                        if let descs, optIndex < descs.count {
+                            optObj["description"] = descs[optIndex]
+                        }
+                        optionsArray.append(optObj)
+                    }
+                    questionObj["options"] = optionsArray
+                }
+                questionsArray.append(questionObj)
+                answersDict[questionText] = answers.first?.answer ?? ""
             }
+
             let obj: [String: Any] = [
                 "hookSpecificOutput": [
                     "hookEventName": "PermissionRequest",
                     "decision": [
                         "behavior": "allow",
                         "updatedInput": [
+                            "questions": questionsArray,
                             "answers": answersDict
                         ]
                     ] as [String: Any]
