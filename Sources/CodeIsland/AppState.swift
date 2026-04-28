@@ -1185,7 +1185,8 @@ final class AppState {
 
     /// Auto-approve all pending queued permissions for a session.
     /// Uses the configured AUTO mode for Claude Code, simple allow for other CLIs.
-    /// Note: HookServer hot path always uses simpleAllow for follow-up requests.
+    /// For addRules mode: sends rules once then deactivates AUTO (rules handle future matches).
+    /// For setMode modes: keeps AUTO active to detect user exit via subsequent PermissionRequest.
     private func flushPendingPermissionsForAutoApprove(sessionId: String) {
         let isClaudeCode = sessions[sessionId]?.isClaude == true
         let response = isClaudeCode ? Self.autoApproveInitialResponse() : Self.simpleAllowResponse
@@ -1200,6 +1201,13 @@ final class AppState {
             sessions[sessionId]?.status = .running
             showNextPending()
             refreshDerivedState()
+        }
+
+        // addRules mode: single-shot, deactivate after sending rules.
+        // The rules in Claude Code will auto-approve matching tools; any PermissionRequest
+        // that arrives later means the tool is NOT covered → should be shown normally.
+        if isClaudeCode && SettingsManager.shared.autoApproveMode == .addRules {
+            autoApproveSessionId = nil
         }
     }
 
@@ -1287,12 +1295,6 @@ final class AppState {
                 "destination": "session",
             ]])
         }
-    }
-
-    /// Whether the current AUTO mode uses setMode (dontAsk or bypassPermissions).
-    @MainActor
-    static var autoApproveUsesSetMode: Bool {
-        SettingsManager.shared.autoApproveMode.setModeValue != nil
     }
 
     func dismissPermissionPrompt() {
