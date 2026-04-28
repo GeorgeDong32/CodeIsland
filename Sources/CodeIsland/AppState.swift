@@ -1208,9 +1208,13 @@ final class AppState {
         #"{"continue":true,"suppressOutput":true,"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#.utf8
     )
 
+    /// Generic ack response for non-permission events (no hookSpecificOutput)
+    static let ackResponse = Data(#"{"continue":true,"suppressOutput":true}"#.utf8)
+
     // MARK: - Hook Response Helpers
 
     /// All built-in tool names for addRules-based auto-approve.
+    /// Only covers known internal tools; MCP tools (mcp__server__tool) require manual approval.
     private static let autoApproveToolNames = [
         "Bash", "Edit", "Write", "Read", "Glob", "Grep",
         "NotebookEdit", "Task", "WebSearch", "WebFetch",
@@ -1230,7 +1234,7 @@ final class AppState {
                 "decision": decision,
             ] as [String: Any],
         ]
-        return (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
+        return (try? JSONSerialization.data(withJSONObject: obj)) ?? Self.simpleAllowResponse
     }
 
     /// Build a PermissionRequest allow response.
@@ -1266,7 +1270,7 @@ final class AppState {
         case .addRules:
             return permissionAllowResponse(updatedPermissions: [[
                 "type": "addRules",
-                "rules": autoApproveToolNames.map { ["toolName": $0] },
+                "rules": autoApproveToolNames.map { ["toolName": $0, "ruleContent": "*"] },
                 "behavior": "allow",
                 "destination": "session",
             ]])

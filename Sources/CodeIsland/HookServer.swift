@@ -134,13 +134,13 @@ class HookServer {
 
     private func processRequest(data: Data, connection: NWConnection) {
         guard let event = HookEvent(from: data) else {
-            sendResponse(connection: connection, data: Data("{\"error\":\"parse_failed\"}".utf8))
+            sendResponse(connection: connection, data: AppState.simpleAllowResponse)
             return
         }
 
         if let rawSource = event.rawJSON["_source"] as? String,
            SessionSnapshot.normalizedSupportedSource(rawSource) == nil {
-            sendResponse(connection: connection, data: Data("{}".utf8))
+            sendResponse(connection: connection, data: AppState.ackResponse)
             return
         }
 
@@ -209,7 +209,7 @@ class HookServer {
 
         case .event:
             appState.handleEvent(event)
-            sendResponse(connection: connection, data: AppState.simpleAllowResponse)
+            sendResponse(connection: connection, data: AppState.ackResponse)
         }
     }
 
