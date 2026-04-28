@@ -1259,6 +1259,7 @@ final class AppState {
     }
 
     /// Generate the initial AUTO response based on the selected mode.
+    @MainActor
     static func autoApproveInitialResponse() -> Data {
         let mode = SettingsManager.shared.autoApproveMode
         switch mode {
@@ -1270,17 +1271,17 @@ final class AppState {
                 "destination": "session",
             ]])
         case .dontAsk, .bypassPermissions:
+            guard let modeValue = mode.setModeValue else { return simpleAllowResponse }
             return permissionAllowResponse(updatedPermissions: [[
                 "type": "setMode",
-                "mode": mode.setModeValue!,
+                "mode": modeValue,
                 "destination": "session",
             ]])
         }
     }
 
     /// Whether the current AUTO mode uses setMode (dontAsk or bypassPermissions).
-    /// Used by HookServer to detect when a new PermissionRequest means user exited
-    /// the mode in CLI — triggers deactivation of auto-approve.
+    @MainActor
     static var autoApproveUsesSetMode: Bool {
         SettingsManager.shared.autoApproveMode.setModeValue != nil
     }
@@ -1312,7 +1313,7 @@ final class AppState {
         tryMonitorSession(sessionId)
 
         guard let question = QuestionPayload.from(event: event) else {
-            continuation.resume(returning: Self.permissionAllowResponse())
+            continuation.resume(returning: Self.notificationResponse())
             return
         }
         drainPermissions(forSession: sessionId)
@@ -1509,21 +1510,10 @@ final class AppState {
                 answersDict[questionText] = answers.first?.answer ?? ""
             }
 
-            let obj: [String: Any] = [
-                "continue": true,
-                "suppressOutput": true,
-                "hookSpecificOutput": [
-                    "hookEventName": "PermissionRequest",
-                    "decision": [
-                        "behavior": "allow",
-                        "updatedInput": [
-                            "questions": questionsArray,
-                            "answers": answersDict
-                        ]
-                    ] as [String: Any]
-                ] as [String: Any]
-            ]
-            responseData = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
+            responseData = Self.permissionAllowResponse(updatedInput: [
+                "questions": questionsArray,
+                "answers": answersDict,
+            ])
         } else {
             responseData = Self.notificationResponse(answer: answers.first?.answer ?? "")
         }
@@ -1556,8 +1546,12 @@ final class AppState {
     func dismissQuestion() {
         guard !questionQueue.isEmpty else { return }
         let pending = questionQueue.removeFirst()
-        // Return empty allow response to unblock CLI
-        pending.continuation.resume(returning: Self.permissionAllowResponse())
+        // Return deny/empty to unblock CLI
+        if pending.isFromPermission {
+            pending.continuation.resume(returning: Self.permissionDenyResponse())
+        } else {
+            pending.continuation.resume(returning: Self.notificationResponse())
+        }
         let sessionId = pending.event.sessionId ?? "default"
         sessions[sessionId]?.status = .processing
 

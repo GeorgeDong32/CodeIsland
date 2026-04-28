@@ -209,7 +209,7 @@ class HookServer {
 
         case .event:
             appState.handleEvent(event)
-            sendResponse(connection: connection, data: Data("{}".utf8))
+            sendResponse(connection: connection, data: AppState.simpleAllowResponse)
         }
     }
 
