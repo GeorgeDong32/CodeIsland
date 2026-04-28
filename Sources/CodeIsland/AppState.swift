@@ -1224,7 +1224,7 @@ final class AppState {
     /// All built-in tool names for addRules-based auto-approve.
     /// Only covers known internal tools; MCP tools (mcp__server__tool) require manual approval.
     private static let autoApproveToolNames = [
-        "Bash", "Edit", "Write", "Read", "Glob", "Grep",
+        "Bash", "Edit", "MultiEdit", "Write", "Read", "Glob", "Grep",
         "NotebookEdit", "Task", "WebSearch", "WebFetch",
         "Agent", "Skill",
     ]
