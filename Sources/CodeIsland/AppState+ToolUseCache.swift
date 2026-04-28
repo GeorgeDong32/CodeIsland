@@ -53,8 +53,7 @@ extension AppState {
         else { return }
 
         let stale = permissionQueue.remove(at: staleIndex)
-        let denyBody = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#
-        stale.continuation.resume(returning: Data(denyBody.utf8))
+        stale.continuation.resume(returning: Self.permissionDenyResponse())
 
         // If the card we were showing was the drained one, advance to the next pending
         // request (or collapse if nothing is left).
@@ -89,8 +88,7 @@ extension AppState {
         else { return false }
 
         let existing = permissionQueue[existingIndex]
-        let denyBody = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#
-        existing.continuation.resume(returning: Data(denyBody.utf8))
+        existing.continuation.resume(returning: Self.permissionDenyResponse())
         permissionQueue[existingIndex] = request
         return true
     }

@@ -1044,24 +1044,14 @@ final class AppState {
         let responseData: Data
         if always {
             let toolName = pending.event.toolName ?? ""
-            let obj: [String: Any] = [
-                "hookSpecificOutput": [
-                    "hookEventName": "PermissionRequest",
-                    "decision": [
-                        "behavior": "allow",
-                        "updatedPermissions": [[
-                            "type": "addRules",
-                            "rules": [["toolName": toolName, "ruleContent": "*"]],
-                            "behavior": "allow",
-                            "destination": "session"
-                        ]]
-                    ] as [String: Any]
-                ] as [String: Any]
-            ]
-            responseData = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
+            responseData = Self.permissionAllowResponse(updatedPermissions: [[
+                "type": "addRules",
+                "rules": [["toolName": toolName, "ruleContent": "*"]],
+                "behavior": "allow",
+                "destination": "session",
+            ]])
         } else {
-            let response = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
-            responseData = Data(response.utf8)
+            responseData = Self.simpleAllowResponse
         }
         pending.continuation.resume(returning: responseData)
         sessions[sessionId]?.status = .running
@@ -1075,8 +1065,7 @@ final class AppState {
         let pending = permissionQueue.removeFirst()
         let sessionId = pending.event.sessionId ?? "default"
         dismissedPermissionSessionIds.remove(sessionId)
-        let response = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#
-        pending.continuation.resume(returning: Data(response.utf8))
+        pending.continuation.resume(returning: Self.permissionDenyResponse())
         sessions[sessionId]?.status = .idle
         sessions[sessionId]?.currentTool = nil
         sessions[sessionId]?.toolDescription = nil
@@ -1116,25 +1105,13 @@ final class AppState {
 
         let responseData: Data
         if let mode {
-            // Allow + setMode (e.g. "acceptEdits" or "bypassPermissions")
-            let obj: [String: Any] = [
-                "hookSpecificOutput": [
-                    "hookEventName": "PermissionRequest",
-                    "decision": [
-                        "behavior": "allow",
-                        "updatedPermissions": [[
-                            "type": "setMode",
-                            "mode": mode,
-                            "destination": "session"
-                        ]]
-                    ] as [String: Any]
-                ] as [String: Any]
-            ]
-            responseData = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
+            responseData = Self.permissionAllowResponse(updatedPermissions: [[
+                "type": "setMode",
+                "mode": mode,
+                "destination": "session",
+            ]])
         } else {
-            // Plain allow (manual approval mode)
-            let response = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
-            responseData = Data(response.utf8)
+            responseData = Self.simpleAllowResponse
         }
 
         pending.continuation.resume(returning: responseData)
@@ -1155,20 +1132,9 @@ final class AppState {
 
         let responseData: Data
         if let feedback, !feedback.isEmpty {
-            // Deny with feedback message (use JSONSerialization for proper escaping)
-            let obj: [String: Any] = [
-                "hookSpecificOutput": [
-                    "hookEventName": "PermissionRequest",
-                    "decision": [
-                        "behavior": "deny",
-                        "message": feedback
-                    ] as [String: Any]
-                ] as [String: Any]
-            ]
-            responseData = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
+            responseData = Self.permissionDenyResponse(message: feedback)
         } else {
-            let response = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#
-            responseData = Data(response.utf8)
+            responseData = Self.permissionDenyResponse()
         }
         pending.continuation.resume(returning: responseData)
         sessions[sessionId]?.status = .idle
@@ -1218,14 +1184,11 @@ final class AppState {
     }
 
     /// Auto-approve all pending queued permissions for a session.
-    /// Uses setMode:bypassPermissions for Claude Code (so CLI stops sending
-    /// PermissionRequests), simple allow for other CLIs.
-    /// Note: HookServer hot path always uses simpleAllow for follow-up requests
-    /// (bypass may have been ignored or user may have exited bypass mode).
+    /// Uses the configured AUTO mode for Claude Code, simple allow for other CLIs.
+    /// Note: HookServer hot path always uses simpleAllow for follow-up requests.
     private func flushPendingPermissionsForAutoApprove(sessionId: String) {
-        // Session gone (nil) falls back to simpleAllow — safe default
         let isClaudeCode = sessions[sessionId]?.isClaude == true
-        let response = isClaudeCode ? Self.setAutoApproveResponse : Self.simpleAllowResponse
+        let response = isClaudeCode ? Self.autoApproveInitialResponse() : Self.simpleAllowResponse
 
         var didFlush = false
         while let idx = permissionQueue.firstIndex(where: { $0.event.sessionId == sessionId }) {
@@ -1245,25 +1208,82 @@ final class AppState {
         #"{"continue":true,"suppressOutput":true,"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#.utf8
     )
 
-    /// JSON response that switches session to bypassPermissions mode
-    static let setAutoApproveResponse: Data = {
+    // MARK: - Hook Response Helpers
+
+    /// All built-in tool names for addRules-based auto-approve.
+    private static let autoApproveToolNames = [
+        "Bash", "Edit", "Write", "Read", "Glob", "Grep",
+        "NotebookEdit", "Task", "WebSearch", "WebFetch",
+        "Agent", "Skill",
+    ]
+
+    /// Build a hook response with correct top-level fields.
+    private static func hookResponse(
+        hookEventName: String,
+        decision: [String: Any]
+    ) -> Data {
         let obj: [String: Any] = [
             "continue": true,
             "suppressOutput": true,
             "hookSpecificOutput": [
-                "hookEventName": "PermissionRequest",
-                "decision": [
-                    "behavior": "allow",
-                    "updatedPermissions": [[
-                        "type": "setMode",
-                        "mode": "bypassPermissions",
-                        "destination": "session"
-                    ]]
-                ] as [String: Any]
-            ] as [String: Any]
+                "hookEventName": hookEventName,
+                "decision": decision,
+            ] as [String: Any],
         ]
         return (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
-    }()
+    }
+
+    /// Build a PermissionRequest allow response.
+    static func permissionAllowResponse(
+        updatedPermissions: [[String: Any]]? = nil,
+        updatedInput: [String: Any]? = nil
+    ) -> Data {
+        var decision: [String: Any] = ["behavior": "allow"]
+        if let updatedPermissions { decision["updatedPermissions"] = updatedPermissions }
+        if let updatedInput { decision["updatedInput"] = updatedInput }
+        return hookResponse(hookEventName: "PermissionRequest", decision: decision)
+    }
+
+    /// Build a PermissionRequest deny response.
+    static func permissionDenyResponse(message: String? = nil) -> Data {
+        var decision: [String: Any] = ["behavior": "deny"]
+        if let message, !message.isEmpty { decision["message"] = message }
+        return hookResponse(hookEventName: "PermissionRequest", decision: decision)
+    }
+
+    /// Build a Notification response.
+    static func notificationResponse(answer: String? = nil) -> Data {
+        var decision: [String: Any] = [:]
+        if let answer { decision["answer"] = answer }
+        return hookResponse(hookEventName: "Notification", decision: decision)
+    }
+
+    /// Generate the initial AUTO response based on the selected mode.
+    static func autoApproveInitialResponse() -> Data {
+        let mode = SettingsManager.shared.autoApproveMode
+        switch mode {
+        case .addRules:
+            return permissionAllowResponse(updatedPermissions: [[
+                "type": "addRules",
+                "rules": autoApproveToolNames.map { ["toolName": $0] },
+                "behavior": "allow",
+                "destination": "session",
+            ]])
+        case .dontAsk, .bypassPermissions:
+            return permissionAllowResponse(updatedPermissions: [[
+                "type": "setMode",
+                "mode": mode.setModeValue!,
+                "destination": "session",
+            ]])
+        }
+    }
+
+    /// Whether the current AUTO mode uses setMode (dontAsk or bypassPermissions).
+    /// Used by HookServer to detect when a new PermissionRequest means user exited
+    /// the mode in CLI — triggers deactivation of auto-approve.
+    static var autoApproveUsesSetMode: Bool {
+        SettingsManager.shared.autoApproveMode.setModeValue != nil
+    }
 
     func dismissPermissionPrompt() {
         guard let pending = permissionQueue.first else { return }
@@ -1292,7 +1312,7 @@ final class AppState {
         tryMonitorSession(sessionId)
 
         guard let question = QuestionPayload.from(event: event) else {
-            continuation.resume(returning: Data("{}".utf8))
+            continuation.resume(returning: Self.permissionAllowResponse())
             return
         }
         drainPermissions(forSession: sessionId)
@@ -1372,16 +1392,7 @@ final class AppState {
         }
 
         guard !askItems.isEmpty else {
-            let obj: [String: Any] = [
-                "hookSpecificOutput": [
-                    "hookEventName": "PermissionRequest",
-                    "decision": [
-                        "behavior": "allow",
-                        "updatedInput": ["answers": [:] as [String: String]]
-                    ] as [String: Any]
-                ] as [String: Any]
-            ]
-            let responseData = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
+            let responseData = Self.permissionAllowResponse(updatedInput: ["answers": [:] as [String: String]])
             continuation.resume(returning: responseData)
             sessions[sessionId]?.status = .processing
             refreshDerivedState()
@@ -1424,26 +1435,9 @@ final class AppState {
         let responseData: Data
         if pending.isFromPermission {
             let answerKey = pending.question.header ?? "answer"
-            let obj: [String: Any] = [
-                "hookSpecificOutput": [
-                    "hookEventName": "PermissionRequest",
-                    "decision": [
-                        "behavior": "allow",
-                        "updatedInput": [
-                            "answers": [answerKey: answer]
-                        ]
-                    ] as [String: Any]
-                ] as [String: Any]
-            ]
-            responseData = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
+            responseData = Self.permissionAllowResponse(updatedInput: ["answers": [answerKey: answer]])
         } else {
-            let obj: [String: Any] = [
-                "hookSpecificOutput": [
-                    "hookEventName": "Notification",
-                    "answer": answer
-                ] as [String: Any]
-            ]
-            responseData = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
+            responseData = Self.notificationResponse(answer: answer)
         }
         pending.continuation.resume(returning: responseData)
         let sessionId = pending.event.sessionId ?? "default"
@@ -1531,13 +1525,7 @@ final class AppState {
             ]
             responseData = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
         } else {
-            let obj: [String: Any] = [
-                "hookSpecificOutput": [
-                    "hookEventName": "Notification",
-                    "answer": answers.first?.answer ?? ""
-                ] as [String: Any]
-            ]
-            responseData = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
+            responseData = Self.notificationResponse(answer: answers.first?.answer ?? "")
         }
         pending.continuation.resume(returning: responseData)
         let sessionId = pending.event.sessionId ?? "default"
@@ -1552,9 +1540,9 @@ final class AppState {
         let pending = questionQueue.removeFirst()
         let responseData: Data
         if pending.isFromPermission {
-            responseData = Data(#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#.utf8)
+            responseData = Self.permissionDenyResponse()
         } else {
-            responseData = Data(#"{"hookSpecificOutput":{"hookEventName":"Notification"}}"#.utf8)
+            responseData = Self.notificationResponse()
         }
         pending.continuation.resume(returning: responseData)
         let sessionId = pending.event.sessionId ?? "default"
@@ -1568,8 +1556,8 @@ final class AppState {
     func dismissQuestion() {
         guard !questionQueue.isEmpty else { return }
         let pending = questionQueue.removeFirst()
-        // Return empty response to unblock CLI
-        pending.continuation.resume(returning: Data("{}".utf8))
+        // Return empty allow response to unblock CLI
+        pending.continuation.resume(returning: Self.permissionAllowResponse())
         let sessionId = pending.event.sessionId ?? "default"
         sessions[sessionId]?.status = .processing
 
@@ -1580,7 +1568,7 @@ final class AppState {
     /// Drain all queued permissions for a specific session, resuming their continuations with deny
     private func drainPermissions(forSession sessionId: String) {
         dismissedPermissionSessionIds.remove(sessionId)
-        let denyResponse = Data(#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#.utf8)
+        let denyResponse = Self.permissionDenyResponse()
         permissionQueue.removeAll { item in
             guard item.event.sessionId == sessionId else { return false }
             item.continuation.resume(returning: denyResponse)
@@ -1612,11 +1600,9 @@ final class AppState {
         questionQueue.removeAll { item in
             guard item.event.sessionId == sessionId else { return false }
             if item.isFromPermission {
-                let denyData = Data(
-                    #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#.utf8)
-                item.continuation.resume(returning: denyData)
+                item.continuation.resume(returning: Self.permissionDenyResponse())
             } else {
-                item.continuation.resume(returning: Data("{}".utf8))
+                item.continuation.resume(returning: Self.notificationResponse())
             }
             return true
         }

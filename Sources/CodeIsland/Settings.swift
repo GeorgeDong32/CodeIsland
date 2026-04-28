@@ -16,6 +16,24 @@ enum NotchHeightMode: String, CaseIterable {
     case custom = "custom"
 }
 
+/// Strategy used when user presses the AUTO (auto-approve) button.
+enum AutoApproveMode: String, CaseIterable, Identifiable {
+    case addRules = "addRules"
+    case dontAsk = "dontAsk"
+    case bypassPermissions = "bypass"
+
+    var id: String { rawValue }
+
+    /// Claude Code setMode value (nil for addRules which doesn't use setMode).
+    var setModeValue: String? {
+        switch self {
+        case .addRules: return nil
+        case .dontAsk: return "dontAsk"
+        case .bypassPermissions: return "bypassPermissions"
+        }
+    }
+}
+
 enum SettingsKey {
     // Language
     static let appLanguage = "appLanguage"                 // "system", "en", "zh", "ja", "ko", "tr"
@@ -86,6 +104,9 @@ enum SettingsKey {
 
     // Auto-approve tools (comma-separated tool names)
     static let autoApproveTools = "autoApproveTools"
+
+    // Auto-approve mode strategy (addRules / dontAsk / bypass)
+    static let autoApproveMode = "autoApproveMode"
 }
 
 struct SettingsDefaults {
@@ -133,6 +154,8 @@ struct SettingsDefaults {
     static let defaultSource = "claude"
 
     static let autoApproveTools = "TaskCreate,TaskUpdate,TaskGet,TaskList,TaskOutput,TaskStop,TodoRead,TodoWrite,EnterPlanMode"
+
+    static let autoApproveMode = AutoApproveMode.addRules.rawValue
 }
 
 @MainActor
@@ -177,6 +200,7 @@ class SettingsManager {
             SettingsKey.collapsedWidthScale: SettingsDefaults.collapsedWidthScale,
             SettingsKey.defaultSource: SettingsDefaults.defaultSource,
             SettingsKey.autoApproveTools: SettingsDefaults.autoApproveTools,
+            SettingsKey.autoApproveMode: SettingsDefaults.autoApproveMode,
         ])
     }
 
@@ -312,6 +336,14 @@ class SettingsManager {
         set {
             defaults.set(newValue.sorted().joined(separator: ","), forKey: SettingsKey.autoApproveTools)
         }
+    }
+
+    var autoApproveMode: AutoApproveMode {
+        get {
+            let raw = defaults.string(forKey: SettingsKey.autoApproveMode) ?? SettingsDefaults.autoApproveMode
+            return AutoApproveMode(rawValue: raw) ?? .addRules
+        }
+        set { defaults.set(newValue.rawValue, forKey: SettingsKey.autoApproveMode) }
     }
 }
 

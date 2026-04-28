@@ -345,6 +345,7 @@ private struct BehaviorPage: View {
     @AppStorage(SettingsKey.rotationInterval) private var rotationInterval = SettingsDefaults.rotationInterval
     @AppStorage(SettingsKey.maxToolHistory) private var maxToolHistory = SettingsDefaults.maxToolHistory
     @AppStorage(SettingsKey.autoApproveTools) private var autoApproveSet: Set<String> = .init(rawValue: SettingsDefaults.autoApproveTools) ?? []
+    @AppStorage(SettingsKey.autoApproveMode) private var autoApproveMode: String = SettingsDefaults.autoApproveMode
 
     var body: some View {
         Form {
@@ -396,6 +397,21 @@ private struct BehaviorPage: View {
                     .pickerStyle(.segmented)
                     .padding(.leading, 84)
                 }
+            }
+
+            Section(l10n["auto_approve_mode"]) {
+                Text(l10n["auto_approve_mode_desc"])
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Picker(selection: $autoApproveMode) {
+                    ForEach(AutoApproveMode.allCases) { mode in
+                        Text(l10n["auto_approve_mode_\(mode.rawValue)"])
+                            .tag(mode.rawValue)
+                    }
+                } label: {
+                    EmptyView()
+                }
+                .pickerStyle(.segmented)
             }
 
             Section(l10n["auto_approve_tools"]) {

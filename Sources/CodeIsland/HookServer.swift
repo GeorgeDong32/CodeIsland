@@ -150,8 +150,7 @@ class HookServer {
 
             // Auto-approve safe internal tools without showing UI
             if let toolName = event.toolName, Self.autoApproveTools.contains(toolName) {
-                let response = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
-                sendResponse(connection: connection, data: Data(response.utf8))
+                sendResponse(connection: connection, data: AppState.simpleAllowResponse)
                 return
             }
 
@@ -168,18 +167,18 @@ class HookServer {
             }
 
             // If auto-approve is active but a PermissionRequest arrived:
-            // For Claude Code: setMode bypassPermissions was sent once. A new request
-            // means user exited bypass in CLI. Deactivate auto-approve and show card.
-            // For other CLIs: no setMode support, keep silent approval (user controls
-            // via Session Card button).
+            // For setMode modes (dontAsk/bypassPermissions): a new request means user
+            // exited the mode in CLI. Deactivate auto-approve and show card.
+            // For addRules mode: keep silent approval (no CLI mode to exit).
+            // For other CLIs: no setMode support, keep silent approval.
             if appState.isAutoApproveActive(for: sessionId) {
                 if let session = appState.sessions[sessionId] {
-                    if session.isClaude {
-                        // Claude Code: user exited bypass, deactivate and show approval card
+                    if session.isClaude && AppState.autoApproveUsesSetMode {
+                        // Claude Code with setMode: user exited, deactivate and show card
                         appState.deactivateAutoApprove(sessionId: sessionId)
                         // Fall through to normal permission handling below
                     } else {
-                        // Other CLIs: keep silent approval
+                        // Other CLIs or addRules mode: keep silent approval
                         sendResponse(connection: connection, data: AppState.simpleAllowResponse)
                         return
                     }
