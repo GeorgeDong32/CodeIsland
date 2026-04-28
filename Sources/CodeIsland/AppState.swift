@@ -1255,11 +1255,16 @@ final class AppState {
         return hookResponse(hookEventName: "PermissionRequest", decision: decision)
     }
 
-    /// Build a Notification response.
+    /// Build a Notification response. Answer is at hookSpecificOutput.answer (not inside decision).
     static func notificationResponse(answer: String? = nil) -> Data {
-        var decision: [String: Any] = [:]
-        if let answer { decision["answer"] = answer }
-        return hookResponse(hookEventName: "Notification", decision: decision)
+        var hookOutput: [String: Any] = ["hookEventName": "Notification"]
+        if let answer { hookOutput["answer"] = answer }
+        let obj: [String: Any] = [
+            "continue": true,
+            "suppressOutput": true,
+            "hookSpecificOutput": hookOutput,
+        ]
+        return (try? JSONSerialization.data(withJSONObject: obj)) ?? Self.simpleAllowResponse
     }
 
     /// Generate the initial AUTO response based on the selected mode.

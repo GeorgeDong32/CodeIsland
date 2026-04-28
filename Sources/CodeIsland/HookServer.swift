@@ -134,7 +134,7 @@ class HookServer {
 
     private func processRequest(data: Data, connection: NWConnection) {
         guard let event = HookEvent(from: data) else {
-            sendResponse(connection: connection, data: AppState.simpleAllowResponse)
+            sendResponse(connection: connection, data: AppState.ackResponse)
             return
         }
 
