@@ -1159,8 +1159,40 @@ final class AppState {
         refreshDerivedState()
     }
 
-    func denyPermission() {
-        guard !permissionQueue.isEmpty else { return }
+    func handleBuddyControlCommand(_ command: BuddyControlCommand) {
+        switch command {
+        case .approveCurrentPermission:
+            if !permissionQueue.isEmpty {
+                approvePermission()
+            } else {
+                log.info("Ignored Buddy approve command because permission queue is empty")
+            }
+        case .denyCurrentPermission:
+            if !permissionQueue.isEmpty {
+                denyPermission()
+            } else {
+                log.info("Ignored Buddy deny command because permission queue is empty")
+            }
+        case .skipCurrentQuestion:
+            if !questionQueue.isEmpty {
+                skipQuestion()
+            } else {
+                log.info("Ignored Buddy skip command because question queue is empty")
+            }
+        }
+    }
+
+    /// Find an existing session whose source matches and whose CLI PID equals
+    /// the supplied ppid. Used by HookServer to merge plugin-proxied events
+    /// (e.g. omo) into their main session when pluginSessionMode == "merge". (#123)
+    func findSessionId(forSource source: String, ppid: Int) -> String? {
+        let normalized = SessionSnapshot.normalizedSupportedSource(source)
+        return sessions.first(where: { _, snap in
+            let snapSource = SessionSnapshot.normalizedSupportedSource(snap.source)
+            return snapSource == normalized && snap.cliPid == pid_t(ppid)
+        })?.key
+    }
+
         let pending = permissionQueue.removeFirst()
         let sessionId = pending.event.sessionId ?? "default"
         dismissedPermissionSessionIds.remove(sessionId)

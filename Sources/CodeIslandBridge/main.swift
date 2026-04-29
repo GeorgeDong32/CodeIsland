@@ -435,8 +435,37 @@ if let cmuxWorkspace = env["CMUX_WORKSPACE_ID"], !cmuxWorkspace.isEmpty {
     json["_cmux_workspace_id"] = cmuxWorkspace
 }
 
-// --- Serialize enriched JSON ---
-guard let enriched = try? JSONSerialization.data(withJSONObject: json) else { exit(0) }
+// Resolve the tracked PID. Some CLIs execute hooks through `sh -c`, so `getppid()` can be a
+// transient shell instead of the long-lived CLI process. Walk a short parent chain and prefer
+// the first executable that matches the provider binary.
+let immediateParentPID = getppid()
+let ancestry = buildAncestry(startingAt: immediateParentPID)
+let coreAncestry = ancestry.map { (pid: Int32($0.pid), executablePath: $0.executablePath) }
+
+// Source tag (e.g. "codex" when called via --source codex). If the caller did not pass
+// one (e.g. the omo OpenCode plugin triggering Claude hooks without --source), infer
+// the real source from the process ancestry so we don't misattribute the event to
+// whichever hook path fired it. See issue #95.
+let effectiveSource = sourceTag ?? CLIProcessResolver.inferSource(ancestry: coreAncestry)
+if let source = effectiveSource {
+    json["_source"] = source
+}
+// Mark events that arrived via a plugin proxy (no explicit --source but
+// ancestry inferred a real source — e.g. the omo OpenCode plugin firing
+// Claude hooks) so the host app can route them per pluginSessionMode.
+// See issue #123.
+if sourceTag == nil && effectiveSource != nil {
+    json["_via_plugin"] = true
+}
+
+let resolvedTrackedPID = CLIProcessResolver.resolvedTrackedPID(
+    immediateParentPID: Int32(immediateParentPID),
+    source: effectiveSource,
+    ancestry: coreAncestry
+)
+json["_ppid"] = resolvedTrackedPID
+if resolvedTrackedPID != immediateParentPID {
+    json["_hook_ppid"] = Int32(immediateParentPID)
 
 // --- Connect to Unix socket ---
 guard let sock = connectSocket(socketPath) else {

@@ -111,6 +111,11 @@ final class L10n: ObservableObject {
         "10_seconds": "10 Seconds",
         "tool_history_limit": "Tool History Limit",
         "tool_history_limit_desc": "Max number of recent tool calls shown per session",
+        "plugin_session_mode": "Plugin Sub-Sessions",
+        "plugin_session_mode_desc": "How to handle hook events fired by plugins running inside another agent (e.g. omo inside OpenCode)",
+        "plugin_session_mode_separate": "Show separately",
+        "plugin_session_mode_merge": "Merge into main",
+        "plugin_session_mode_hide": "Hide",
 
         // Auto-approve mode
         "auto_approve_mode": "AUTO Button Mode",
@@ -382,6 +387,11 @@ final class L10n: ObservableObject {
         "10_seconds": "10 秒",
         "tool_history_limit": "工具历史上限",
         "tool_history_limit_desc": "每个会话显示的最近工具调用数量上限",
+        "plugin_session_mode": "插件子会话",
+        "plugin_session_mode_desc": "处理在其他 agent 内运行的插件触发的事件（例如 OpenCode 中的 omo 插件）",
+        "plugin_session_mode_separate": "独立显示",
+        "plugin_session_mode_merge": "合并到主会话",
+        "plugin_session_mode_hide": "隐藏",
 
         // Auto-approve mode
         "auto_approve_mode": "AUTO 按钮模式",
@@ -653,6 +663,11 @@ final class L10n: ObservableObject {
         "10_seconds": "10秒",
         "tool_history_limit": "ツール履歴の上限",
         "tool_history_limit_desc": "セッションごとに表示する最近のツール呼び出し数の上限です",
+        "plugin_session_mode": "プラグインのサブセッション",
+        "plugin_session_mode_desc": "別のエージェント内で動作するプラグインから発火するイベントの扱いを選択します（例: OpenCode 内の omo プラグイン）",
+        "plugin_session_mode_separate": "別々に表示",
+        "plugin_session_mode_merge": "メインセッションに統合",
+        "plugin_session_mode_hide": "非表示",
 
         // Auto-approve mode
         "auto_approve_mode": "AUTOボタンモード",
@@ -924,6 +939,11 @@ final class L10n: ObservableObject {
         "10_seconds": "10초",
         "tool_history_limit": "도구 기록 제한",
         "tool_history_limit_desc": "세션별로 표시할 최근 도구 호출의 최대 개수입니다",
+        "plugin_session_mode": "플러그인 서브 세션",
+        "plugin_session_mode_desc": "다른 에이전트 내부에서 실행되는 플러그인이 발생시키는 이벤트 처리 방식 (예: OpenCode 내의 omo 플러그인)",
+        "plugin_session_mode_separate": "별도로 표시",
+        "plugin_session_mode_merge": "메인 세션으로 병합",
+        "plugin_session_mode_hide": "숨김",
 
         // Auto-approve mode
         "auto_approve_mode": "AUTO 버튼 모드",
@@ -1195,6 +1215,11 @@ final class L10n: ObservableObject {
         "10_seconds": "10 Saniye",
         "tool_history_limit": "Araç Geçmişi Limiti",
         "tool_history_limit_desc": "Oturum başına gösterilen son araç çağrı sayısı",
+        "plugin_session_mode": "Eklenti Alt Oturumları",
+        "plugin_session_mode_desc": "Başka bir ajanın içinde çalışan eklentilerin tetiklediği olayların nasıl ele alınacağı (örn: OpenCode içindeki omo eklentisi)",
+        "plugin_session_mode_separate": "Ayrı göster",
+        "plugin_session_mode_merge": "Ana oturuma birleştir",
+        "plugin_session_mode_hide": "Gizle",
 
         // Auto-approve mode
         "auto_approve_mode": "AUTO Düğme Modu",
