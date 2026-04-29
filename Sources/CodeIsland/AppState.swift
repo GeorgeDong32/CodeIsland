@@ -15,10 +15,47 @@ struct ProcessIdentity: Equatable {
 @MainActor
 @Observable
 final class AppState {
+    /// Snapshot of a hook event accepted by HookServer, kept for diagnostics
+    /// export (#103). Stored in a fixed-size ring so we can attach the recent
+    /// hook stream to bug reports without pulling in full payloads.
+    struct DiagnosticHookEvent: Sendable {
+        let timestamp: Date
+        let source: String?
+        let sessionId: String?
+        let eventName: String
+        let toolName: String?
+        let viaPlugin: Bool
+    }
+
     var sessions: [String: SessionSnapshot] = [:]
     var activeSessionId: String?
     var permissionQueue: [PermissionRequest] = []
     var questionQueue: [QuestionRequest] = []
+
+    @ObservationIgnored
+    private(set) var recentHookEvents: [DiagnosticHookEvent] = []
+    @ObservationIgnored
+    private let maxRecentHookEvents = 100
+
+    func recordHookEvent(
+        source: String?,
+        sessionId: String?,
+        eventName: String,
+        toolName: String?,
+        viaPlugin: Bool
+    ) {
+        recentHookEvents.append(DiagnosticHookEvent(
+            timestamp: Date(),
+            source: source,
+            sessionId: sessionId,
+            eventName: eventName,
+            toolName: toolName,
+            viaPlugin: viaPlugin
+        ))
+        if recentHookEvents.count > maxRecentHookEvents {
+            recentHookEvents.removeFirst(recentHookEvents.count - maxRecentHookEvents)
+        }
+    }
     /// Cache of in-flight PreToolUse records keyed by tool_use_id. Used to correlate
     /// permission requests back to their originating tool call. See AppState+ToolUseCache.
     @ObservationIgnored
