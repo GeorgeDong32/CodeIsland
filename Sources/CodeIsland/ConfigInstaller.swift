@@ -789,25 +789,17 @@ struct ConfigInstaller {
         guard let claudePath = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
             return nil
         }
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: claudePath)
-        proc.arguments = ["--version"]
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        proc.standardError = FileHandle.nullDevice
-        do {
-            try proc.run()
-            proc.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            if let output = String(data: data, encoding: .utf8) {
-                // Parse "2.1.92 (Claude Code)" → "2.1.92"
-                let version = output.trimmingCharacters(in: .whitespacesAndNewlines)
-                    .components(separatedBy: " ").first ?? ""
-                if !version.isEmpty { cachedClaudeVersion = version }
-                return cachedClaudeVersion
-            }
-        } catch {}
-        return nil
+        // 5s timeout: a stuck `claude --version` used to freeze app launch (#139).
+        guard let data = ProcessRunner.run(path: claudePath, args: ["--version"], timeout: 5),
+              let output = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        // Parse "2.1.92 (Claude Code)" → "2.1.92"
+        let version = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: " ").first ?? ""
+        guard !version.isEmpty else { return nil }
+        cachedClaudeVersion = version
+        return version
     }
 
     /// Compare semver strings: returns true if `installed` >= `required`
