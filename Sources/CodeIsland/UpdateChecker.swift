@@ -170,6 +170,7 @@ final class UpdateChecker: ObservableObject {
         return false
     }
 
+<<<<<<< HEAD
     @discardableResult
     private nonisolated static func runShellProcess(_ executable: String, args: [String]) throws -> String {
         let process = Process()
@@ -192,6 +193,16 @@ final class UpdateChecker: ObservableObject {
 
         var errorDescription: String? {
             "App not found in DMG"
+        }
+    }
+
+    nonisolated func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        let description = error.localizedDescription
+        Task { @MainActor in
+            Self.log.debug("Sparkle aborted: \(description)")
+            if self.state == .checking {
+                self.state = .failed(description)
+            }
         }
     }
 }
