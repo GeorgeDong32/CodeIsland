@@ -171,9 +171,19 @@ struct SettingsDefaults {
 
     static let defaultSource = "claude"
 
-    static let autoApproveTools = "TaskCreate,TaskUpdate,TaskGet,TaskList,TaskOutput,TaskStop,TodoRead,TodoWrite,EnterPlanMode,ExitPlanMode"
+    // Default to no auto-approval — every tool call goes through the
+    // approval flow and the user opts in per tool. The previous default
+    // silently approved 9 internal agent tools (TaskCreate, TodoWrite,
+    // EnterPlanMode etc.) which hid those calls from the panel.
+    static let autoApproveTools = ""
 
     static let autoApproveMode = AutoApproveMode.auto.rawValue
+
+    static let excludedHookCwdSubstrings = ""
+
+    static let webhookEnabled = false
+    static let webhookURL = ""
+    static let webhookEventFilter = ""
 }
 
 @MainActor
