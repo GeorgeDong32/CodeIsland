@@ -4,7 +4,7 @@ import os.log
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
-    private static let log = Logger(subsystem: "com.codeisland", category: "AppDelegate")
+    nonisolated private static let log = Logger(subsystem: "com.codeisland", category: "AppDelegate")
 
     var panelController: PanelWindowController?
     private var hookServer: HookServer?
@@ -30,10 +30,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             appState?.removeRemoteSessions(hostId: hostId)
         }
 
-        if ConfigInstaller.install() {
-            Self.log.info("Hooks installed")
-        } else {
-            Self.log.warning("Failed to install hooks")
+        // Hook installation does subprocess version detection plus disk I/O —
+        // keep it off the main thread so app launch isn't blocked even when a
+        // CLI binary hangs. See #139.
+        Task.detached(priority: .userInitiated) {
+            if ConfigInstaller.install() {
+                Self.log.info("Hooks installed")
+            } else {
+                Self.log.warning("Failed to install hooks")
+            }
         }
 
         panelController = PanelWindowController(appState: appState)
