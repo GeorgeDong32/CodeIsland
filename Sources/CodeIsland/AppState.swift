@@ -2382,6 +2382,11 @@ final class AppState {
             snapshot.tmuxClientTty = p.tmuxClientTty
             snapshot.tmuxEnv = p.tmuxEnv
             snapshot.termBundleId = p.termBundleId
+            snapshot.cmuxSurfaceId = p.cmuxSurfaceId
+            snapshot.cmuxWorkspaceId = p.cmuxWorkspaceId
+            snapshot.zellijPaneId = p.zellijPaneId
+            snapshot.zellijSessionName = p.zellijSessionName
+            snapshot.weztermPaneId = p.weztermPaneId
             snapshot.lastActivity = p.lastActivity
             // Restore persisted cliPid only if the process is still alive — avoids
             // stale sessions reappearing briefly after the app or IDE restarts (#46).
