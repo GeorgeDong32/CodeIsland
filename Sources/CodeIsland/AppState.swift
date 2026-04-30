@@ -1187,12 +1187,9 @@ final class AppState {
     /// Auto-approve all pending queued permissions for a session.
     /// Uses the configured AUTO mode for Claude Code, simple allow for other CLIs.
     ///
-    /// addRules mode: sends rules once then intentionally deactivates AUTO (single-shot).
-    ///   The rules in Claude Code will auto-approve matching tools; any PermissionRequest
-    ///   that arrives later means the tool is NOT covered → should be shown normally.
-    ///
-    /// setMode modes (dontAsk, bypassPermissions): keeps AUTO active so we can detect
-    ///   when the user exits the mode via a subsequent PermissionRequest.
+    /// All modes keep AUTO active after flushing. AUTO is deactivated when:
+    /// - HookServer receives a PermissionRequest (uncovered tool or mode exit)
+    /// - User taps the ⏵⏵ indicator to manually toggle off
     private func flushPendingPermissionsForAutoApprove(sessionId: String) {
         let isClaudeCode = sessions[sessionId]?.isClaude == true
         let response = isClaudeCode ? Self.autoApproveInitialResponse() : Self.simpleAllowResponse
@@ -1209,12 +1206,8 @@ final class AppState {
             refreshDerivedState()
         }
 
-        // addRules mode: single-shot, deactivate after sending rules.
-        // The rules in Claude Code will auto-approve matching tools; any PermissionRequest
-        // that arrives later means the tool is NOT covered → should be shown normally.
-        if isClaudeCode && SettingsManager.shared.autoApproveMode == .addRules {
-            autoApproveSessionId = nil
-        }
+        // addRules mode now keeps AUTO active (same as setMode modes).
+        // When an uncovered tool triggers PermissionRequest, HookServer deactivates AUTO.
     }
 
     /// Simple allow response for auto-approved permissions (no setMode)
@@ -1290,9 +1283,9 @@ final class AppState {
 
     /// Generate the initial AUTO response based on the selected mode.
     ///
-    /// - addRules: Sends a whitelist of built-in tool names. Claude Code auto-approves
-    ///   matching tools; unlisted tools still trigger PermissionRequest.
-    ///   AUTO is deactivated after this call (single-shot; see `flushPendingPermissionsForAutoApprove`).
+    /// - addRules: Switches to `acceptEdits` mode and sends a whitelist of built-in tool names.
+    ///   Claude Code auto-approves matching tools; unlisted tools still trigger PermissionRequest.
+    ///   AUTO stays active until an uncovered tool triggers deactivation or user toggles off.
     ///
     /// - dontAsk: Sets session to `dontAsk` mode. Claude Code auto-denies tools not in
     ///   `permissions.allow`, but PermissionRequest hook still fires for each tool call.
@@ -1306,12 +1299,21 @@ final class AppState {
         let mode = SettingsManager.shared.autoApproveMode
         switch mode {
         case .addRules:
-            return permissionAllowResponse(updatedPermissions: [[
-                "type": "addRules",
-                "rules": autoApproveToolNames.map { ["toolName": $0, "ruleContent": "*"] },
-                "behavior": "allow",
-                "destination": "session",
-            ]])
+            return permissionAllowResponse(updatedPermissions: [
+                // Switch to acceptEdits so the CLI shows the correct mode
+                [
+                    "type": "setMode",
+                    "mode": "acceptEdits",
+                    "destination": "session",
+                ],
+                // Send tool whitelist rules for session-level auto-approve
+                [
+                    "type": "addRules",
+                    "rules": autoApproveToolNames.map { ["toolName": $0, "ruleContent": "*"] },
+                    "behavior": "allow",
+                    "destination": "session",
+                ],
+            ])
         case .dontAsk, .bypassPermissions:
             guard let modeValue = mode.setModeValue else { return simpleAllowResponse }
             return permissionAllowResponse(updatedPermissions: [[

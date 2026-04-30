@@ -18,9 +18,9 @@ enum NotchHeightMode: String, CaseIterable {
 
 /// Strategy used when user presses the AUTO (auto-approve) button.
 ///
-/// - addRules: Sends tool-name whitelist rules via `updatedPermissions`.
+/// - addRules: Switches to `acceptEdits` mode and sends tool-name whitelist rules via `updatedPermissions`.
 ///   Only covers known built-in tools; MCP/unknown tools still trigger a prompt.
-///   Single-shot: AUTO is deactivated after rules are flushed (see `flushPendingPermissionsForAutoApprove`).
+///   AUTO stays active until an uncovered tool triggers deactivation or user toggles off.
 ///
 /// - dontAsk: Switches session to Claude Code's `dontAsk` mode via `setMode`.
 ///   All PermissionRequest events are still sent to the CodeIsland hook;
