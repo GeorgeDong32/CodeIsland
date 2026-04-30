@@ -968,6 +968,18 @@ final class AppState {
             maybeBackfillModel(for: sessionId)
         }
 
+        // Session was waiting and got an activity event. Historically we'd
+        // blanket-drain the whole queue here, assuming the user answered in the
+        // terminal. That heuristic misfires for parallel MCP / plugin tool calls:
+        // an unrelated PostToolUse / Stop / etc. would deny pending permissions
+        // for *other* in-flight tools (#147).
+        //
+        // The right signal that a specific permission is moot is its tool_use_id
+        // showing up in PostToolUse / PostToolUseFailure / PermissionDenied —
+        // resolveToolUseIfCompleted already does that surgically above. We keep
+        // the question-queue drain (questions don't carry tool_use_id reliably
+        // and are rare enough that a blanket sweep is acceptable) and refresh
+        // session status, but never drain unrelated permission requests.
         if wasWaiting {
             let keepWaiting: Set<String> = ["Notification", "SessionStart", "SessionEnd", "PreCompact"]
             if !keepWaiting.contains(normalizedEventName) {
