@@ -1157,8 +1157,9 @@ final class AppState {
     }
 
     /// Deactivate auto-approve for a session. Called when Claude Code
-    /// sends PermissionRequest despite bypassPermissions being set,
-    /// indicating user exited bypass mode in CLI.
+    /// sends PermissionRequest despite a setMode mode being active,
+    /// indicating the session's permission mode changed away from the
+    /// hook-controlled mode (e.g., user toggled mode in CLI).
     /// Note: No refreshDerivedState() needed — @Observable auto-detects
     /// autoApproveSessionId changes, and derived state doesn't depend on it.
     func deactivateAutoApprove(sessionId: String) {
@@ -1185,8 +1186,13 @@ final class AppState {
 
     /// Auto-approve all pending queued permissions for a session.
     /// Uses the configured AUTO mode for Claude Code, simple allow for other CLIs.
-    /// For addRules mode: sends rules once then deactivates AUTO (rules handle future matches).
-    /// For setMode modes: keeps AUTO active to detect user exit via subsequent PermissionRequest.
+    ///
+    /// addRules mode: sends rules once then intentionally deactivates AUTO (single-shot).
+    ///   The rules in Claude Code will auto-approve matching tools; any PermissionRequest
+    ///   that arrives later means the tool is NOT covered → should be shown normally.
+    ///
+    /// setMode modes (dontAsk, bypassPermissions): keeps AUTO active so we can detect
+    ///   when the user exits the mode via a subsequent PermissionRequest.
     private func flushPendingPermissionsForAutoApprove(sessionId: String) {
         let isClaudeCode = sessions[sessionId]?.isClaude == true
         let response = isClaudeCode ? Self.autoApproveInitialResponse() : Self.simpleAllowResponse
@@ -1276,6 +1282,18 @@ final class AppState {
     }
 
     /// Generate the initial AUTO response based on the selected mode.
+    ///
+    /// - addRules: Sends a whitelist of built-in tool names. Claude Code auto-approves
+    ///   matching tools; unlisted tools still trigger PermissionRequest.
+    ///   AUTO is deactivated after this call (single-shot; see `flushPendingPermissionsForAutoApprove`).
+    ///
+    /// - dontAsk: Sets session to `dontAsk` mode. Claude Code auto-denies tools not in
+    ///   `permissions.allow`, but PermissionRequest hook still fires for each tool call.
+    ///   CodeIsland controls approvals — hook allow → tool executes; hook deny/timeout → tool denied (no CLI popup).
+    ///
+    /// - bypassPermissions: Sets session to `bypassPermissions` mode. All tools pass without prompts.
+    ///   Only effective when the session was launched with `--dangerously-skip-permissions`;
+    ///   silently ignored in normal sessions (Claude Code 2.1.110+).
     @MainActor
     static func autoApproveInitialResponse() -> Data {
         let mode = SettingsManager.shared.autoApproveMode

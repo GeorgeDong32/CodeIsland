@@ -114,10 +114,10 @@ final class L10n: ObservableObject {
 
         // Auto-approve mode
         "auto_approve_mode": "AUTO Button Mode",
-        "auto_approve_mode_desc": "Choose how the AUTO button works when approving permissions.",
+        "auto_approve_mode_desc": "Choose how the AUTO button approves permissions. Bypass* only works in sessions launched with --dangerously-skip-permissions.",
         "auto_approve_mode_addRules": "Add Rules",
         "auto_approve_mode_dontAsk": "Don't Ask",
-        "auto_approve_mode_bypass": "Bypass",
+        "auto_approve_mode_bypass": "Bypass*",
         // Auto-approve tools
         "auto_approve_tools": "Auto-approve Tools",
         "auto_approve_tools_desc": "These internal tools are auto-approved without showing a confirmation dialog. Disable tools you want to review manually.",
@@ -385,10 +385,10 @@ final class L10n: ObservableObject {
 
         // Auto-approve mode
         "auto_approve_mode": "AUTO 按钮模式",
-        "auto_approve_mode_desc": "选择 AUTO 按钮批准权限时的工作方式。",
+        "auto_approve_mode_desc": "选择 AUTO 按钮批准权限时的工作方式。绕过*仅在使用 --dangerously-skip-permissions 启动的会话中有效。",
         "auto_approve_mode_addRules": "批量允许",
         "auto_approve_mode_dontAsk": "不再询问",
-        "auto_approve_mode_bypass": "绕过权限",
+        "auto_approve_mode_bypass": "绕过权限*",
         // Auto-approve tools
         "auto_approve_tools": "自动批准工具",
         "auto_approve_tools_desc": "这些内部工具会自动批准，无需弹出确认对话框。关闭你想要手动审核的工具。",
@@ -656,10 +656,10 @@ final class L10n: ObservableObject {
 
         // Auto-approve mode
         "auto_approve_mode": "AUTOボタンモード",
-        "auto_approve_mode_desc": "AUTOボタンで権限を承認する際の動作を選択します。",
+        "auto_approve_mode_desc": "AUTOボタンで権限を承認する際の動作を選択します。バイパス*は --dangerously-skip-permissions で起動したセッションのみ有効です。",
         "auto_approve_mode_addRules": "ルール追加",
         "auto_approve_mode_dontAsk": "確認なし",
-        "auto_approve_mode_bypass": "バイパス",
+        "auto_approve_mode_bypass": "バイパス*",
         // Auto-approve tools
         "auto_approve_tools": "自動承認ツール",
         "auto_approve_tools_desc": "これらの内部ツールは確認ダイアログなしで自動承認されます。手動で確認したいツールはオフにしてください。",
@@ -927,10 +927,10 @@ final class L10n: ObservableObject {
 
         // Auto-approve mode
         "auto_approve_mode": "AUTO 버튼 모드",
-        "auto_approve_mode_desc": "AUTO 버튼으로 권한을 승인하는 방식을 선택합니다.",
+        "auto_approve_mode_desc": "AUTO 버튼으로 권한을 승인하는 방식을 선택합니다. 바이패스*는 --dangerously-skip-permissions로 시작한 세션에서만 유효합니다.",
         "auto_approve_mode_addRules": "규칙 추가",
         "auto_approve_mode_dontAsk": "확인 없음",
-        "auto_approve_mode_bypass": "바이패스",
+        "auto_approve_mode_bypass": "바이패스*",
         // Auto-approve tools
         "auto_approve_tools": "자동 승인 도구",
         "auto_approve_tools_desc": "이 내부 도구들은 확인 대화상자 없이 자동 승인됩니다. 수동으로 검토하려는 도구는 비활성화하세요.",
@@ -1198,10 +1198,10 @@ final class L10n: ObservableObject {
 
         // Auto-approve mode
         "auto_approve_mode": "AUTO Düğme Modu",
-        "auto_approve_mode_desc": "AUTO düğmesinin izinleri onaylama şeklini seçin.",
+        "auto_approve_mode_desc": "AUTO düğmesinin izinleri onaylama şeklini seçin. Atlat* yalnızca --dangerously-skip-permissions ile başlatılan oturumlarda çalışır.",
         "auto_approve_mode_addRules": "Kural Ekle",
         "auto_approve_mode_dontAsk": "Sorma",
-        "auto_approve_mode_bypass": "Atlat",
+        "auto_approve_mode_bypass": "Atlat*",
         // Auto-approve tools
         "auto_approve_tools": "Otomatik Onay Araçları",
         "auto_approve_tools_desc": "Bu iç araçlar onay iletişim kutusu gösterilmeden otomatik olarak onaylanır. Manuel olarak incelemek istediğiniz araçları devre dışı bırakın.",

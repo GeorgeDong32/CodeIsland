@@ -17,6 +17,19 @@ enum NotchHeightMode: String, CaseIterable {
 }
 
 /// Strategy used when user presses the AUTO (auto-approve) button.
+///
+/// - addRules: Sends tool-name whitelist rules via `updatedPermissions`.
+///   Only covers known built-in tools; MCP/unknown tools still trigger a prompt.
+///   Single-shot: AUTO is deactivated after rules are flushed (see `flushPendingPermissionsForAutoApprove`).
+///
+/// - dontAsk: Switches session to Claude Code's `dontAsk` mode via `setMode`.
+///   All PermissionRequest events are still sent to the CodeIsland hook;
+///   the hook responds allow/deny for each tool. Tools not approved by the hook
+///   are auto-denied by Claude Code (no CLI popup). Full hook control.
+///
+/// - bypassPermissions: Switches session to Claude Code's `bypassPermissions` mode via `setMode`.
+///   Only effective when the session was launched with `--dangerously-skip-permissions`
+///   or `--permission-mode bypassPermissions`. Silently ignored in normal sessions (Claude Code 2.1.110+).
 enum AutoApproveMode: String, CaseIterable, Identifiable {
     case addRules = "addRules"
     case dontAsk = "dontAsk"
