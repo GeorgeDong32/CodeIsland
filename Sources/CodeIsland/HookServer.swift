@@ -167,10 +167,8 @@ class HookServer {
             }
 
             // If auto-approve is active but a PermissionRequest arrived:
-            // For Claude Code (setMode modes): user exited bypass/dontAsk in CLI.
-            // Deactivate auto-approve and show approval card.
-            // Note: addRules mode deactivates after sending rules, so AUTO active
-            // here means it's a setMode mode (dontAsk/bypassPermissions).
+            // For Claude Code: user exited setMode in CLI, or an uncovered tool
+            // triggered the request (addRules mode). Deactivate and show approval card.
             // For other CLIs: no setMode support, keep silent approval.
             if appState.isAutoApproveActive(for: sessionId) {
                 if let session = appState.sessions[sessionId] {

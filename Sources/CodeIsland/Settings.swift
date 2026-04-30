@@ -37,7 +37,7 @@ enum AutoApproveMode: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// Claude Code setMode value (nil for addRules which doesn't use setMode).
+    /// Claude Code setMode value. addRules sends setMode inline in autoApproveInitialResponse.
     var setModeValue: String? {
         switch self {
         case .addRules: return nil
