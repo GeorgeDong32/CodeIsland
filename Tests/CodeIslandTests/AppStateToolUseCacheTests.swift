@@ -160,6 +160,117 @@ final class AppStateToolUseCacheTests: XCTestCase {
         XCTAssertEqual(try behavior(keptResponse), "allow")
     }
 
+    // MARK: - issue #147 regression: parallel/plugin tool calls must not deny pending permissions
+
+    /// Repro for #147: a Stop (or any non-keepWaiting activity event) arriving
+    /// while a PermissionRequest is pending used to trigger a wasWaiting blanket
+    /// drain that denied the queued request before the user could react.
+    /// After the fix, only surgical (tool_use_id) drains may remove a queued
+    /// permission — unrelated activity events leave the queue alone.
+    func testStopEventDoesNotDenyPendingPermission() async throws {
+        let appState = AppState()
+        let pending = try makePermissionEvent(sessionId: "s1", toolName: "Bash", toolUseId: "toolu_keep")
+
+        let responseTask = Task<Data, Never> {
+            await withCheckedContinuation { cont in
+                appState.handlePermissionRequest(pending, continuation: cont)
+            }
+        }
+        await Task.yield()
+        XCTAssertEqual(appState.permissionQueue.count, 1)
+        XCTAssertEqual(appState.sessions["s1"]?.status, .waitingApproval)
+
+        // Activity event for the same session that carries no tool_use_id.
+        // Pre-fix this would blanket-drain the pending permission via the
+        // wasWaiting branch in handleEvent.
+        appState.handleEvent(try makeHookEvent(
+            name: "Stop",
+            sessionId: "s1",
+            toolName: nil,
+            toolUseId: nil
+        ))
+
+        XCTAssertEqual(appState.permissionQueue.count, 1, "Stop must not deny a pending PermissionRequest with a different/absent tool_use_id (#147)")
+        await assertTaskNotResolved(responseTask)
+
+        appState.approvePermission()
+        let response = await responseTask.value
+        XCTAssertEqual(try behavior(response), "allow")
+    }
+
+    /// Repro for #147 with parallel tools: Notion / MCP plugin invokes two
+    /// fetches at once. The first PostToolUse arrives (its PreToolUse was never
+    /// cached, so `resolveToolUseIfCompleted` finds nothing to drain) while the
+    /// second tool's PermissionRequest is still pending. Pre-fix, the blanket
+    /// drain would deny the pending second request; the UI flashed a card and
+    /// users saw "denied by PermissionRequest hook" before they could react.
+    func testParallelPostToolUseDoesNotDenyUnrelatedPendingPermission() async throws {
+        let appState = AppState()
+        let pendingForToolB = try makePermissionEvent(
+            sessionId: "s1",
+            toolName: "mcp__notion__notion-fetch",
+            toolUseId: "toolu_B"
+        )
+
+        let responseTask = Task<Data, Never> {
+            await withCheckedContinuation { cont in
+                appState.handlePermissionRequest(pendingForToolB, continuation: cont)
+            }
+        }
+        await Task.yield()
+        XCTAssertEqual(appState.permissionQueue.count, 1)
+
+        // Tool A finishes — PostToolUse arrives with a tool_use_id that was
+        // never in the queue (and never cached, since we skipped its PreToolUse
+        // for this scenario). resolveToolUseIfCompleted removes nothing.
+        appState.handleEvent(try makeHookEvent(
+            name: "PostToolUse",
+            sessionId: "s1",
+            toolName: "mcp__notion__notion-fetch",
+            toolUseId: "toolu_A"
+        ))
+
+        XCTAssertEqual(appState.permissionQueue.count, 1,
+            "Unrelated PostToolUse must not deny pending PermissionRequest for parallel tool (#147)")
+        XCTAssertEqual(appState.permissionQueue.first?.toolUseId, "toolu_B")
+        await assertTaskNotResolved(responseTask)
+
+        appState.approvePermission()
+        let response = await responseTask.value
+        XCTAssertEqual(try behavior(response), "allow")
+    }
+
+    func testTraePostToolUseKeepsQueuedPermissionUntilUserResponds() async throws {
+        let appState = AppState()
+        let pending = try makePermissionEvent(
+            sessionId: "s1",
+            toolName: "Bash",
+            toolUseId: "toolu_trae",
+            source: "traecli"
+        )
+
+        let responseTask = Task<Data, Never> {
+            await withCheckedContinuation { cont in
+                appState.handlePermissionRequest(pending, continuation: cont)
+            }
+        }
+        await Task.yield()
+        XCTAssertEqual(appState.permissionQueue.count, 1)
+
+        appState.handleEvent(try makeHookEvent(
+            name: "PostToolUse",
+            sessionId: "s1",
+            toolName: "Bash",
+            toolUseId: "toolu_trae",
+            source: "traecli"
+        ))
+
+        XCTAssertEqual(appState.permissionQueue.count, 1)
+        await assertTaskNotResolved(responseTask)
+
+        appState.approvePermission()
+        let response = await responseTask.value
+        XCTAssertEqual(try behavior(response), "allow")
     // MARK: - Backfill from cache
 
     func testEnrichBackfillsMissingToolNameFromCache() throws {

@@ -1,5 +1,8 @@
 import Foundation
+import os.log
 import CodeIslandCore
+
+private let log = Logger(subsystem: "com.codeisland", category: "PermissionDeny")
 
 /// Cached metadata for an in-flight tool_use_id, written on PreToolUse and consumed by
 /// downstream PermissionRequest / PostToolUse events.
@@ -53,7 +56,9 @@ extension AppState {
         else { return }
 
         let stale = permissionQueue.remove(at: staleIndex)
-        stale.continuation.resume(returning: Self.permissionDenyResponse())
+        log.notice("⚠️ permission deny reason=resolveToolUseIfCompleted session=\(stale.event.sessionId ?? "nil", privacy: .public) toolUseId=\(toolUseId, privacy: .public) tool=\(stale.event.toolName ?? "nil", privacy: .public) triggerEvent=\(normalized, privacy: .public)")
+        let denyBody = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#
+        stale.continuation.resume(returning: Data(denyBody.utf8))
 
         // If the card we were showing was the drained one, advance to the next pending
         // request (or collapse if nothing is left).
@@ -88,7 +93,9 @@ extension AppState {
         else { return false }
 
         let existing = permissionQueue[existingIndex]
-        existing.continuation.resume(returning: Self.permissionDenyResponse())
+        log.notice("⚠️ permission deny reason=mergeDuplicatePermissionRequest session=\(existing.event.sessionId ?? "nil", privacy: .public) toolUseId=\(toolUseId, privacy: .public) tool=\(existing.event.toolName ?? "nil", privacy: .public)")
+        let denyBody = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#
+        existing.continuation.resume(returning: Data(denyBody.utf8))
         permissionQueue[existingIndex] = request
         return true
     }
