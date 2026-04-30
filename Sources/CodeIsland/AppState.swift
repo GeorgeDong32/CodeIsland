@@ -46,6 +46,12 @@ final class AppState {
     // Session-scoped auto-approve state: only one session at a time
     var autoApproveSessionId: String?
 
+    /// Session that needs addRules cleanup on next permission allow response.
+    /// Set when AUTO is deactivated; consumed by approvePermission().
+    /// removeRules can only be sent in "allow" responses (not "deny"), so if
+    /// the user denies the triggering request, cleanup is deferred to the next allow.
+    var autoApproveCleanupSessionId: String?
+
     /// Computed: first item in permission queue (backward compat for UI reads)
     var pendingPermission: PermissionRequest? { permissionQueue.first }
     /// Computed: first item in question queue
@@ -490,6 +496,9 @@ final class AppState {
         // Reset auto-approve if this session had it active
         if autoApproveSessionId == sessionId {
             autoApproveSessionId = nil
+        }
+        if autoApproveCleanupSessionId == sessionId {
+            autoApproveCleanupSessionId = nil
         }
 
         // Resume ALL pending continuations for this session
@@ -1041,18 +1050,48 @@ final class AppState {
         let pending = permissionQueue.removeFirst()
         let sessionId = pending.event.sessionId ?? "default"
         dismissedPermissionSessionIds.remove(sessionId)
+
+        // Check if this session has pending addRules cleanup (AUTO was deactivated)
+        let needsCleanup = autoApproveCleanupSessionId == sessionId
+        if needsCleanup { autoApproveCleanupSessionId = nil }
+
         let responseData: Data
         if always {
             let toolName = pending.event.toolName ?? ""
-            responseData = Self.permissionAllowResponse(updatedPermissions: [[
+            var permissions: [[String: Any]] = [[
                 "type": "addRules",
                 "rules": [["toolName": toolName, "ruleContent": "*"]],
                 "behavior": "allow",
                 "destination": "session",
-            ]])
+            ]]
+            if needsCleanup {
+                // Reset mode and remove AUTO whitelist rules
+                permissions.append([
+                    "type": "setMode", "mode": "default", "destination": "session",
+                ])
+                permissions.append([
+                    "type": "removeRules",
+                    "rules": Self.autoApproveToolNames.map { ["toolName": $0, "ruleContent": "*"] },
+                    "behavior": "allow",
+                    "destination": "session",
+                ])
+            }
+            responseData = Self.permissionAllowResponse(updatedPermissions: permissions)
+        } else if needsCleanup {
+            // Clean up AUTO session rules alongside this allow
+            responseData = Self.permissionAllowResponse(updatedPermissions: [
+                ["type": "setMode", "mode": "default", "destination": "session"],
+                [
+                    "type": "removeRules",
+                    "rules": Self.autoApproveToolNames.map { ["toolName": $0, "ruleContent": "*"] },
+                    "behavior": "allow",
+                    "destination": "session",
+                ],
+            ])
         } else {
             responseData = Self.simpleAllowResponse
         }
+
         pending.continuation.resume(returning: responseData)
         sessions[sessionId]?.status = .running
 
@@ -1165,13 +1204,15 @@ final class AppState {
     func deactivateAutoApprove(sessionId: String) {
         guard autoApproveSessionId == sessionId else { return }
         autoApproveSessionId = nil
+        autoApproveCleanupSessionId = sessionId  // Mark for cleanup on next allow
     }
 
     /// Toggle auto-approve for a session. Only one session at a time.
     func toggleAutoApprove(sessionId: String) {
         if autoApproveSessionId == sessionId {
-            // Deactivate
+            // Deactivate — mark for cleanup on next permission allow response
             autoApproveSessionId = nil
+            autoApproveCleanupSessionId = sessionId
         } else {
             // Log if another session was in bypass (cannot revoke remotely)
             if let previousId = autoApproveSessionId, previousId != sessionId {
@@ -1179,6 +1220,10 @@ final class AppState {
             }
             // Activate (deactivates previous session if any)
             autoApproveSessionId = sessionId
+            // Clear stale cleanup — reactivating AUTO makes previous cleanup moot
+            if autoApproveCleanupSessionId == sessionId {
+                autoApproveCleanupSessionId = nil
+            }
             // Flush all pending permissions for this session
             flushPendingPermissionsForAutoApprove(sessionId: sessionId)
         }
