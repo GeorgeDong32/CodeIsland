@@ -878,6 +878,16 @@ final class AppState {
     /// Call after any mutation to `sessions` or session status.
     func refreshDerivedState() {
         let summary = deriveSessionSummary(from: sessions)
+        // Whenever no session is actively working, honor the user-configured
+        // default mascot. Covers both "no sessions at all" (#102) and "all
+        // sessions idle" (#149) — without this, a user who sets the default
+        // to Codex still sees Claude every time their last session goes idle
+        // because deriveSessionSummary echoes the most recently active source.
+        // Active work always wins (running / processing / waiting* status).
+        let effectiveSource: String
+        if summary.status == .idle {
+        }
+>>>>>>> 257778b (fix: honor user default mascot whenever no session is actively working (#149))
         // Only assign when changed (avoids unnecessary @Observable notifications)
         if status != summary.status { status = summary.status }
         if primarySource != summary.primarySource { primarySource = summary.primarySource }
