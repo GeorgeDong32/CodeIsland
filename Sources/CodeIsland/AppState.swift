@@ -1230,9 +1230,16 @@ final class AppState {
     /// All built-in tool names for addRules-based auto-approve.
     /// Only covers known internal tools; MCP tools (mcp__server__tool) require manual approval.
     private static let autoApproveToolNames = [
+        // File & editing tools
         "Bash", "Edit", "MultiEdit", "Write", "Read", "Glob", "Grep",
-        "NotebookEdit", "Task", "WebSearch", "WebFetch",
+        // Notebook & search
+        "NotebookEdit", "WebSearch", "WebFetch",
+        // Agent & skill
         "Agent", "Skill",
+        // Task management
+        "TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskOutput", "TaskStop",
+        // Todo & plan
+        "TodoRead", "TodoWrite", "EnterPlanMode", "ExitPlanMode",
     ]
 
     /// Build a hook response with correct top-level fields.
@@ -1292,8 +1299,8 @@ final class AppState {
     ///   CodeIsland controls approvals — hook allow → tool executes; hook deny/timeout → tool denied (no CLI popup).
     ///
     /// - bypassPermissions: Sets session to `bypassPermissions` mode. All tools pass without prompts.
-    ///   Only effective when the session was launched with `--dangerously-skip-permissions`;
-    ///   silently ignored in normal sessions (Claude Code 2.1.110+).
+    ///   Only effective when the session was launched with `--dangerously-skip-permissions`
+    ///   or `--permission-mode bypassPermissions`; silently ignored in normal sessions (Claude Code 2.1.110+).
     @MainActor
     static func autoApproveInitialResponse() -> Data {
         let mode = SettingsManager.shared.autoApproveMode

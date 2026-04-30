@@ -166,7 +166,7 @@ struct SettingsDefaults {
 
     static let defaultSource = "claude"
 
-    static let autoApproveTools = "TaskCreate,TaskUpdate,TaskGet,TaskList,TaskOutput,TaskStop,TodoRead,TodoWrite,EnterPlanMode"
+    static let autoApproveTools = "TaskCreate,TaskUpdate,TaskGet,TaskList,TaskOutput,TaskStop,TodoRead,TodoWrite,EnterPlanMode,ExitPlanMode"
 
     static let autoApproveMode = AutoApproveMode.addRules.rawValue
 }
