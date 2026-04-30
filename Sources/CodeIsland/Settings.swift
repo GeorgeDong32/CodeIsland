@@ -26,8 +26,9 @@ enum NotchHeightMode: String, CaseIterable {
 ///   Built-in tools match the rules and are auto-approved; uncovered tools trigger
 ///   PermissionRequest for hook to decide (allow/deny). Full hook control, no CLI popup.
 ///
-/// - bypassPermissions: Switches session to Claude Code's `bypassPermissions` mode and sends tool whitelist rules.
-///   All tools pass without prompts; uncovered tools trigger PermissionRequest for hook.
+/// - bypassPermissions: Switches session to Claude Code's `bypassPermissions` mode and sends
+///   tool whitelist rules. Whitelisted built-in tools are auto-approved by session rules;
+///   uncovered tools trigger PermissionRequest for hook to decide (allow/deny).
 ///   Only effective when the session was launched with `--dangerously-skip-permissions`
 ///   or `--permission-mode bypassPermissions`. Silently ignored in normal sessions (Claude Code 2.1.110+).
 enum AutoApproveMode: String, CaseIterable, Identifiable {
