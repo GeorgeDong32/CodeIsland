@@ -22,12 +22,12 @@ enum NotchHeightMode: String, CaseIterable {
 ///   Only covers known built-in tools; MCP/unknown tools still trigger a prompt.
 ///   AUTO stays active until an uncovered tool triggers deactivation or user toggles off.
 ///
-/// - dontAsk: Switches session to Claude Code's `dontAsk` mode via `setMode`.
-///   All PermissionRequest events are still sent to the CodeIsland hook;
-///   the hook responds allow/deny for each tool. Tools not approved by the hook
-///   are auto-denied by Claude Code (no CLI popup). Full hook control.
+/// - dontAsk: Switches session to Claude Code's `dontAsk` mode and sends tool whitelist rules.
+///   Built-in tools match the rules and are auto-approved; uncovered tools trigger
+///   PermissionRequest for hook to decide (allow/deny). Full hook control, no CLI popup.
 ///
-/// - bypassPermissions: Switches session to Claude Code's `bypassPermissions` mode via `setMode`.
+/// - bypassPermissions: Switches session to Claude Code's `bypassPermissions` mode and sends tool whitelist rules.
+///   All tools pass without prompts; uncovered tools trigger PermissionRequest for hook.
 ///   Only effective when the session was launched with `--dangerously-skip-permissions`
 ///   or `--permission-mode bypassPermissions`. Silently ignored in normal sessions (Claude Code 2.1.110+).
 enum AutoApproveMode: String, CaseIterable, Identifiable {

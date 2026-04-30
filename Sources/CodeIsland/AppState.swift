@@ -1287,11 +1287,12 @@ final class AppState {
     ///   Claude Code auto-approves matching tools; unlisted tools still trigger PermissionRequest.
     ///   AUTO stays active until an uncovered tool triggers deactivation or user toggles off.
     ///
-    /// - dontAsk: Sets session to `dontAsk` mode. Claude Code auto-denies tools not in
-    ///   `permissions.allow`, but PermissionRequest hook still fires for each tool call.
-    ///   CodeIsland controls approvals — hook allow → tool executes; hook deny/timeout → tool denied (no CLI popup).
+    /// - dontAsk: Sets session to `dontAsk` mode and sends tool whitelist rules.
+    ///   Built-in tools match the rules and are auto-approved; uncovered tools trigger
+    ///   PermissionRequest for hook to decide (allow/deny). Full hook control, no CLI popup.
     ///
-    /// - bypassPermissions: Sets session to `bypassPermissions` mode. All tools pass without prompts.
+    /// - bypassPermissions: Sets session to `bypassPermissions` mode and sends tool whitelist rules.
+    ///   All tools pass without prompts; uncovered tools trigger PermissionRequest for hook.
     ///   Only effective when the session was launched with `--dangerously-skip-permissions`
     ///   or `--permission-mode bypassPermissions`; silently ignored in normal sessions (Claude Code 2.1.110+).
     @MainActor
@@ -1316,11 +1317,22 @@ final class AppState {
             ])
         case .dontAsk, .bypassPermissions:
             guard let modeValue = mode.setModeValue else { return simpleAllowResponse }
-            return permissionAllowResponse(updatedPermissions: [[
-                "type": "setMode",
-                "mode": modeValue,
-                "destination": "session",
-            ]])
+            return permissionAllowResponse(updatedPermissions: [
+                // Switch to dontAsk/bypass mode
+                [
+                    "type": "setMode",
+                    "mode": modeValue,
+                    "destination": "session",
+                ],
+                // Add tool whitelist rules so covered tools are auto-approved
+                // (uncovered tools still trigger PermissionRequest for hook to decide)
+                [
+                    "type": "addRules",
+                    "rules": autoApproveToolNames.map { ["toolName": $0, "ruleContent": "*"] },
+                    "behavior": "allow",
+                    "destination": "session",
+                ],
+            ])
         }
     }
 
