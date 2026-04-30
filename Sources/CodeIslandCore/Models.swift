@@ -43,6 +43,31 @@ public enum CLIProcessResolver {
         return immediateParentPID
     }
 
+    /// Stable per-session PID for fallback session_id generation. Walks the
+    /// ancestry from root downward and picks the *highest* binary matching
+    /// the source, so sub-agent processes spawned by the same parent CLI
+    /// (e.g. Cursor IDE running multiple parallel agent subprocesses, #148)
+    /// collapse onto a single session card instead of fanning out into one
+    /// card per sub-agent ppid.
+    ///
+    /// Falls back to `immediateParentPID` when no source-matching binary is
+    /// in the ancestry — preserves prior behavior for everything else.
+    public static func resolvedSessionPID(
+        immediateParentPID: Int32,
+        source: String?,
+        ancestry: [(pid: Int32, executablePath: String?)]
+    ) -> Int32 {
+        guard immediateParentPID > 0 else { return immediateParentPID }
+
+        if let rootMatch = ancestry.last(where: {
+            sourceMatchesExecutablePath($0.executablePath ?? "", source: source)
+        }) {
+            return rootMatch.pid
+        }
+
+        return immediateParentPID
+    }
+
     /// Walk the process ancestry and return the first known CLI source whose binary
     /// appears along the chain. Used when a hook event reaches the bridge without a
     /// `--source` tag (e.g. omo plugin firing Claude hooks from inside OpenCode), so

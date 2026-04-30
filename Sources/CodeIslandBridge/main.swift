@@ -262,6 +262,107 @@ if sourceTag == "copilot" {
     }
 }
 
+// Resolve process ancestry once — used for both session_id fallback (#148) and
+// _ppid resolution downstream. Some CLIs execute hooks through `sh -c`, so
+// `getppid()` is a transient shell rather than the long-lived CLI process.
+let immediateParentPID = getppid()
+let ancestry = buildAncestry(startingAt: immediateParentPID)
+let coreAncestry = ancestry.map { (pid: Int32($0.pid), executablePath: $0.executablePath) }
+
+// Source tag (e.g. "codex" when called via --source codex). If the caller did not pass
+// one (e.g. the omo OpenCode plugin triggering Claude hooks without --source), infer
+// the real source from the process ancestry so we don't misattribute the event to
+// whichever hook path fired it. See issue #95.
+// In addition, the cursor-agent / qodercli CLIs share their hooks file with
+// the matching desktop IDE, so a `--source cursor` tag from a hook fired by
+// cursor-agent should be promoted to "cursor-cli" (#134). The override only
+// applies when ancestry actually shows a CLI binary.
+let inferredSource = sourceTag ?? CLIProcessResolver.inferSource(ancestry: coreAncestry)
+let cliPromoted = CLIProcessResolver.cliVariantOverride(
+    declaredSource: inferredSource,
+    ancestry: coreAncestry
+)
+let effectiveSource = cliPromoted ?? inferredSource
+if let source = effectiveSource {
+    json["_source"] = source
+}
+// Mark events that arrived via a plugin proxy (no explicit --source but
+// ancestry inferred a real source — e.g. the omo OpenCode plugin firing
+// Claude hooks) so the host app can route them per pluginSessionMode.
+// See issue #123.
+if sourceTag == nil && effectiveSource != nil {
+    json["_via_plugin"] = true
+}
+
+let resolvedTrackedPID = CLIProcessResolver.resolvedTrackedPID(
+    immediateParentPID: Int32(immediateParentPID),
+    source: effectiveSource,
+    ancestry: coreAncestry
+)
+json["_ppid"] = resolvedTrackedPID
+if resolvedTrackedPID != immediateParentPID {
+    json["_hook_ppid"] = Int32(immediateParentPID)
+}
+
+// Validate: must have non-empty session_id
+// Resolve process ancestry once — used for both session_id fallback (#148) and
+// _ppid resolution downstream. Some CLIs execute hooks through `sh -c`, so
+// `getppid()` is a transient shell rather than the long-lived CLI process.
+let immediateParentPID = getppid()
+let ancestry = buildAncestry(startingAt: immediateParentPID)
+let coreAncestry = ancestry.map { (pid: Int32($0.pid), executablePath: $0.executablePath) }
+
+// Source tag (e.g. "codex" when called via --source codex). If the caller did not pass
+// one (e.g. the omo OpenCode plugin triggering Claude hooks without --source), infer
+// the real source from the process ancestry so we don't misattribute the event to
+// whichever hook path fired it. See issue #95.
+// In addition, the cursor-agent / qodercli CLIs share their hooks file with
+// the matching desktop IDE, so a `--source cursor` tag from a hook fired by
+// cursor-agent should be promoted to "cursor-cli" (#134). The override only
+// applies when ancestry actually shows a CLI binary.
+let inferredSource = sourceTag ?? CLIProcessResolver.inferSource(ancestry: coreAncestry)
+let cliPromoted = CLIProcessResolver.cliVariantOverride(
+    declaredSource: inferredSource,
+    ancestry: coreAncestry
+)
+let effectiveSource = cliPromoted ?? inferredSource
+if let source = effectiveSource {
+    json["_source"] = source
+}
+// Mark events that arrived via a plugin proxy (no explicit --source but
+// ancestry inferred a real source — e.g. the omo OpenCode plugin firing
+// Claude hooks) so the host app can route them per pluginSessionMode.
+// See issue #123.
+if sourceTag == nil && effectiveSource != nil {
+    json["_via_plugin"] = true
+}
+
+// Session ID fallback for third-party providers without stable session ID.
+// Use the root same-source binary in the ancestry so sub-agent processes
+// (e.g. Cursor IDE spawning multiple parallel agent subprocesses, #148)
+// collapse onto a single session card instead of fanning into N cards.
+if json["session_id"] == nil,
+   let source = effectiveSource,
+   !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+    let sessionPID = CLIProcessResolver.resolvedSessionPID(
+        immediateParentPID: Int32(immediateParentPID),
+        source: source,
+        ancestry: coreAncestry
+    )
+    json["session_id"] = "\(source)-ppid-\(sessionPID)"
+    debugLog("session_id missing, generated fallback id: \(json["session_id"] ?? "")")
+}
+
+let resolvedTrackedPID = CLIProcessResolver.resolvedTrackedPID(
+    immediateParentPID: Int32(immediateParentPID),
+    source: effectiveSource,
+    ancestry: coreAncestry
+)
+json["_ppid"] = resolvedTrackedPID
+if resolvedTrackedPID != immediateParentPID {
+    json["_hook_ppid"] = Int32(immediateParentPID)
+}
+
 // Validate: must have non-empty session_id
 guard let sessionId = json["session_id"] as? String, !sessionId.isEmpty else {
     debugLog("no session_id, dropping")
@@ -332,32 +433,6 @@ if let cmuxSurface = env["CMUX_SURFACE_ID"], !cmuxSurface.isEmpty {
 }
 if let cmuxWorkspace = env["CMUX_WORKSPACE_ID"], !cmuxWorkspace.isEmpty {
     json["_cmux_workspace_id"] = cmuxWorkspace
-}
-
-// Resolve the tracked PID. Some CLIs execute hooks through `sh -c`, so `getppid()` can be a
-// transient shell instead of the long-lived CLI process. Walk a short parent chain and prefer
-// the first executable that matches the provider binary.
-let immediateParentPID = getppid()
-let ancestry = buildAncestry(startingAt: immediateParentPID)
-let coreAncestry = ancestry.map { (pid: Int32($0.pid), executablePath: $0.executablePath) }
-
-// Source tag (e.g. "codex" when called via --source codex). If the caller did not pass
-// one (e.g. the omo OpenCode plugin triggering Claude hooks without --source), infer
-// the real source from the process ancestry so we don't misattribute the event to
-// whichever hook path fired it. See issue #95.
-let effectiveSource = sourceTag ?? CLIProcessResolver.inferSource(ancestry: coreAncestry)
-if let source = effectiveSource {
-    json["_source"] = source
-}
-
-let resolvedTrackedPID = CLIProcessResolver.resolvedTrackedPID(
-    immediateParentPID: Int32(immediateParentPID),
-    source: effectiveSource,
-    ancestry: coreAncestry
-)
-json["_ppid"] = resolvedTrackedPID
-if resolvedTrackedPID != immediateParentPID {
-    json["_hook_ppid"] = Int32(immediateParentPID)
 }
 
 // --- Serialize enriched JSON ---
