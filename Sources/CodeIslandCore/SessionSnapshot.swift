@@ -513,8 +513,12 @@ public func reduceEvent(
         sessions[sessionId] = SessionSnapshot()
     }
 
-    // Always update metadata from every event
-    extractMetadata(into: &sessions, sessionId: sessionId, event: event)
+    // Always update metadata from parent events. Subagent events are routed
+    // through the parent session ID, so applying their metadata here would
+    // overwrite the parent's model/transcript/title with child-session values.
+    if event.agentId == nil {
+        extractMetadata(into: &sessions, sessionId: sessionId, event: event)
+    }
     let isRemote = sessions[sessionId]?.isRemote == true
 
     // Route subagent-specific events
@@ -914,6 +918,24 @@ private func firstStringFromEvent(_ event: HookEvent, keys: [String], includeNes
     return nil
 }
 
+private func subagentType(from event: HookEvent) -> String {
+    firstStringFromEvent(event, keys: ["agent_type", "agentType"], includeNested: false) ?? "Agent"
+}
+
+private func ensureSubagent(
+    sessions: inout [String: SessionSnapshot],
+    sessionId: String,
+    agentId: String,
+    event: HookEvent
+) {
+    if sessions[sessionId]?.subagents[agentId] == nil {
+        sessions[sessionId]?.subagents[agentId] = SubagentState(
+            agentId: agentId,
+            agentType: subagentType(from: event)
+        )
+    }
+}
+
 /// Handle subagent events. Returns true if the event was consumed.
 private func handleSubagentEvent(
     sessions: inout [String: SessionSnapshot],
@@ -925,8 +947,8 @@ private func handleSubagentEvent(
     effects: inout [SideEffect]
 ) -> Bool {
     switch eventName {
-    case "SubagentStart":
-        let agentType = event.rawJSON["agent_type"] as? String ?? "Agent"
+    case "SubagentStart", "SessionStart":
+        let agentType = subagentType(from: event)
         sessions[sessionId]?.subagents[agentId] = SubagentState(
             agentId: agentId,
             agentType: agentType
@@ -941,7 +963,21 @@ private func handleSubagentEvent(
         effects.append(.setActiveSession(sessionId: sessionId))
         return true
 
-    case "SubagentStop":
+    case "UserPromptSubmit":
+        ensureSubagent(sessions: &sessions, sessionId: sessionId, agentId: agentId, event: event)
+        sessions[sessionId]?.subagents[agentId]?.status = .processing
+        sessions[sessionId]?.subagents[agentId]?.lastActivity = Date()
+        if sessions[sessionId]?.status != .waitingApproval && sessions[sessionId]?.status != .waitingQuestion {
+            let agentType = sessions[sessionId]?.subagents[agentId]?.agentType
+            sessions[sessionId]?.status = .running
+            sessions[sessionId]?.currentTool = "Agent"
+            sessions[sessionId]?.toolDescription = agentType
+        }
+        sessions[sessionId]?.lastActivity = Date()
+        effects.append(.setActiveSession(sessionId: sessionId))
+        return true
+
+    case "SubagentStop", "Stop", "SessionEnd":
         sessions[sessionId]?.subagents.removeValue(forKey: agentId)
         // If no more subagents, revert parent to processing (waiting for main thread to continue)
         if sessions[sessionId]?.subagents.isEmpty == true {
@@ -955,6 +991,7 @@ private func handleSubagentEvent(
         return true
 
     case "PreToolUse":
+        ensureSubagent(sessions: &sessions, sessionId: sessionId, agentId: agentId, event: event)
         sessions[sessionId]?.subagents[agentId]?.status = .running
         sessions[sessionId]?.subagents[agentId]?.currentTool = event.toolName
         sessions[sessionId]?.subagents[agentId]?.toolDescription = event.toolDescription
@@ -967,6 +1004,7 @@ private func handleSubagentEvent(
         return true
 
     case "PostToolUse":
+        ensureSubagent(sessions: &sessions, sessionId: sessionId, agentId: agentId, event: event)
         if let tool = sessions[sessionId]?.subagents[agentId]?.currentTool {
             let agentType = sessions[sessionId]?.subagents[agentId]?.agentType
             let desc = sessions[sessionId]?.subagents[agentId]?.toolDescription
@@ -980,6 +1018,7 @@ private func handleSubagentEvent(
         return true
 
     case "PostToolUseFailure":
+        ensureSubagent(sessions: &sessions, sessionId: sessionId, agentId: agentId, event: event)
         if let tool = sessions[sessionId]?.subagents[agentId]?.currentTool {
             let agentType = sessions[sessionId]?.subagents[agentId]?.agentType
             let desc = sessions[sessionId]?.subagents[agentId]?.toolDescription
