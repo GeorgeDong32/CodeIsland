@@ -1525,8 +1525,9 @@ final class AppState {
         extractMetadata(into: &sessions, sessionId: sessionId, event: event)
         tryMonitorSession(sessionId)
 
+        let originalQuestions = event.toolInput?["questions"] as? [[String: Any]]
         var askItems: [AskUserQuestionItem] = []
-        if let questions = event.toolInput?["questions"] as? [[String: Any]] {
+        if let questions = originalQuestions {
             var usedAnswerKeys = Set<String>()
             askItems = questions.enumerated().compactMap { index, item in
                 let questionText = item["question"] as? String ?? "Question"
@@ -1576,7 +1577,22 @@ final class AppState {
         }
 
         guard !askItems.isEmpty else {
-            let responseData = Self.permissionAllowResponse(updatedInput: ["answers": [:] as [String: String]])
+            let updatedInput = askUserQuestionUpdatedInput(
+                event: event,
+                answers: [:],
+                answer: nil,
+                originalQuestions: originalQuestions
+            )
+            let obj: [String: Any] = [
+                "hookSpecificOutput": [
+                    "hookEventName": "PermissionRequest",
+                    "decision": [
+                        "behavior": "allow",
+                        "updatedInput": updatedInput
+                    ] as [String: Any]
+                ] as [String: Any]
+            ]
+            let responseData = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
             continuation.resume(returning: responseData)
             sessions[sessionId]?.status = .processing
             refreshDerivedState()
@@ -1619,7 +1635,22 @@ final class AppState {
         let responseData: Data
         if pending.isFromPermission {
             let answerKey = pending.question.header ?? "answer"
-            responseData = Self.permissionAllowResponse(updatedInput: ["answers": [answerKey: answer]])
+            let updatedInput = askUserQuestionUpdatedInput(
+                event: pending.event,
+                answers: [answerKey: answer],
+                answer: answer,
+                originalQuestions: pending.event.toolInput?["questions"] as? [[String: Any]]
+            )
+            let obj: [String: Any] = [
+                "hookSpecificOutput": [
+                    "hookEventName": "PermissionRequest",
+                    "decision": [
+                        "behavior": "allow",
+                        "updatedInput": updatedInput
+                    ] as [String: Any]
+                ] as [String: Any]
+            ]
+            responseData = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
         } else {
             responseData = Self.notificationResponse(answer: answer)
         }
@@ -1693,10 +1724,22 @@ final class AppState {
                 answersDict[questionText] = answers.first?.answer ?? ""
             }
 
-            responseData = Self.permissionAllowResponse(updatedInput: [
-                "questions": questionsArray,
-                "answers": answersDict,
-            ])
+            let updatedInput = askUserQuestionUpdatedInput(
+                event: pending.event,
+                answers: answersDict,
+                answer: answers.first?.answer,
+                originalQuestions: pending.event.toolInput?["questions"] as? [[String: Any]]
+            )
+            let obj: [String: Any] = [
+                "hookSpecificOutput": [
+                    "hookEventName": "PermissionRequest",
+                    "decision": [
+                        "behavior": "allow",
+                        "updatedInput": updatedInput
+                    ] as [String: Any]
+                ] as [String: Any]
+            ]
+            responseData = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
         } else {
             responseData = Self.notificationResponse(answer: answers.first?.answer ?? "")
         }
@@ -1706,6 +1749,23 @@ final class AppState {
 
         showNextPending()
         refreshDerivedState()
+    }
+
+    private func askUserQuestionUpdatedInput(
+        event: HookEvent,
+        answers: [String: String],
+        answer: String?,
+        originalQuestions: [[String: Any]]?
+    ) -> [String: Any] {
+        var updatedInput = event.toolInput ?? [:]
+        if let originalQuestions {
+            updatedInput["questions"] = originalQuestions
+        }
+        updatedInput["answers"] = answers
+        if let answer {
+            updatedInput["answer"] = answer
+        }
+        return updatedInput
     }
 
     func skipQuestion() {
