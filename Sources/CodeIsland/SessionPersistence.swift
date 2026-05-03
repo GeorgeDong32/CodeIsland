@@ -1,5 +1,8 @@
 import Foundation
+import os.log
 import CodeIslandCore
+
+private let log = Logger(subsystem: "com.codeisland", category: "SessionPersistence")
 
 struct PersistedSession: Codable {
     let sessionId: String
@@ -62,7 +65,9 @@ enum SessionPersistence {
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(persisted)
             try data.write(to: URL(fileURLWithPath: filePath), options: Data.WritingOptions.atomic)
-        } catch {}
+        } catch {
+            log.error("Failed to save sessions to \(filePath): \(error.localizedDescription)")
+        }
     }
 
     static func load() -> [PersistedSession] {
