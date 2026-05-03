@@ -4,24 +4,23 @@ import XCTest
 @MainActor
 final class SettingsAutoApproveTests: XCTestCase {
 
-    // Use shared singleton — clean up keys after each test
+    // Use shared singleton — restore autoApproveTools after each test
     private var manager: SettingsManager { SettingsManager.shared }
 
-    // Track keys we write so we can clean up
-    private var modifiedKeys: [String] = []
+    // Save original value to restore after test
+    private var originalAutoApproveTools: Set<String>?
 
-    override func tearDown() {
-        // Remove all keys written during the test
-        for key in modifiedKeys {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-        modifiedKeys.removeAll()
+    override func setUp() {
+        // Save current autoApproveTools before any test modifies it
+        originalAutoApproveTools = manager.autoApproveTools
     }
 
-    private func toolKey(_ tool: String) -> String {
-        let key = SettingsKey.autoApproveTool(tool)
-        modifiedKeys.append(key)
-        return key
+    override func tearDown() {
+        // Restore original autoApproveTools
+        if let original = originalAutoApproveTools {
+            manager.autoApproveTools = original
+        }
+        originalAutoApproveTools = nil
     }
 
     // MARK: - Default Fallback (T002)
@@ -52,7 +51,6 @@ final class SettingsAutoApproveTests: XCTestCase {
 
     func testSetAutoApproveOffThenOn() {
         let tool = "ExitPlanMode"
-        let _ = toolKey(tool) // Track for cleanup
 
         // Default is ON
         XCTAssertTrue(manager.isAutoApproveTool(tool))
@@ -68,7 +66,6 @@ final class SettingsAutoApproveTests: XCTestCase {
 
     func testSetAutoApproveDoesNotAffectOtherTools() {
         let tool = "ExitPlanMode"
-        let _ = toolKey(tool) // Track for cleanup
 
         manager.setAutoApproveTool(tool, enabled: false)
 
@@ -79,7 +76,6 @@ final class SettingsAutoApproveTests: XCTestCase {
 
     func testEnableNonDefaultTool() {
         let tool = "Bash"
-        let _ = toolKey(tool) // Track for cleanup
 
         // Not in default set — should be OFF by default
         XCTAssertFalse(manager.isAutoApproveTool(tool))
@@ -94,10 +90,8 @@ final class SettingsAutoApproveTests: XCTestCase {
     }
 
     func testAllAutoApproveToolsMatchesDefaultSet() {
-        // Verify the static UI list matches the default set
-        XCTAssertEqual(
-            Set(SettingsManager.allAutoApproveTools),
-            SettingsDefaults.autoApproveDefaultTools
-        )
+        // Verify the static UI list (tool names) matches the default set
+        let uiToolNames = Set(SettingsManager.allAutoApproveTools.map { $0.name })
+        XCTAssertEqual(uiToolNames, SettingsDefaults.autoApproveDefaultTools)
     }
 }

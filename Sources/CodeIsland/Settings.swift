@@ -169,6 +169,11 @@ struct SettingsDefaults {
 
     static let autoApproveTools = "TaskCreate,TaskUpdate,TaskGet,TaskList,TaskOutput,TaskStop,TodoRead,TodoWrite,EnterPlanMode,ExitPlanMode"
 
+    /// Default auto-approve tools as a Set (parsed from autoApproveTools string)
+    static var autoApproveDefaultTools: Set<String> {
+        Set(autoApproveTools.split(separator: ",").map(String.init))
+    }
+
     static let autoApproveMode = AutoApproveMode.addRules.rawValue
 }
 
@@ -350,6 +355,22 @@ class SettingsManager {
         set {
             defaults.set(newValue.sorted().joined(separator: ","), forKey: SettingsKey.autoApproveTools)
         }
+    }
+
+    /// Check if a tool is in the auto-approve set.
+    func isAutoApproveTool(_ tool: String) -> Bool {
+        autoApproveTools.contains(tool)
+    }
+
+    /// Add or remove a tool from the auto-approve set.
+    func setAutoApproveTool(_ tool: String, enabled: Bool) {
+        var tools = autoApproveTools
+        if enabled {
+            tools.insert(tool)
+        } else {
+            tools.remove(tool)
+        }
+        autoApproveTools = tools
     }
 
     var autoApproveMode: AutoApproveMode {
