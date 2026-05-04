@@ -1082,13 +1082,17 @@ final class AppState {
                     "type": "setMode", "mode": "default", "destination": "session",
                 ])
                 // Only send removeRules for modes that actually added rules (not auto)
+                // Skip current tool to preserve user's "Always allow" choice
                 if let mode = cleanupMode, mode != .auto {
-                    permissions.append([
-                        "type": "removeRules",
-                        "rules": Self.autoApproveToolNames.map { ["toolName": $0, "ruleContent": "*"] },
-                        "behavior": "allow",
-                        "destination": "session",
-                    ])
+                    let rulesToRemove = Self.autoApproveToolNames.filter { $0 != toolName }
+                    if !rulesToRemove.isEmpty {
+                        permissions.append([
+                            "type": "removeRules",
+                            "rules": rulesToRemove.map { ["toolName": $0, "ruleContent": "*"] },
+                            "behavior": "allow",
+                            "destination": "session",
+                        ])
+                    }
                 }
             }
             responseData = Self.permissionAllowResponse(updatedPermissions: permissions)
