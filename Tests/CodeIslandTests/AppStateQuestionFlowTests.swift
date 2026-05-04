@@ -33,8 +33,9 @@ final class AppStateQuestionFlowTests: XCTestCase {
 
         let responseData = await responseTask.value
         let answers = try extractAnswers(from: responseData)
-        XCTAssertEqual(answers["工作模式"] as? String, "先给方案")
-        XCTAssertEqual(answers["输出风格"] as? String, "平衡")
+        // Per Claude Code hooks docs, answers dict uses question TEXT as key (not header)
+        XCTAssertEqual(answers["你希望我接下来以哪种方式协作？"] as? String, "先给方案")
+        XCTAssertEqual(answers["你更喜欢我用哪种回答风格？"] as? String, "平衡")
     }
 
     // MARK: - Single question
@@ -61,7 +62,8 @@ final class AppStateQuestionFlowTests: XCTestCase {
 
         let responseData = await responseTask.value
         let answers = try extractAnswers(from: responseData)
-        XCTAssertEqual(answers["语言偏好"] as? String, "中文")
+        // Per Claude Code hooks docs, answers dict uses question TEXT as key (not header)
+        XCTAssertEqual(answers["你希望我主要使用哪种语言回复？"] as? String, "中文")
     }
 
     // MARK: - Skip returns deny
@@ -236,8 +238,9 @@ final class AppStateQuestionFlowTests: XCTestCase {
 
         let responseData = await responseTask.value
         let answers = try extractAnswers(from: responseData)
-        XCTAssertEqual(answers["偏好"] as? String, "A")
-        XCTAssertEqual(answers["偏好_2"] as? String, "D")
+        // Per Claude Code hooks docs, answers dict uses question TEXT as key (not header)
+        XCTAssertEqual(answers["第一个问题"] as? String, "A")
+        XCTAssertEqual(answers["第二个问题"] as? String, "D")
     }
 
     // MARK: - Missing/empty header fallback
@@ -266,8 +269,9 @@ final class AppStateQuestionFlowTests: XCTestCase {
 
         let responseData = await responseTask.value
         let answers = try extractAnswers(from: responseData)
-        XCTAssertEqual(answers["answer_1"] as? String, "B")
-        XCTAssertEqual(answers["answer_2"] as? String, "C")
+        // Per Claude Code hooks docs, answers dict uses question TEXT as key (not header)
+        XCTAssertEqual(answers["没有 header"] as? String, "B")
+        XCTAssertEqual(answers["空 header"] as? String, "C")
     }
 
     // MARK: - Direct answerQuestion blocked
