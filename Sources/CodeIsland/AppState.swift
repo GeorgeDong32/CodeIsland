@@ -1221,8 +1221,7 @@ final class AppState {
     /// autoApproveSessionId changes, and derived state doesn't depend on it.
     func deactivateAutoApprove(sessionId: String) {
         guard autoApproveSessionId == sessionId else { return }
-        // Snapshot the mode BEFORE clearing sessionId for cleanup decision
-        autoApproveModeSnapshot = SettingsManager.shared.autoApproveMode
+        // Keep existing snapshot — it records the mode at activation time
         autoApproveSessionId = nil
         autoApproveCleanupSessionId = sessionId  // Mark for cleanup on next allow
     }
@@ -1230,8 +1229,7 @@ final class AppState {
     /// Toggle auto-approve for a session. Only one session at a time.
     func toggleAutoApprove(sessionId: String) {
         if autoApproveSessionId == sessionId {
-            // Deactivate — mark for cleanup on next permission allow response
-            autoApproveModeSnapshot = SettingsManager.shared.autoApproveMode
+            // Deactivate — keep existing snapshot (mode at activation time)
             autoApproveSessionId = nil
             autoApproveCleanupSessionId = sessionId
         } else {
