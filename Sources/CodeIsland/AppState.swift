@@ -51,11 +51,14 @@ final class AppState {
     /// Auto mode only sends setMode, so cleanup should skip removeRules.
     var autoApproveModeSnapshot: AutoApproveMode?
 
-    /// Session that needs addRules cleanup on next permission allow response.
-    /// Set when AUTO is deactivated; consumed by approvePermission().
-    /// removeRules can only be sent in "allow" responses (not "deny"), so if
-    /// the user denies the triggering request, cleanup is deferred to the next allow.
-    var autoApproveCleanupSessionId: String?
+    /// Pending AUTO cleanup: session that needs addRules cleanup on next permission allow.
+    /// Struct bundles sessionId + mode to prevent cross-session state overwrite.
+    /// removeRules can only be sent in "allow" responses, so cleanup is deferred.
+    struct PendingAutoCleanup {
+        let sessionId: String
+        let mode: AutoApproveMode
+    }
+    var pendingAutoCleanup: PendingAutoCleanup?
 
     /// Computed: first item in permission queue (backward compat for UI reads)
     var pendingPermission: PermissionRequest? { permissionQueue.first }
@@ -503,9 +506,8 @@ final class AppState {
             autoApproveSessionId = nil
             autoApproveModeSnapshot = nil  // Clear snapshot when active session exits
         }
-        if autoApproveCleanupSessionId == sessionId {
-            autoApproveCleanupSessionId = nil
-            autoApproveModeSnapshot = nil  // Clear snapshot when cleanup-pending session exits
+        if pendingAutoCleanup?.sessionId == sessionId {
+            pendingAutoCleanup = nil  // Clear pending cleanup when session exits
         }
 
         // Resume ALL pending continuations for this session
@@ -1058,12 +1060,11 @@ final class AppState {
         let sessionId = pending.event.sessionId ?? "default"
         dismissedPermissionSessionIds.remove(sessionId)
 
-        // Check if this session has pending addRules cleanup (AUTO was deactivated)
-        let needsCleanup = autoApproveCleanupSessionId == sessionId
-        let modeSnapshot = autoApproveModeSnapshot
+        // Check if this session has pending AUTO cleanup
+        let needsCleanup = pendingAutoCleanup?.sessionId == sessionId
+        let cleanupMode = pendingAutoCleanup?.mode
         if needsCleanup {
-            autoApproveCleanupSessionId = nil
-            autoApproveModeSnapshot = nil
+            pendingAutoCleanup = nil
         }
 
         let responseData: Data
@@ -1081,7 +1082,7 @@ final class AppState {
                     "type": "setMode", "mode": "default", "destination": "session",
                 ])
                 // Only send removeRules for modes that actually added rules (not auto)
-                if let mode = modeSnapshot, mode != .auto {
+                if let mode = cleanupMode, mode != .auto {
                     permissions.append([
                         "type": "removeRules",
                         "rules": Self.autoApproveToolNames.map { ["toolName": $0, "ruleContent": "*"] },
@@ -1097,7 +1098,7 @@ final class AppState {
                 ["type": "setMode", "mode": "default", "destination": "session"],
             ]
             // Only send removeRules for modes that actually added rules (not auto)
-            if let mode = modeSnapshot, mode != .auto {
+            if let mode = cleanupMode, mode != .auto {
                 cleanupPermissions.append([
                     "type": "removeRules",
                     "rules": Self.autoApproveToolNames.map { ["toolName": $0, "ruleContent": "*"] },
@@ -1221,17 +1222,23 @@ final class AppState {
     /// autoApproveSessionId changes, and derived state doesn't depend on it.
     func deactivateAutoApprove(sessionId: String) {
         guard autoApproveSessionId == sessionId else { return }
-        // Keep existing snapshot — it records the mode at activation time
+        // Transfer mode snapshot to pending cleanup (不会被其他 session 覆盖)
+        if let mode = autoApproveModeSnapshot {
+            pendingAutoCleanup = PendingAutoCleanup(sessionId: sessionId, mode: mode)
+        }
         autoApproveSessionId = nil
-        autoApproveCleanupSessionId = sessionId  // Mark for cleanup on next allow
+        autoApproveModeSnapshot = nil
     }
 
     /// Toggle auto-approve for a session. Only one session at a time.
     func toggleAutoApprove(sessionId: String) {
         if autoApproveSessionId == sessionId {
-            // Deactivate — keep existing snapshot (mode at activation time)
+            // Deactivate — transfer snapshot to pending cleanup
+            if let mode = autoApproveModeSnapshot {
+                pendingAutoCleanup = PendingAutoCleanup(sessionId: sessionId, mode: mode)
+            }
             autoApproveSessionId = nil
-            autoApproveCleanupSessionId = sessionId
+            autoApproveModeSnapshot = nil
         } else {
             // Log if another session was in bypass (cannot revoke remotely)
             if let previousId = autoApproveSessionId, previousId != sessionId {
@@ -1241,9 +1248,9 @@ final class AppState {
             autoApproveSessionId = sessionId
             // Save the mode at activation time for cleanup decision
             autoApproveModeSnapshot = SettingsManager.shared.autoApproveMode
-            // Clear stale cleanup — reactivating AUTO makes previous cleanup moot
-            if autoApproveCleanupSessionId == sessionId {
-                autoApproveCleanupSessionId = nil
+            // Only clear pending cleanup if same session reactivates
+            if pendingAutoCleanup?.sessionId == sessionId {
+                pendingAutoCleanup = nil
             }
             // Flush all pending permissions for this session
             flushPendingPermissionsForAutoApprove(sessionId: sessionId)
