@@ -18,13 +18,13 @@ enum NotchHeightMode: String, CaseIterable {
 
 /// Strategy used when user presses the AUTO (auto-approve) button.
 ///
+/// - auto: Claude Code's native Auto Mode. Classifier judges each tool call for safety.
+///   Safe actions proceed automatically; risky ones are blocked or prompt for approval.
+///   Requires Team plan. Best balance for trusted development work.
+///
 /// - addRules: Switches to `acceptEdits` mode and sends tool-name whitelist rules via `updatedPermissions`.
 ///   Only covers known built-in tools; MCP/unknown tools still trigger a prompt.
 ///   AUTO stays active until an uncovered tool triggers deactivation or user toggles off.
-///
-/// - dontAsk: Switches session to Claude Code's `dontAsk` mode and sends tool whitelist rules.
-///   Built-in tools match the rules and are auto-approved; uncovered tools trigger
-///   PermissionRequest for hook to decide (allow/deny). Full hook control, no CLI popup.
 ///
 /// - bypassPermissions: Switches session to Claude Code's `bypassPermissions` mode and sends
 ///   tool whitelist rules. Whitelisted built-in tools are auto-approved by session rules;
@@ -32,8 +32,8 @@ enum NotchHeightMode: String, CaseIterable {
 ///   Only effective when the session was launched with `--dangerously-skip-permissions`
 ///   or `--permission-mode bypassPermissions`. Silently ignored in normal sessions (Claude Code 2.1.110+).
 enum AutoApproveMode: String, CaseIterable, Identifiable {
+    case auto = "auto"
     case addRules = "addRules"
-    case dontAsk = "dontAsk"
     case bypassPermissions = "bypass"
 
     var id: String { rawValue }
@@ -41,8 +41,8 @@ enum AutoApproveMode: String, CaseIterable, Identifiable {
     /// Claude Code setMode value. addRules sends setMode inline in autoApproveInitialResponse.
     var setModeValue: String? {
         switch self {
+        case .auto: return "auto"
         case .addRules: return nil
-        case .dontAsk: return "dontAsk"
         case .bypassPermissions: return "bypassPermissions"
         }
     }
@@ -119,7 +119,7 @@ enum SettingsKey {
     // Auto-approve tools (comma-separated tool names)
     static let autoApproveTools = "autoApproveTools"
 
-    // Auto-approve mode strategy (addRules / dontAsk / bypass)
+    // Auto-approve mode strategy (auto / addRules / bypass)
     static let autoApproveMode = "autoApproveMode"
 }
 
@@ -169,7 +169,7 @@ struct SettingsDefaults {
 
     static let autoApproveTools = "TaskCreate,TaskUpdate,TaskGet,TaskList,TaskOutput,TaskStop,TodoRead,TodoWrite,EnterPlanMode,ExitPlanMode"
 
-    static let autoApproveMode = AutoApproveMode.addRules.rawValue
+    static let autoApproveMode = AutoApproveMode.auto.rawValue
 }
 
 @MainActor

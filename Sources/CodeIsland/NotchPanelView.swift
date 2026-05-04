@@ -2104,11 +2104,15 @@ private struct SessionIdentityLine: View {
 
             // Auto-approve active indicator (tappable to disable)
             if appState.isAutoApproveActive(for: sessionId) {
-                Text("⏵⏵")
+                HStack(spacing: 0) {
+                    Text("⏵")
+                    Text("⏵")
+                }
                     .font(.system(size: sessionFontSize + 2, weight: .bold))
                     .foregroundStyle(Color(red: 1.0, green: 0.27, blue: 0.27))
                     .padding(.horizontal, 4)
                     .padding(.vertical, 2)
+                    .fixedSize()
                     .contentShape(Rectangle())
                     .onTapGesture {
                         appState.toggleAutoApprove(sessionId: sessionId)

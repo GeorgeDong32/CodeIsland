@@ -18,86 +18,94 @@ final class SettingsAutoApproveTests: XCTestCase {
         modifiedKeys.removeAll()
     }
 
-    private func toolKey(_ tool: String) -> String {
-        let key = SettingsKey.autoApproveTool(tool)
+    private func trackKey(_ key: String) -> String {
         modifiedKeys.append(key)
         return key
     }
 
-    // MARK: - Default Fallback (T002)
+    // MARK: - Default Fallback
 
     func testDefaultFallbackReturnsTrueForToolInDefaultSet() {
         // No UserDefaults override key — should fall back to default set
-        XCTAssertTrue(manager.isAutoApproveTool("ExitPlanMode"))
-        XCTAssertTrue(manager.isAutoApproveTool("TaskCreate"))
-        XCTAssertTrue(manager.isAutoApproveTool("TodoRead"))
+        XCTAssertTrue(manager.autoApproveTools.contains("ExitPlanMode"))
+        XCTAssertTrue(manager.autoApproveTools.contains("TaskCreate"))
+        XCTAssertTrue(manager.autoApproveTools.contains("TodoRead"))
     }
 
     func testDefaultFallbackReturnsFalseForUnknownTool() {
         // Tool not in default set, no override key — should return false
-        XCTAssertFalse(manager.isAutoApproveTool("SomeRandomTool"))
-        XCTAssertFalse(manager.isAutoApproveTool("Bash"))
+        XCTAssertFalse(manager.autoApproveTools.contains("SomeRandomTool"))
+        XCTAssertFalse(manager.autoApproveTools.contains("Bash"))
     }
 
     func testAllDefaultToolsAreEnabledByDefault() {
-        for tool in SettingsDefaults.autoApproveDefaultTools {
+        // Parse the default string into a set
+        let defaultTools = Set(SettingsDefaults.autoApproveTools.split(separator: ",").map(String.init))
+        for tool in defaultTools {
             XCTAssertTrue(
-                manager.isAutoApproveTool(tool),
+                manager.autoApproveTools.contains(tool),
                 "Tool '\(tool)' should be auto-approved by default"
             )
         }
     }
 
-    // MARK: - Set/Get Round-Trip (T003)
+    // MARK: - Set/Get Round-Trip
 
     func testSetAutoApproveOffThenOn() {
         let tool = "ExitPlanMode"
-        let _ = toolKey(tool) // Track for cleanup
+        trackKey(SettingsKey.autoApproveTools)
 
         // Default is ON
-        XCTAssertTrue(manager.isAutoApproveTool(tool))
+        XCTAssertTrue(manager.autoApproveTools.contains(tool))
 
         // Set OFF
-        manager.setAutoApproveTool(tool, enabled: false)
-        XCTAssertFalse(manager.isAutoApproveTool(tool))
+        var tools = manager.autoApproveTools
+        tools.remove(tool)
+        manager.autoApproveTools = tools
+        XCTAssertFalse(manager.autoApproveTools.contains(tool))
 
         // Set back ON
-        manager.setAutoApproveTool(tool, enabled: true)
-        XCTAssertTrue(manager.isAutoApproveTool(tool))
+        tools.insert(tool)
+        manager.autoApproveTools = tools
+        XCTAssertTrue(manager.autoApproveTools.contains(tool))
     }
 
     func testSetAutoApproveDoesNotAffectOtherTools() {
         let tool = "ExitPlanMode"
-        let _ = toolKey(tool) // Track for cleanup
+        trackKey(SettingsKey.autoApproveTools)
 
-        manager.setAutoApproveTool(tool, enabled: false)
+        var tools = manager.autoApproveTools
+        tools.remove(tool)
+        manager.autoApproveTools = tools
 
         // Other tools in default set should remain ON
-        XCTAssertTrue(manager.isAutoApproveTool("TaskCreate"))
-        XCTAssertTrue(manager.isAutoApproveTool("EnterPlanMode"))
+        XCTAssertTrue(manager.autoApproveTools.contains("TaskCreate"))
+        XCTAssertTrue(manager.autoApproveTools.contains("EnterPlanMode"))
     }
 
     func testEnableNonDefaultTool() {
         let tool = "Bash"
-        let _ = toolKey(tool) // Track for cleanup
+        trackKey(SettingsKey.autoApproveTools)
 
         // Not in default set — should be OFF by default
-        XCTAssertFalse(manager.isAutoApproveTool(tool))
+        XCTAssertFalse(manager.autoApproveTools.contains(tool))
 
         // Explicitly enable it
-        manager.setAutoApproveTool(tool, enabled: true)
-        XCTAssertTrue(manager.isAutoApproveTool(tool))
+        var tools = manager.autoApproveTools
+        tools.insert(tool)
+        manager.autoApproveTools = tools
+        XCTAssertTrue(manager.autoApproveTools.contains(tool))
 
         // Disable it again
-        manager.setAutoApproveTool(tool, enabled: false)
-        XCTAssertFalse(manager.isAutoApproveTool(tool))
+        tools.remove(tool)
+        manager.autoApproveTools = tools
+        XCTAssertFalse(manager.autoApproveTools.contains(tool))
     }
 
-    func testAllAutoApproveToolsMatchesDefaultSet() {
-        // Verify the static UI list matches the default set
-        XCTAssertEqual(
-            Set(SettingsManager.allAutoApproveTools),
-            SettingsDefaults.autoApproveDefaultTools
-        )
+    func testAllAutoApproveToolsNamesMatchDefaultSet() {
+        // Verify the static UI list names match the default set
+        let defaultTools = Set(SettingsDefaults.autoApproveTools.split(separator: ",").map(String.init))
+        let uiListNames = Set(SettingsManager.allAutoApproveTools.map { $0.name })
+        XCTAssertEqual(uiListNames, defaultTools)
     }
 }

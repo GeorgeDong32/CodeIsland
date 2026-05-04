@@ -46,6 +46,11 @@ final class AppState {
     // Session-scoped auto-approve state: only one session at a time
     var autoApproveSessionId: String?
 
+    /// The AUTO mode that was active when AUTO was enabled.
+    /// Used by cleanup to decide whether removeRules is needed.
+    /// Auto mode only sends setMode, so cleanup should skip removeRules.
+    var autoApproveModeSnapshot: AutoApproveMode?
+
     /// Session that needs addRules cleanup on next permission allow response.
     /// Set when AUTO is deactivated; consumed by approvePermission().
     /// removeRules can only be sent in "allow" responses (not "deny"), so if
@@ -493,12 +498,14 @@ final class AppState {
     /// Every removal path (cleanup timer, process exit, reducer effect) goes through here
     /// so leaked continuations / connections are impossible.
     private func removeSession(_ sessionId: String) {
-        // Reset auto-approve if this session had it active
+        // Reset auto-approve state for this session
         if autoApproveSessionId == sessionId {
             autoApproveSessionId = nil
+            autoApproveModeSnapshot = nil  // Clear snapshot when active session exits
         }
         if autoApproveCleanupSessionId == sessionId {
             autoApproveCleanupSessionId = nil
+            autoApproveModeSnapshot = nil  // Clear snapshot when cleanup-pending session exits
         }
 
         // Resume ALL pending continuations for this session
@@ -1053,7 +1060,11 @@ final class AppState {
 
         // Check if this session has pending addRules cleanup (AUTO was deactivated)
         let needsCleanup = autoApproveCleanupSessionId == sessionId
-        if needsCleanup { autoApproveCleanupSessionId = nil }
+        let modeSnapshot = autoApproveModeSnapshot
+        if needsCleanup {
+            autoApproveCleanupSessionId = nil
+            autoApproveModeSnapshot = nil
+        }
 
         let responseData: Data
         if always {
@@ -1065,29 +1076,36 @@ final class AppState {
                 "destination": "session",
             ]]
             if needsCleanup {
-                // Reset mode and remove AUTO whitelist rules
+                // Reset mode to default
                 permissions.append([
                     "type": "setMode", "mode": "default", "destination": "session",
                 ])
-                permissions.append([
+                // Only send removeRules for modes that actually added rules (not auto)
+                if let mode = modeSnapshot, mode != .auto {
+                    permissions.append([
+                        "type": "removeRules",
+                        "rules": Self.autoApproveToolNames.map { ["toolName": $0, "ruleContent": "*"] },
+                        "behavior": "allow",
+                        "destination": "session",
+                    ])
+                }
+            }
+            responseData = Self.permissionAllowResponse(updatedPermissions: permissions)
+        } else if needsCleanup {
+            // Clean up AUTO session: reset mode, optionally remove rules
+            var cleanupPermissions: [[String: Any]] = [
+                ["type": "setMode", "mode": "default", "destination": "session"],
+            ]
+            // Only send removeRules for modes that actually added rules (not auto)
+            if let mode = modeSnapshot, mode != .auto {
+                cleanupPermissions.append([
                     "type": "removeRules",
                     "rules": Self.autoApproveToolNames.map { ["toolName": $0, "ruleContent": "*"] },
                     "behavior": "allow",
                     "destination": "session",
                 ])
             }
-            responseData = Self.permissionAllowResponse(updatedPermissions: permissions)
-        } else if needsCleanup {
-            // Clean up AUTO session rules alongside this allow
-            responseData = Self.permissionAllowResponse(updatedPermissions: [
-                ["type": "setMode", "mode": "default", "destination": "session"],
-                [
-                    "type": "removeRules",
-                    "rules": Self.autoApproveToolNames.map { ["toolName": $0, "ruleContent": "*"] },
-                    "behavior": "allow",
-                    "destination": "session",
-                ],
-            ])
+            responseData = Self.permissionAllowResponse(updatedPermissions: cleanupPermissions)
         } else {
             responseData = Self.simpleAllowResponse
         }
@@ -1203,6 +1221,8 @@ final class AppState {
     /// autoApproveSessionId changes, and derived state doesn't depend on it.
     func deactivateAutoApprove(sessionId: String) {
         guard autoApproveSessionId == sessionId else { return }
+        // Snapshot the mode BEFORE clearing sessionId for cleanup decision
+        autoApproveModeSnapshot = SettingsManager.shared.autoApproveMode
         autoApproveSessionId = nil
         autoApproveCleanupSessionId = sessionId  // Mark for cleanup on next allow
     }
@@ -1211,6 +1231,7 @@ final class AppState {
     func toggleAutoApprove(sessionId: String) {
         if autoApproveSessionId == sessionId {
             // Deactivate — mark for cleanup on next permission allow response
+            autoApproveModeSnapshot = SettingsManager.shared.autoApproveMode
             autoApproveSessionId = nil
             autoApproveCleanupSessionId = sessionId
         } else {
@@ -1220,6 +1241,8 @@ final class AppState {
             }
             // Activate (deactivates previous session if any)
             autoApproveSessionId = sessionId
+            // Save the mode at activation time for cleanup decision
+            autoApproveModeSnapshot = SettingsManager.shared.autoApproveMode
             // Clear stale cleanup — reactivating AUTO makes previous cleanup moot
             if autoApproveCleanupSessionId == sessionId {
                 autoApproveCleanupSessionId = nil
@@ -1328,23 +1351,26 @@ final class AppState {
 
     /// Generate the initial AUTO response based on the selected mode.
     ///
-    /// - addRules: Switches to `acceptEdits` mode and sends a whitelist of built-in tool names.
-    ///   Claude Code auto-approves matching tools; unlisted tools still trigger PermissionRequest.
+    /// - auto: Claude Code's native Auto Mode. Only sends `setMode auto`.
+    ///   Classifier judges each tool call; safe actions proceed, risky ones block/prompt.
+    ///   No addRules needed — classifier handles all decisions.
+    ///
+    /// - addRules: Switches to `acceptEdits` mode and sends tool-name whitelist rules.
+    ///   Built-in tools matching rules are auto-approved; others trigger PermissionRequest.
     ///   AUTO stays active until an uncovered tool triggers deactivation or user toggles off.
     ///
-    /// - dontAsk: Sets session to `dontAsk` mode and sends tool whitelist rules.
-    ///   Built-in tools match the rules and are auto-approved; uncovered tools trigger
-    ///   PermissionRequest for hook to decide (allow/deny). Full hook control, no CLI popup.
-    ///
-    /// - bypassPermissions: Sets session to `bypassPermissions` mode and sends
-    ///   tool whitelist rules. Whitelisted built-in tools are auto-approved by session rules;
-    ///   uncovered tools trigger PermissionRequest for hook to decide (allow/deny).
-    ///   Only effective when the session was launched with `--dangerously-skip-permissions`
-    ///   or `--permission-mode bypassPermissions`; silently ignored in normal sessions (Claude Code 2.1.110+).
+    /// - bypassPermissions: Sets session to `bypassPermissions` mode and sends tool whitelist rules.
+    ///   Whitelisted built-in tools auto-approved; uncovered tools trigger PermissionRequest.
+    ///   Only effective with `--dangerously-skip-permissions` launch flag.
     @MainActor
     static func autoApproveInitialResponse() -> Data {
         let mode = SettingsManager.shared.autoApproveMode
         switch mode {
+        case .auto:
+            // Native Auto Mode — classifier handles everything, no whitelist needed
+            return permissionAllowResponse(updatedPermissions: [
+                ["type": "setMode", "mode": "auto", "destination": "session"],
+            ])
         case .addRules:
             return permissionAllowResponse(updatedPermissions: [
                 // Switch to acceptEdits so the CLI shows the correct mode
@@ -1361,17 +1387,15 @@ final class AppState {
                     "destination": "session",
                 ],
             ])
-        case .dontAsk, .bypassPermissions:
-            guard let modeValue = mode.setModeValue else { return simpleAllowResponse }
+        case .bypassPermissions:
+            // Bypass mode — send setMode + whitelist (only works with --dangerously-skip-permissions)
             return permissionAllowResponse(updatedPermissions: [
-                // Switch to dontAsk/bypass mode
                 [
                     "type": "setMode",
-                    "mode": modeValue,
+                    "mode": "bypassPermissions",
                     "destination": "session",
                 ],
                 // Add tool whitelist rules so covered tools are auto-approved
-                // (uncovered tools still trigger PermissionRequest for hook to decide)
                 [
                     "type": "addRules",
                     "rules": autoApproveToolNames.map { ["toolName": $0, "ruleContent": "*"] },
