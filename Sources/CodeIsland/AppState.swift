@@ -1126,7 +1126,11 @@ final class AppState {
         }
 
         let responseData: Data
-        if always {
+        if always, CodexPermissionRules.isCodexEvent(pending.event) {
+            _ = CodexPermissionRules().persistAlwaysAllowRule(for: pending.event)
+            let response = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
+            responseData = Data(response.utf8)
+        } else if always {
             let toolName = pending.event.toolName ?? ""
             var permissions: [[String: Any]] = [[
                 "type": "addRules",

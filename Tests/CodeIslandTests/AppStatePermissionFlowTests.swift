@@ -4,6 +4,21 @@ import CodeIslandCore
 
 @MainActor
 final class AppStatePermissionFlowTests: XCTestCase {
+    private var savedCodexHome: String?
+
+    override func setUp() {
+        super.setUp()
+        savedCodexHome = ProcessInfo.processInfo.environment["CODEX_HOME"]
+    }
+
+    override func tearDown() {
+        if let savedCodexHome {
+            setenv("CODEX_HOME", savedCodexHome, 1)
+        } else {
+            unsetenv("CODEX_HOME")
+        }
+        super.tearDown()
+    }
 
     func testDismissPermissionSkipsAlreadyDismissedSessions() async throws {
         let appState = AppState()
@@ -137,10 +152,14 @@ final class AppStatePermissionFlowTests: XCTestCase {
     }
 
     private func extractPermissionBehavior(from responseData: Data) throws -> String {
+        let decision = try extractPermissionDecision(from: responseData)
+        return try XCTUnwrap(decision["behavior"] as? String)
+    }
+
+    private func extractPermissionDecision(from responseData: Data) throws -> [String: Any] {
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: responseData) as? [String: Any])
         let hookSpecificOutput = try XCTUnwrap(json["hookSpecificOutput"] as? [String: Any])
-        let decision = try XCTUnwrap(hookSpecificOutput["decision"] as? [String: Any])
-        return try XCTUnwrap(decision["behavior"] as? String)
+        return try XCTUnwrap(hookSpecificOutput["decision"] as? [String: Any])
     }
 
     private func assertTaskNotResolved(_ task: Task<Data, Never>, timeout: TimeInterval = 0.05) async {
