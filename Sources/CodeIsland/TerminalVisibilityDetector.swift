@@ -92,6 +92,10 @@ struct TerminalVisibilityDetector {
         if bid.contains("wezterm") {
             return isWezTermTabActive(session)
         }
+        // Kaku is a WezTerm fork (bundle id fun.tw93.kaku): same CLI shape
+        if bid == "fun.tw93.kaku" {
+            return isKakuTabActive(session)
+        }
         if bid.contains("kitty") {
             return isKittyWindowActive(session)
         }
@@ -104,6 +108,7 @@ struct TerminalVisibilityDetector {
             if lower.contains("iterm") { return isITermSessionActive(session) }
             if lower == "ghostty" { return isGhosttyTabActive(session) }
             if lower.contains("wezterm") || lower.contains("wez") { return isWezTermTabActive(session) }
+            if lower == "kaku" { return isKakuTabActive(session) }
             if lower.contains("kitty") { return isKittyWindowActive(session) }
             // Don't match "terminal" here — Warp sets TERM_PROGRAM=Apple_Terminal
         }
@@ -236,7 +241,39 @@ struct TerminalVisibilityDetector {
 
     /// Check if WezTerm's active pane matches by TTY or CWD.
     private static func isWezTermTabActive(_ session: SessionSnapshot) -> Bool {
-        guard let bin = findBinary("wezterm") else { return false }
+        isWeztermFamilyTabActive(
+            session: session,
+            cliName: "wezterm",
+            extraBinaryPaths: [
+                "/Applications/WezTerm.app/Contents/MacOS/wezterm",
+                NSHomeDirectory() + "/Applications/WezTerm.app/Contents/MacOS/wezterm",
+            ]
+        )
+    }
+
+    /// Check if Kaku's active pane matches. Kaku is a WezTerm fork (bundle id `fun.tw93.kaku`)
+    /// that exposes the same `cli list --format json` shape.
+    private static func isKakuTabActive(_ session: SessionSnapshot) -> Bool {
+        isWeztermFamilyTabActive(
+            session: session,
+            cliName: "kaku",
+            extraBinaryPaths: [
+                "/Applications/Kaku.app/Contents/MacOS/kaku",
+                NSHomeDirectory() + "/Applications/Kaku.app/Contents/MacOS/kaku",
+            ]
+        )
+    }
+
+    /// Shared WezTerm-family active-pane detection. Match precedence:
+    ///   1. `weztermPaneId` (captured by bridge from `WEZTERM_PANE` env) — exact id match
+    ///   2. cliPid-resolved/session TTY → pane tty_name
+    ///   3. session CWD → pane cwd (with `file://` prefix tolerance)
+    private static func isWeztermFamilyTabActive(
+        session: SessionSnapshot,
+        cliName: String,
+        extraBinaryPaths: [String]
+    ) -> Bool {
+        guard let bin = findBinary(cliName, extraPaths: extraBinaryPaths) else { return false }
         guard let json = runProcess(bin, args: ["cli", "list", "--format", "json"]),
               let panes = try? JSONSerialization.jsonObject(with: json) as? [[String: Any]] else { return false }
 
@@ -250,7 +287,25 @@ struct TerminalVisibilityDetector {
             }
         }
 
-        // No TTY — fallback to CWD
+        // 1) Exact pane ID match (from WEZTERM_PANE env)
+        if let paneId = session.weztermPaneId,
+           let pid = Int(paneId),
+           let activePaneId = activePane["pane_id"] as? Int,
+           activePaneId == pid {
+            return true
+        }
+
+        // 2) TTY match. Prefer ps-resolved TTY when hook capture only saw /dev/tty.
+        let processTty = session.cliPid.flatMap(ProcessRunner.ttyForPid)
+        let candidateTtys = [processTty, session.ttyPath]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty && $0 != "/dev/tty" }
+        if let paneTty = activePane["tty_name"] as? String,
+           candidateTtys.contains(paneTty) {
+            return true
+        }
+
+        // 3) CWD match (file:// tolerant)
         if let cwd = session.cwd,
            let paneCwd = activePane["cwd"] as? String {
             if paneCwd == cwd || paneCwd == "file://" + cwd { return true }
@@ -330,8 +385,8 @@ struct TerminalVisibilityDetector {
         return result.stringValue
     }
 
-    private static func findBinary(_ name: String) -> String? {
-        let paths = [
+    private static func findBinary(_ name: String, extraPaths: [String] = []) -> String? {
+        let paths = extraPaths + [
             "/opt/homebrew/bin/\(name)",
             "/usr/local/bin/\(name)",
             "/usr/bin/\(name)",
