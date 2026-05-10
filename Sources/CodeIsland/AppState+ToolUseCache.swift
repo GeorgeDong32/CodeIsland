@@ -55,6 +55,10 @@ extension AppState {
         guard let staleIndex = permissionQueue.firstIndex(where: { $0.toolUseId == toolUseId })
         else { return }
 
+        if shouldKeepQueuedPermissionForCompletedEvent(event, normalizedEventName: normalized) {
+            return
+        }
+
         let stale = permissionQueue.remove(at: staleIndex)
         log.notice("⚠️ permission deny reason=resolveToolUseIfCompleted session=\(stale.event.sessionId ?? "nil", privacy: .public) toolUseId=\(toolUseId, privacy: .public) tool=\(stale.event.toolName ?? "nil", privacy: .public) triggerEvent=\(normalized, privacy: .public)")
         let denyBody = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#
@@ -71,6 +75,21 @@ extension AppState {
             } else {
                 showNextPending()
             }
+        }
+    }
+
+    func shouldKeepQueuedPermissionForCompletedEvent(_ event: HookEvent, normalizedEventName: String) -> Bool {
+        guard normalizedEventName != "PermissionDenied" else { return false }
+
+        let source = SessionSnapshot.normalizedSupportedSource(event.rawJSON["_source"] as? String)
+            ?? permissionQueue.first(where: { $0.toolUseId == event.toolUseId })
+                .flatMap { SessionSnapshot.normalizedSupportedSource($0.event.rawJSON["_source"] as? String) }
+
+        switch source {
+        case "trae", "traecn", "traecli":
+            return true
+        default:
+            return false
         }
     }
 

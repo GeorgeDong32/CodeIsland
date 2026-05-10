@@ -271,6 +271,8 @@ final class AppStateToolUseCacheTests: XCTestCase {
         appState.approvePermission()
         let response = await responseTask.value
         XCTAssertEqual(try behavior(response), "allow")
+    }
+
     // MARK: - Backfill from cache
 
     func testEnrichBackfillsMissingToolNameFromCache() throws {
@@ -308,7 +310,8 @@ final class AppStateToolUseCacheTests: XCTestCase {
         sessionId: String,
         toolName: String?,
         toolUseId: String?,
-        toolInput: [String: Any]? = nil
+        toolInput: [String: Any]? = nil,
+        source: String? = nil
     ) throws -> HookEvent {
         var payload: [String: Any] = [
             "hook_event_name": name,
@@ -317,16 +320,30 @@ final class AppStateToolUseCacheTests: XCTestCase {
         if let toolName { payload["tool_name"] = toolName }
         if let toolUseId { payload["tool_use_id"] = toolUseId }
         if let toolInput { payload["tool_input"] = toolInput }
+        if let source { payload["_source"] = source }
         return try makeRawHookEvent(payload)
     }
 
-    private func makePermissionEvent(sessionId: String, toolName: String, toolUseId: String) throws -> HookEvent {
+    private func assertTaskNotResolved(_ task: Task<Data, Never>, timeout: TimeInterval = 0.05) async {
+        let exp = expectation(description: "task should stay pending")
+        exp.isInverted = true
+
+        Task {
+            _ = await task.value
+            exp.fulfill()
+        }
+
+        await fulfillment(of: [exp], timeout: timeout)
+    }
+
+    private func makePermissionEvent(sessionId: String, toolName: String, toolUseId: String, source: String? = nil) throws -> HookEvent {
         try makeHookEvent(
             name: "PermissionRequest",
             sessionId: sessionId,
             toolName: toolName,
             toolUseId: toolUseId,
-            toolInput: ["command": "echo hi"]
+            toolInput: ["command": "echo hi"],
+            source: source
         )
     }
 

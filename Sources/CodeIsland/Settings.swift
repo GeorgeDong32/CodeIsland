@@ -65,7 +65,7 @@ enum SettingsKey {
     static let collapseOnMouseLeave = "collapseOnMouseLeave"
     static let autoCollapseAfterSessionJump = "autoCollapseAfterSessionJump"
     static let autoExpandOnCompletion = "autoExpandOnCompletion"
->>>>>>> d71b11e (feat: setting to disable auto-expand on agent completion (#146))
+    static let pluginSessionMode = "pluginSessionMode"  // "separate" | "merge" | "hide"
     static let hapticOnHover = "hapticOnHover"
     static let hapticIntensity = "hapticIntensity"      // 1=light, 2=medium, 3=strong
     static let sessionTimeout = "sessionTimeout"
@@ -135,7 +135,6 @@ struct SettingsDefaults {
     static let collapseOnMouseLeave = true
     static let autoCollapseAfterSessionJump = false
     static let autoExpandOnCompletion = true
-<<<<<<< HEAD
     static let pluginSessionMode = "separate"
     static let hapticOnHover = false
     static let hapticIntensity = 1          // 1=light
@@ -194,10 +193,7 @@ class SettingsManager {
             SettingsKey.collapseOnMouseLeave: SettingsDefaults.collapseOnMouseLeave,
             SettingsKey.autoCollapseAfterSessionJump: SettingsDefaults.autoCollapseAfterSessionJump,
             SettingsKey.autoExpandOnCompletion: SettingsDefaults.autoExpandOnCompletion,
-<<<<<<< HEAD
             SettingsKey.pluginSessionMode: SettingsDefaults.pluginSessionMode,
-=======
->>>>>>> d71b11e (feat: setting to disable auto-expand on agent completion (#146))
             SettingsKey.hapticOnHover: SettingsDefaults.hapticOnHover,
             SettingsKey.hapticIntensity: SettingsDefaults.hapticIntensity,
             SettingsKey.sessionTimeout: SettingsDefaults.sessionTimeout,

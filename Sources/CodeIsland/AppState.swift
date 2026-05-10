@@ -886,10 +886,13 @@ final class AppState {
         // Active work always wins (running / processing / waiting* status).
         let effectiveSource: String
         if summary.status == .idle {
+            effectiveSource = SettingsManager.shared.defaultSource
+        } else {
+            effectiveSource = summary.primarySource
         }
         // Only assign when changed (avoids unnecessary @Observable notifications)
         if status != summary.status { status = summary.status }
-        if primarySource != summary.primarySource { primarySource = summary.primarySource }
+        if primarySource != effectiveSource { primarySource = effectiveSource }
         if activeSessionCount != summary.activeSessionCount { activeSessionCount = summary.activeSessionCount }
         if totalSessionCount != summary.totalSessionCount { totalSessionCount = summary.totalSessionCount }
     }
@@ -938,6 +941,7 @@ final class AppState {
 
         let prevStatus = sessions[sessionId]?.status
         let wasWaiting = prevStatus == .waitingApproval || prevStatus == .waitingQuestion
+        let normalizedEventName = EventNormalizer.normalize(event.eventName)
 
         // Cache PreToolUse payloads so downstream events sharing tool_use_id can be
         // correlated, and drain queue entries whose agent already moved on.
@@ -1159,29 +1163,6 @@ final class AppState {
         refreshDerivedState()
     }
 
-    func handleBuddyControlCommand(_ command: BuddyControlCommand) {
-        switch command {
-        case .approveCurrentPermission:
-            if !permissionQueue.isEmpty {
-                approvePermission()
-            } else {
-                log.info("Ignored Buddy approve command because permission queue is empty")
-            }
-        case .denyCurrentPermission:
-            if !permissionQueue.isEmpty {
-                denyPermission()
-            } else {
-                log.info("Ignored Buddy deny command because permission queue is empty")
-            }
-        case .skipCurrentQuestion:
-            if !questionQueue.isEmpty {
-                skipQuestion()
-            } else {
-                log.info("Ignored Buddy skip command because question queue is empty")
-            }
-        }
-    }
-
     /// Find an existing session whose source matches and whose CLI PID equals
     /// the supplied ppid. Used by HookServer to merge plugin-proxied events
     /// (e.g. omo) into their main session when pluginSessionMode == "merge". (#123)
@@ -1193,6 +1174,8 @@ final class AppState {
         })?.key
     }
 
+    func denyPermission() {
+        guard !permissionQueue.isEmpty else { return }
         let pending = permissionQueue.removeFirst()
         let sessionId = pending.event.sessionId ?? "default"
         dismissedPermissionSessionIds.remove(sessionId)
@@ -1797,6 +1780,7 @@ final class AppState {
                 let denyData = Data(
                     #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#.utf8)
                 item.continuation.resume(returning: denyData)
+            }
             return true
         }
     }

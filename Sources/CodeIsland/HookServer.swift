@@ -124,7 +124,7 @@ class HookServer {
     /// User-configured cwd substring blocklist for plugin/background hooks (e.g. claude-mem).
     /// Empty default = no filtering. Trimmed, blank entries skipped.
     private static func eventMatchesExcludedCwd(_ cwd: String) -> Bool {
-        cwdMatchesAnyPattern(cwd, patternsCSV: SettingsManager.shared.excludedHookCwdSubstrings)
+        false
     }
 
     /// Pure substring blocklist match — returns true if `cwd` contains any
@@ -139,58 +139,8 @@ class HookServer {
         return false
     }
 
-    /// Fire-and-forget POST of the hook event to a user-configured webhook URL.
-    /// Wraps the raw event in a small envelope (event/source/session/cwd/tool/raw)
-    /// so users on the receiving side don't need to dig through bridge-internal
-    /// fields. Optional event-name allow-list filters noisy event types. (#115)
     private static func forwardEventToWebhook(_ event: HookEvent) {
-        let defaults = UserDefaults.standard
-        guard defaults.bool(forKey: SettingsKey.webhookEnabled) else { return }
-        // Trim whitespace — users routinely paste URLs with leading/trailing space
-        // and URL(string:) silently rejects those (RFC 3986 forbids whitespace).
-        let urlString = (defaults.string(forKey: SettingsKey.webhookURL) ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !urlString.isEmpty,
-              let endpoint = URL(string: urlString) else { return }
-
-        let normalizedName = EventNormalizer.normalize(event.eventName)
-
-        // Event filter: comma-separated allow-list. Empty = forward all.
-        // Match on either the normalized name (PreToolUse) or raw name (pre_tool_use).
-        if let filter = defaults.string(forKey: SettingsKey.webhookEventFilter),
-           !filter.trimmingCharacters(in: .whitespaces).isEmpty {
-            let allowed = filter.split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty }
-            guard allowed.contains(normalizedName) || allowed.contains(event.eventName) else { return }
-        }
-
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
-        let envelope: [String: Any] = [
-            "event": normalizedName,
-            "raw_event": event.eventName,
-            "session_id": event.sessionId ?? "",
-            "source": event.rawJSON["_source"] as? String ?? "",
-            "cwd": event.rawJSON["cwd"] as? String ?? "",
-            "tool_name": event.toolName ?? "",
-            "timestamp": isoFormatter.string(from: Date()),
-            "raw": event.rawJSON,
-        ]
-
-        guard let body = try? JSONSerialization.data(withJSONObject: envelope) else { return }
-
-        var request = URLRequest(url: endpoint, timeoutInterval: 5)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("CodeIsland-Webhook/1.0", forHTTPHeaderField: "User-Agent")
-        request.httpBody = body
-
-        URLSession.shared.dataTask(with: request) { _, _, _ in
-            // Fire-and-forget. Failures are intentionally swallowed: a flaky
-            // webhook should never break the hook event pipeline.
-        }.resume()
+        // Webhook forwarding not available in this fork
     }
 
     private static func hiddenPluginResponse(for raw: [String: Any]) -> Data {
@@ -211,6 +161,8 @@ class HookServer {
         if let p = raw["_ppid"] as? Int32 { return Int(p) }
         if let p = raw["_ppid"] as? NSNumber { return p.intValue }
         return nil
+    }
+
     static func routeKind(for event: HookEvent) -> RouteKind {
         let normalizedEventName = EventNormalizer.normalize(event.eventName)
         if normalizedEventName == "PermissionRequest" {
@@ -255,6 +207,8 @@ class HookServer {
 
         guard let event = HookEvent(from: processedData) else {
             sendResponse(connection: connection, data: Data("{\"error\":\"parse_failed\"}".utf8))
+            return
+        }
         // Diagnostics ring buffer (#103): record the post-merge view of the
         // event so the export reflects what was actually dispatched.
         appState.recordHookEvent(
