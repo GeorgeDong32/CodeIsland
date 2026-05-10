@@ -14,8 +14,8 @@ private struct RemoteCommandResult: Sendable {
 }
 
 enum RemoteInstaller {
-    private static let remoteHookVersion = "0.1.1"
-    private static let remoteOpencodePluginVersion = "v1"
+    private static let remoteHookVersion = "0.1.2"
+    private static let remoteOpencodePluginVersion = "v2"
 
     static func installAll(host: RemoteHost) async -> RemoteInstallResult {
         guard let source = remoteHookSource() else {
@@ -87,7 +87,8 @@ print(target)
     }
 
     private static func uploadRemoteOpencodePlugin(source: String, host: RemoteHost) async -> RemoteCommandResult {
-        let encoded = Data(source.utf8).base64EncodedString()
+        let configuredSource = remoteOpencodePluginForInstall(source: source, host: host)
+        let encoded = Data(configuredSource.utf8).base64EncodedString()
         let py = """
 import base64, os, pathlib
 
@@ -727,6 +728,42 @@ print(" · ".join(parts))
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
             .replacingOccurrences(of: "\n", with: "\\n")
+        return "\"\(escaped)\""
+    }
+
+    static func remoteOpencodePluginForInstall(source: String, host: RemoteHost) -> String {
+        source
+            .replacingOccurrences(
+                of: #"const SOCKET_PATH = process.env.CODEISLAND_SOCKET_PATH || "/tmp/codeisland.sock";"#,
+                with: #"const SOCKET_PATH = \#(jsonStringLiteral(host.remoteSocketPath));"#
+            )
+            .replacingOccurrences(
+                of: #"const REMOTE_HOST_ID = process.env.CODEISLAND_REMOTE_HOST_ID || "";"#,
+                with: #"const REMOTE_HOST_ID = \#(jsonStringLiteral(host.id));"#
+            )
+            .replacingOccurrences(
+                of: #"const REMOTE_HOST_NAME = process.env.CODEISLAND_REMOTE_HOST_NAME || "";"#,
+                with: #"const REMOTE_HOST_NAME = \#(jsonStringLiteral(host.name));"#
+            )
+    }
+
+    private static func jsonStringLiteral(_ value: String) -> String {
+        let escaped = value.reduce(into: "") { result, ch in
+            switch ch {
+            case "\\":
+                result += "\\\\"
+            case "\"":
+                result += "\\\""
+            case "\n":
+                result += "\\n"
+            case "\r":
+                result += "\\r"
+            case "\t":
+                result += "\\t"
+            default:
+                result.append(ch)
+            }
+        }
         return "\"\(escaped)\""
     }
 
