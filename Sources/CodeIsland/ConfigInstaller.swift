@@ -601,7 +601,7 @@ struct ConfigInstaller {
             }
         }
 
-        // Codex requires codex_hooks = true in config.toml
+        // Codex requires hooks = true in config.toml
         if isEnabled(source: "codex"),
            fm.fileExists(atPath: codexHome()) {
             enableCodexHooksConfig(fm: fm)
@@ -744,7 +744,7 @@ struct ConfigInstaller {
                 }
             }
         }
-        // Codex config.toml: ensure codex_hooks = true
+        // Codex config.toml: ensure hooks = true
         if isEnabled(source: "codex"),
            fm.fileExists(atPath: codexHome()) {
             enableCodexHooksConfig(fm: fm)
@@ -1566,26 +1566,40 @@ struct ConfigInstaller {
 
     // MARK: - Codex config.toml
 
-    /// Ensure codex_hooks = true under [features] in $CODEX_HOME/config.toml
+    /// Ensure hooks = true under [features] in $CODEX_HOME/config.toml
     /// (or ~/.codex/config.toml when unset) so Codex actually fires hook events.
     @discardableResult
-    private static func enableCodexHooksConfig(fm: FileManager) -> Bool {
+    static func enableCodexHooksConfig(fm: FileManager) -> Bool {
         let configPath = codexHome() + "/config.toml"
+        try? fm.createDirectory(
+            atPath: (configPath as NSString).deletingLastPathComponent,
+            withIntermediateDirectories: true
+        )
         var contents = ""
         if fm.fileExists(atPath: configPath) {
             contents = (try? String(contentsOfFile: configPath, encoding: .utf8)) ?? ""
         }
 
         // Already set to true (non-commented) — don't touch
-        if contents.range(of: #"(?m)^\s*codex_hooks\s*=\s*true"#, options: .regularExpression) != nil {
+        if contents.range(of: #"(?m)^\s*hooks\s*=\s*true"#, options: .regularExpression) != nil {
             return true
         }
 
         // Set to false (non-commented) — flip it to true in place
-        if contents.range(of: #"(?m)^\s*codex_hooks\s*=\s*false"#, options: .regularExpression) != nil {
+        if contents.range(of: #"(?m)^\s*hooks\s*=\s*false"#, options: .regularExpression) != nil {
             contents = contents.replacingOccurrences(
-                of: #"(?m)^\s*codex_hooks\s*=\s*false"#,
-                with: "codex_hooks = true",
+                of: #"(?m)^\s*hooks\s*=\s*false"#,
+                with: "hooks = true",
+                options: .regularExpression
+            )
+            return fm.createFile(atPath: configPath, contents: contents.data(using: .utf8))
+        }
+
+        // Migrate the retired feature name used by older Codex releases.
+        if contents.range(of: #"(?m)^\s*codex_hooks\s*=\s*(true|false)"#, options: .regularExpression) != nil {
+            contents = contents.replacingOccurrences(
+                of: #"(?m)^\s*codex_hooks\s*=\s*(true|false)"#,
+                with: "hooks = true",
                 options: .regularExpression
             )
             return fm.createFile(atPath: configPath, contents: contents.data(using: .utf8))
@@ -1595,12 +1609,12 @@ struct ConfigInstaller {
         var lines = contents.components(separatedBy: "\n")
         if let featIdx = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "[features]" }) {
             // Insert after [features] line
-            lines.insert("codex_hooks = true", at: featIdx + 1)
+            lines.insert("hooks = true", at: featIdx + 1)
         } else {
             // No [features] section — append one
             if !(lines.last ?? "").isEmpty { lines.append("") }
             lines.append("[features]")
-            lines.append("codex_hooks = true")
+            lines.append("hooks = true")
         }
         let result = lines.joined(separator: "\n")
         return fm.createFile(atPath: configPath, contents: result.data(using: .utf8))

@@ -470,8 +470,23 @@ hooks:
         XCTAssertTrue(script.contains("TRAECLI_EVENTS"))
         XCTAssertTrue(script.contains("\"session_start\""))
         XCTAssertTrue(script.contains("\"session_end\""))
+        // Codex renamed the feature flag from codex_hooks to hooks.
+        XCTAssertTrue(script.contains("\"hooks = true\""))
+        XCTAssertFalse(script.contains("\"codex_hooks = true\""))
         // Ensure remote TraeCli YAML merge has indentation repair to avoid invalid YAML.
         XCTAssertTrue(script.contains("def _normalize_traecli_hooks_list_indentation"))
+    }
+
+    func testRemoteInstallerConfigureScriptInstallsOpencodePlugin() {
+        let host = RemoteHost(id: "host-1", name: "devbox", host: "example.com")
+
+        let script = RemoteInstaller.configureRemoteHooksScript(host: host)
+
+        XCTAssertTrue(script.contains("def install_opencode():"))
+        XCTAssertTrue(script.contains("codeisland-opencode-remote.js"))
+        XCTAssertTrue(script.contains(#""OpenCode ok""#))
+        XCTAssertTrue(script.contains("install_opencode()"))
+        XCTAssertTrue(script.contains(#""file://" + str(plugin_path)"#))
     }
 
     func testRemoteTraecliPermissionRequestRoutesAsPermissionAndUsesRemoteSessionNamespace() async throws {
