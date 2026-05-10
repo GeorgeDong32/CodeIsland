@@ -33,6 +33,14 @@ public struct SessionSnapshot: Sendable {
         "kimi",
     ]
 
+    public static let ideCompletionSources: Set<String> = [
+        "cursor",
+        "trae",
+        "traecn",
+        "codebuddy",
+        "codybuddycn",
+    ]
+
     public var status: AgentStatus = .idle
     public var currentTool: String?
     public var toolDescription: String?
@@ -598,7 +606,39 @@ public func reduceEvent(
             sessions[sessionId]?.lastAssistantMessage = text
             sessions[sessionId]?.addRecentMessage(ChatMessage(isUser: false, text: text))
         }
+        if let source = sessions[sessionId]?.source,
+           SessionSnapshot.ideCompletionSources.contains(source) {
+            sessions[sessionId]?.status = .idle
+            sessions[sessionId]?.currentTool = nil
+            sessions[sessionId]?.toolDescription = nil
+            effects.append(.enqueueCompletion(sessionId: sessionId))
+        } else {
+            sessions[sessionId]?.status = .processing
+        }
+    case "TaskRoundComplete":
+        sessions[sessionId]?.interrupted = (event.eventName == "TaskCancel")
         sessions[sessionId]?.status = .processing
+        sessions[sessionId]?.currentTool = nil
+        sessions[sessionId]?.toolDescription = nil
+        let assistantMsg = firstStringFromEvent(
+            event,
+            keys: ["last_assistant_message", "text", "message", "summary"],
+            includeNested: true
+        )
+        if let msg = assistantMsg {
+            sessions[sessionId]?.lastAssistantMessage = msg
+            sessions[sessionId]?.addRecentMessage(ChatMessage(isUser: false, text: msg))
+        } else if sessions[sessionId]?.lastAssistantMessage == nil,
+                  sessions[sessionId]?.recentMessages.last?.isUser == true {
+            sessions[sessionId]?.addRecentMessage(ChatMessage(isUser: false, text: "[回复完成]"))
+        }
+        // Cline tasks are single-round — treat completion/cancellation as session end,
+        // and latch a flag so out-of-order in-flight tool events don't revive it.
+        if sessions[sessionId]?.source == "cline" {
+            sessions[sessionId]?.status = .idle
+            sessions[sessionId]?.taskRoundEnded = true
+        }
+        effects.append(.enqueueCompletion(sessionId: sessionId))
     case "Stop":
         // Detect ESC/Ctrl+C interruption
         let stopReason = event.rawJSON["stop_reason"] as? String ?? ""

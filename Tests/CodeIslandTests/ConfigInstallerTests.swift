@@ -70,6 +70,60 @@ final class ConfigInstallerTests: XCTestCase {
         XCTAssertEqual(remainingHooks.first?["command"] as? String, "~/.claude/hooks/bark-notify.sh")
     }
 
+    func testFlatExternalHooksPassEventFlagToBridge() throws {
+        let fm = FileManager.default
+        let tempDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tempDir) }
+
+        let configPath = tempDir.appendingPathComponent("hooks.json").path
+        let cli = CLIConfig(
+            name: "Cursor",
+            source: "cursor",
+            configPath: configPath,
+            configKey: "hooks",
+            format: .flat,
+            events: [("afterAgentResponse", 5, false)]
+        )
+
+        XCTAssertTrue(ConfigInstaller.installExternalHooks(cli: cli, fm: fm))
+
+        let data = try XCTUnwrap(fm.contents(atPath: configPath))
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let hooks = try XCTUnwrap(root["hooks"] as? [String: Any])
+        let entries = try XCTUnwrap(hooks["afterAgentResponse"] as? [[String: Any]])
+        let command = try XCTUnwrap(entries.first?["command"] as? String)
+        XCTAssertTrue(command.contains("codeisland-bridge --source cursor"))
+        XCTAssertTrue(command.contains("--event afterAgentResponse"))
+    }
+
+    func testTraecliJsonExternalHooksPassEventFlagToBridge() throws {
+        let fm = FileManager.default
+        let tempDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tempDir) }
+
+        let configPath = tempDir.appendingPathComponent("hooks.json").path
+        let cli = CLIConfig(
+            name: "Custom TraeCli",
+            source: "traecli",
+            configPath: configPath,
+            configKey: "hooks",
+            format: .traecli,
+            events: [("stop", 5, false)]
+        )
+
+        XCTAssertTrue(ConfigInstaller.installExternalHooks(cli: cli, fm: fm))
+
+        let data = try XCTUnwrap(fm.contents(atPath: configPath))
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let hooks = try XCTUnwrap(root["hooks"] as? [String: Any])
+        let entries = try XCTUnwrap(hooks["stop"] as? [[String: Any]])
+        let command = try XCTUnwrap(entries.first?["command"] as? String)
+        XCTAssertTrue(command.contains("codeisland-bridge --source traecli"))
+        XCTAssertTrue(command.contains("--event stop"))
+    }
+
     // MARK: - Kimi Code CLI TOML hooks
 
     func testRemoveKimiHooksPreservesNonCodeIslandBlocks() {

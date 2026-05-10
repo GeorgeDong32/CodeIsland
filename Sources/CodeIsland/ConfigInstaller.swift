@@ -902,7 +902,8 @@ struct ConfigInstaller {
     // MARK: - External CLIs (use bridge binary directly)
 
     @discardableResult
-    private static func installExternalHooks(cli: CLIConfig, fm: FileManager) -> Bool {
+    static func installExternalHooks(cli: CLIConfig, fm: FileManager) -> Bool {
+        if cli.format == .cline { return installClineHooks(cli: cli, fm: fm) }
         if cli.format == .kimi {
             // Kimi: do not create ~/.kimi or config files unless there is already
             // evidence of an existing Kimi installation/configuration.
@@ -957,10 +958,10 @@ struct ConfigInstaller {
             case .nested:
                 entry = ["hooks": [["type": "command", "command": baseCommand, "timeout": timeout] as [String: Any]]]
             case .flat:
-                entry = ["command": baseCommand]
+                entry = ["command": "\(baseCommand) --event \(event)"]
             case .traecli:
                 // Treat like flat for custom JSON hook configs; built-in TraeCli uses YAML install path.
-                entry = ["command": baseCommand]
+                entry = ["command": "\(baseCommand) --event \(event)"]
             case .copilot:
                 // Copilot CLI stdin lacks session_id/hook_event_name — pass event name via flag
                 let copilotCommand = "\(baseCommand) --event \(event)"
