@@ -352,6 +352,96 @@ final class AppStateQuestionFlowTests: XCTestCase {
         return try XCTUnwrap(updatedInput["answers"] as? [String: Any])
     }
 
+    // MARK: - Regression: notification question drain must resume continuations
+
+    /// Notification questions (non-permission) must have their continuations
+    /// resumed when drained on peer disconnect — otherwise the hook hangs forever.
+    func testNotificationQuestionDrainedOnPeerDisconnectResumesContinuation() async throws {
+        let appState = AppState()
+        let event = try makeNotificationQuestionEvent(
+            sessionId: "s-drain-peer",
+            question: "Should I proceed?"
+        )
+
+        let responseTask = Task<Data, Never> {
+            await withCheckedContinuation { continuation in
+                appState.handleQuestion(event, continuation: continuation)
+            }
+        }
+        await Task.yield()
+        XCTAssertEqual(appState.questionQueue.count, 1)
+
+        // Simulate peer disconnect — triggers drainQuestions
+        appState.handlePeerDisconnect(sessionId: "s-drain-peer")
+
+        let response = await responseTask.value
+        // notificationResponse() returns a valid JSON body (not crash/hang)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: response) as? [String: Any])
+        XCTAssertNotNil(json, "Notification question must receive a response when drained")
+        XCTAssertEqual(appState.questionQueue.count, 0, "Question must be removed from queue after drain")
+    }
+
+    /// Notification questions must be resumed when a follow-up activity event
+    /// triggers drain for the same session.
+    func testNotificationQuestionDrainedOnActivityEventResumesContinuation() async throws {
+        let appState = AppState()
+
+        // Set up a session in waiting state
+        let session = SessionSnapshot()
+        appState.sessions["s-drain-activity"] = session
+
+        let event = try makeNotificationQuestionEvent(
+            sessionId: "s-drain-activity",
+            question: "Continue with refactoring?"
+        )
+
+        let responseTask = Task<Data, Never> {
+            await withCheckedContinuation { continuation in
+                appState.handleQuestion(event, continuation: continuation)
+            }
+        }
+        await Task.yield()
+        XCTAssertEqual(appState.questionQueue.count, 1)
+
+        // A Stop event for the same session triggers drainQuestions via wasWaiting path
+        appState.handleEvent(try makeStopEvent(sessionId: "s-drain-activity"))
+
+        let response = await responseTask.value
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: response) as? [String: Any])
+        XCTAssertNotNil(json, "Notification question must receive a response when drained by activity event")
+        XCTAssertEqual(appState.questionQueue.count, 0)
+    }
+
+    // MARK: - Helpers
+
+    private func makeNotificationQuestionEvent(sessionId: String, question: String, options: [String]? = nil) throws -> HookEvent {
+        var payload: [String: Any] = [
+            "hook_event_name": "Notification",
+            "session_id": sessionId,
+            "question": question
+        ]
+        if let options { payload["options"] = options }
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        guard let event = HookEvent(from: data) else {
+            XCTFail("Failed to parse notification question HookEvent")
+            throw NSError(domain: "AppStateQuestionFlowTests", code: 2)
+        }
+        return event
+    }
+
+    private func makeStopEvent(sessionId: String) throws -> HookEvent {
+        let payload: [String: Any] = [
+            "hook_event_name": "Stop",
+            "session_id": sessionId
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        guard let event = HookEvent(from: data) else {
+            XCTFail("Failed to parse Stop HookEvent")
+            throw NSError(domain: "AppStateQuestionFlowTests", code: 3)
+        }
+        return event
+    }
+
     private func extractPermissionBehavior(from responseData: Data) throws -> String {
         let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: responseData) as? [String: Any])
         let hookSpecificOutput = try XCTUnwrap(json["hookSpecificOutput"] as? [String: Any])

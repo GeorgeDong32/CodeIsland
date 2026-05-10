@@ -304,6 +304,22 @@ if resolvedTrackedPID != immediateParentPID {
     json["_hook_ppid"] = Int32(immediateParentPID)
 }
 
+// Session ID fallback for third-party providers without stable session ID.
+// Use the root same-source binary in the ancestry so sub-agent processes
+// (e.g. Cursor IDE spawning multiple parallel agent subprocesses, #148)
+// collapse onto a single session card instead of fanning into N cards.
+if json["session_id"] == nil,
+   let source = effectiveSource,
+   !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+    let sessionPID = CLIProcessResolver.resolvedSessionPID(
+        immediateParentPID: Int32(immediateParentPID),
+        source: source,
+        ancestry: coreAncestry
+    )
+    json["session_id"] = "\(source)-ppid-\(sessionPID)"
+    debugLog("session_id missing, generated fallback id: \(json["session_id"] ?? "")")
+}
+
 // Validate: must have non-empty session_id
 guard let sessionId = json["session_id"] as? String, !sessionId.isEmpty else {
     debugLog("no session_id, dropping")

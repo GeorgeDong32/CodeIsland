@@ -1780,6 +1780,8 @@ final class AppState {
                 let denyData = Data(
                     #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#.utf8)
                 item.continuation.resume(returning: denyData)
+            } else {
+                item.continuation.resume(returning: Self.notificationResponse())
             }
             return true
         }
