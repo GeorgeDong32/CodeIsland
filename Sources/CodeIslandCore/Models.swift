@@ -48,9 +48,16 @@ public enum CLIProcessResolver {
         case "cursor-cli":
             return lowercasedPath.contains("/cursor-agent")
         case "qoder-cli":
-            return lowercasedPath.hasSuffix("/qodercli")
+            if lowercasedPath.hasSuffix("/qodercli")
                 || lowercasedPath.contains("/qodercli ")
-                || lowercasedPath.contains("/@qoder-ai/qodercli")
+                || lowercasedPath.contains("/@qoder-ai/qodercli") {
+                return true
+            }
+            // npm-installed Qoder CLI: executable is `node`, check argv
+            if lowercasedPath.hasSuffix("/node"), let args {
+                return args.contains(where: { $0.contains("@qoder-ai/qodercli") || $0.contains("qodercli") })
+            }
+            return false
         default:
             return lowercasedPath.contains("/\(normalizedSource)")
         }

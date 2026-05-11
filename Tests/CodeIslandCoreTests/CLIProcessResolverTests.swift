@@ -183,4 +183,38 @@ final class CLIProcessResolverTests: XCTestCase {
         XCTAssertTrue(CLIProcessResolver.sourceMatchesExecutablePath("/opt/homebrew/bin/coco", source: "traecli"))
         XCTAssertFalse(CLIProcessResolver.sourceMatchesExecutablePath("/usr/local/bin/node", source: "codex"))
     }
+
+    // MARK: - Node-based Qoder CLI detection (argv inspection)
+
+    /// npm-installed @qoder-ai/qodercli runs as node, must match via argv.
+    func testSourceMatchesNodeBasedQoderCliWithArgv() {
+        let match = CLIProcessResolver.sourceMatchesProcess(
+            "/usr/local/bin/node",
+            args: ["/usr/local/bin/node", "/usr/local/lib/node_modules/@qoder-ai/qodercli/dist/index.js"],
+            source: "qoder-cli"
+        )
+        XCTAssertTrue(match, "node + @qoder-ai/qodercli in argv must match qoder-cli source")
+    }
+
+    /// Plain node without qoder argv must NOT match qoder-cli.
+    func testSourceDoesNotMatchPlainNodeForQoderCli() {
+        let match = CLIProcessResolver.sourceMatchesProcess(
+            "/usr/local/bin/node",
+            args: ["/usr/local/bin/node", "/some/other/script.js"],
+            source: "qoder-cli"
+        )
+        XCTAssertFalse(match, "node without qoder argv must not match qoder-cli source")
+    }
+
+    /// resolvedSessionPID must find node-based Qoder in ancestry.
+    func testResolvedSessionPIDWithNodeBasedQoderCliAncestry() {
+        let ancestry: [CLIProcessResolver.AncestryEntry] = [
+            (pid: 100, executablePath: "/bin/sh", args: nil),
+            (pid: 200, executablePath: "/usr/local/bin/node", args: ["/usr/local/bin/node", "@qoder-ai/qodercli"]),
+        ]
+        let pid = CLIProcessResolver.resolvedSessionPID(
+            immediateParentPID: 100, source: "qoder-cli", ancestry: ancestry
+        )
+        XCTAssertEqual(pid, 200, "node-based Qoder must resolve to the node process PID")
+    }
 }
