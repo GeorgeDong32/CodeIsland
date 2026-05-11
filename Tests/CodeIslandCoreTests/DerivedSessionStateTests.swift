@@ -38,9 +38,9 @@ final class DerivedSessionStateTests: XCTestCase {
             immediateParentPID: 100,
             source: "traecli",
             ancestry: [
-                (pid: 100, executablePath: "/bin/sh"),
-                (pid: 88, executablePath: "/opt/homebrew/bin/coco"),
-                (pid: 77, executablePath: "/Applications/Ghostty.app/Contents/MacOS/ghostty"),
+                (pid: 100, executablePath: "/bin/sh", args: nil),
+                (pid: 88, executablePath: "/opt/homebrew/bin/coco", args: nil),
+                (pid: 77, executablePath: "/Applications/Ghostty.app/Contents/MacOS/ghostty", args: nil),
             ]
         )
 
@@ -52,8 +52,8 @@ final class DerivedSessionStateTests: XCTestCase {
             immediateParentPID: 100,
             source: "traecli",
             ancestry: [
-                (pid: 100, executablePath: "/bin/sh"),
-                (pid: 88, executablePath: "/usr/bin/login"),
+                (pid: 100, executablePath: "/bin/sh", args: nil),
+                (pid: 88, executablePath: "/usr/bin/login", args: nil),
             ]
         )
 
@@ -65,9 +65,9 @@ final class DerivedSessionStateTests: XCTestCase {
     func testInferSourceFindsOpencodeInAncestryWhenSourceTagMissing() {
         // omo plugin triggers Claude hooks, but the real CLI up the ancestry is OpenCode.
         let source = CLIProcessResolver.inferSource(ancestry: [
-            (pid: 200, executablePath: "/bin/sh"),
-            (pid: 150, executablePath: "/usr/local/bin/node"),
-            (pid: 100, executablePath: "/Applications/OpenCode.app/Contents/MacOS/OpenCode"),
+            (pid: 200, executablePath: "/bin/sh", args: nil),
+            (pid: 150, executablePath: "/usr/local/bin/node", args: nil),
+            (pid: 100, executablePath: "/Applications/OpenCode.app/Contents/MacOS/OpenCode", args: nil),
         ])
 
         XCTAssertEqual(source, "opencode")
@@ -75,9 +75,9 @@ final class DerivedSessionStateTests: XCTestCase {
 
     func testInferSourceReturnsNilWhenNoKnownBinaryInAncestry() {
         let source = CLIProcessResolver.inferSource(ancestry: [
-            (pid: 200, executablePath: "/bin/sh"),
-            (pid: 150, executablePath: "/usr/bin/login"),
-            (pid: 100, executablePath: "/sbin/launchd"),
+            (pid: 200, executablePath: "/bin/sh", args: nil),
+            (pid: 150, executablePath: "/usr/bin/login", args: nil),
+            (pid: 100, executablePath: "/sbin/launchd", args: nil),
         ])
 
         XCTAssertNil(source)
@@ -86,8 +86,8 @@ final class DerivedSessionStateTests: XCTestCase {
     func testInferSourceReturnsClosestMatchAlongAncestry() {
         // If multiple known CLIs appear, the nearest ancestor wins.
         let source = CLIProcessResolver.inferSource(ancestry: [
-            (pid: 200, executablePath: "/usr/local/bin/codex"),
-            (pid: 100, executablePath: "/Applications/Claude.app/Contents/MacOS/claude"),
+            (pid: 200, executablePath: "/usr/local/bin/codex", args: nil),
+            (pid: 100, executablePath: "/Applications/Claude.app/Contents/MacOS/claude", args: nil),
         ])
 
         XCTAssertEqual(source, "codex")

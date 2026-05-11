@@ -1,7 +1,16 @@
 import Foundation
 
 public enum CLIProcessResolver {
+    public typealias AncestryEntry = (pid: Int32, executablePath: String?, args: [String]?)
+
     public static func sourceMatchesExecutablePath(_ path: String, source: String?) -> Bool {
+        return sourceMatchesProcess(path, args: nil, source: source)
+    }
+
+    /// Check whether a process path (and optional argv) matches the given source.
+    /// For node-based CLIs (e.g. npm-installed Codex), `executablePath` is `/node`,
+    /// so we inspect argv for package identifiers like `@openai/codex`.
+    public static func sourceMatchesProcess(_ path: String, args: [String]?, source: String?) -> Bool {
         guard let normalizedSource = SessionSnapshot.normalizedSupportedSource(source) else { return false }
         let lowercasedPath = path.lowercased()
 
@@ -12,7 +21,14 @@ public enum CLIProcessResolver {
                 || lowercasedPath.contains("/coco ")
                 || lowercasedPath.contains("/traecli ")
         case "codex":
-            return lowercasedPath.hasSuffix("/codex") || lowercasedPath.contains("/codex ")
+            if lowercasedPath.hasSuffix("/codex") || lowercasedPath.contains("/codex ") {
+                return true
+            }
+            // npm-installed Codex: executable is `node`, check argv for package ref
+            if lowercasedPath.hasSuffix("/node"), let args {
+                return args.contains(where: { $0.contains("@openai/codex") || $0.contains("openai-codex") })
+            }
+            return false
         case "claude":
             return lowercasedPath.hasSuffix("/claude") || lowercasedPath.contains("/claude ")
         case "qwen":
@@ -21,13 +37,17 @@ public enum CLIProcessResolver {
                 || lowercasedPath.contains("/qwen ")
                 || lowercasedPath.contains("/qwen-code ")
         case "gemini":
-            return lowercasedPath.hasSuffix("/gemini") || lowercasedPath.contains("/gemini ")
+            if lowercasedPath.hasSuffix("/gemini") || lowercasedPath.contains("/gemini ") {
+                return true
+            }
+            // npm-installed Gemini CLI: executable is `node`, check argv
+            if lowercasedPath.hasSuffix("/node"), let args {
+                return args.contains(where: { $0.contains("@anthropic-ai/gemini-cli") || $0.contains("@google/gemini-cli") || $0.contains("gemini-cli") })
+            }
+            return false
         case "cursor-cli":
-            // Cursor's CLI agent installs to ~/.local/share/cursor-agent/versions/<v>/cursor-agent
-            // and is also referenced by /cursor-agent/index.js when invoked via Node.
             return lowercasedPath.contains("/cursor-agent")
         case "qoder-cli":
-            // npm @qoder-ai/qodercli installs as `qodercli` in PATH (Homebrew/npm-global)
             return lowercasedPath.hasSuffix("/qodercli")
                 || lowercasedPath.contains("/qodercli ")
                 || lowercasedPath.contains("/@qoder-ai/qodercli")
@@ -43,18 +63,18 @@ public enum CLIProcessResolver {
     /// as "Cursor CLI" / "Qoder CLI" and routes terminal jumps correctly.
     public static func cliVariantOverride(
         declaredSource: String?,
-        ancestry: [(pid: Int32, executablePath: String?)]
+        ancestry: [AncestryEntry]
     ) -> String? {
         guard let normalized = SessionSnapshot.normalizedSupportedSource(declaredSource) else {
             return nil
         }
         switch normalized {
         case "cursor":
-            if ancestry.contains(where: { sourceMatchesExecutablePath($0.executablePath ?? "", source: "cursor-cli") }) {
+            if ancestry.contains(where: { sourceMatchesProcess($0.executablePath ?? "", args: $0.args, source: "cursor-cli") }) {
                 return "cursor-cli"
             }
         case "qoder":
-            if ancestry.contains(where: { sourceMatchesExecutablePath($0.executablePath ?? "", source: "qoder-cli") }) {
+            if ancestry.contains(where: { sourceMatchesProcess($0.executablePath ?? "", args: $0.args, source: "qoder-cli") }) {
                 return "qoder-cli"
             }
         default:
@@ -66,12 +86,12 @@ public enum CLIProcessResolver {
     public static func resolvedTrackedPID(
         immediateParentPID: Int32,
         source: String?,
-        ancestry: [(pid: Int32, executablePath: String?)]
+        ancestry: [AncestryEntry]
     ) -> Int32 {
         guard immediateParentPID > 0 else { return immediateParentPID }
 
         if let directMatch = ancestry.first(where: {
-            sourceMatchesExecutablePath($0.executablePath ?? "", source: source)
+            sourceMatchesProcess($0.executablePath ?? "", args: $0.args, source: source)
         }) {
             return directMatch.pid
         }
@@ -91,12 +111,12 @@ public enum CLIProcessResolver {
     public static func resolvedSessionPID(
         immediateParentPID: Int32,
         source: String?,
-        ancestry: [(pid: Int32, executablePath: String?)]
+        ancestry: [AncestryEntry]
     ) -> Int32 {
         guard immediateParentPID > 0 else { return immediateParentPID }
 
         if let rootMatch = ancestry.last(where: {
-            sourceMatchesExecutablePath($0.executablePath ?? "", source: source)
+            sourceMatchesProcess($0.executablePath ?? "", args: $0.args, source: source)
         }) {
             return rootMatch.pid
         }
@@ -108,7 +128,7 @@ public enum CLIProcessResolver {
     /// appears along the chain. Used when a hook event reaches the bridge without a
     /// `--source` tag (e.g. omo plugin firing Claude hooks from inside OpenCode), so
     /// we can recover the real source instead of letting the event default to Claude.
-    public static func inferSource(ancestry: [(pid: Int32, executablePath: String?)]) -> String? {
+    public static func inferSource(ancestry: [AncestryEntry]) -> String? {
         // Try `-cli` variants first so `cursor-agent` doesn't get mis-attributed
         // to the desktop `cursor` source (see issue #134).
         let all = SessionSnapshot.supportedSources
@@ -117,7 +137,7 @@ public enum CLIProcessResolver {
         for entry in ancestry {
             guard let path = entry.executablePath, !path.isEmpty else { continue }
             for source in cliFirst {
-                if sourceMatchesExecutablePath(path, source: source) {
+                if sourceMatchesProcess(path, args: entry.args, source: source) {
                     return source
                 }
             }

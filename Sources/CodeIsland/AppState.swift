@@ -385,9 +385,11 @@ final class AppState {
             if firstLiveProcess == nil {
                 firstLiveProcess = process
             }
-            if let path = executablePath(for: candidatePid),
-               CLIProcessResolver.sourceMatchesExecutablePath(path, source: source) {
-                return process
+            if let path = executablePath(for: candidatePid) {
+                let args: [String]? = path.lowercased().hasSuffix("/node") ? getProcessArgs(candidatePid) : nil
+                if CLIProcessResolver.sourceMatchesProcess(path, args: args, source: source) {
+                    return process
+                }
             }
             currentPid = parentPID(for: candidatePid)
         }

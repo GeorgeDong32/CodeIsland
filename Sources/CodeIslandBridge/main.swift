@@ -88,19 +88,51 @@ func parentPID(of pid: pid_t) -> pid_t? {
     return pid_t(info.pbi_ppid)
 }
 
-func buildAncestry(startingAt pid: pid_t, maxDepth: Int = 6) -> [(pid: pid_t, executablePath: String?)] {
+func buildAncestry(startingAt pid: pid_t, maxDepth: Int = 6) -> [(pid: pid_t, executablePath: String?, args: [String]?)] {
     guard pid > 0 else { return [] }
-    var result: [(pid: pid_t, executablePath: String?)] = []
+    var result: [(pid: pid_t, executablePath: String?, args: [String]?)] = []
     var current: pid_t? = pid
     var visited = Set<pid_t>()
 
     while let currentPid = current, currentPid > 0, result.count < maxDepth, !visited.contains(currentPid) {
         visited.insert(currentPid)
-        result.append((pid: currentPid, executablePath: executablePath(for: currentPid)))
+        let path = executablePath(for: currentPid)
+        // Collect argv for node-based CLIs where executablePath alone is insufficient
+        let args: [String]? = (path?.lowercased().hasSuffix("/node") == true) ? getProcessArgs(currentPid) : nil
+        result.append((pid: currentPid, executablePath: path, args: args))
         current = parentPID(of: currentPid)
     }
 
     return result
+}
+
+/// Read process argv via KERN_PROCARGS2. Ported from AppState.getProcessArgs.
+func getProcessArgs(_ pid: pid_t) -> [String]? {
+    var mib = [CTL_KERN, KERN_PROCARGS2, pid]
+    var size = 0
+    guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+    var buffer = [UInt8](repeating: 0, count: size)
+    guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return nil }
+
+    guard size > MemoryLayout<Int32>.size else { return nil }
+    let argc = buffer.withUnsafeBytes { $0.load(as: Int32.self) }
+    guard argc > 0, argc < 256 else { return nil }
+
+    var offset = MemoryLayout<Int32>.size
+    while offset < size && buffer[offset] != 0 { offset += 1 }
+    while offset < size && buffer[offset] == 0 { offset += 1 }
+
+    var args: [String] = []
+    var argStart = offset
+    for _ in 0..<argc {
+        while offset < size && buffer[offset] != 0 { offset += 1 }
+        if offset > argStart {
+            args.append(String(bytes: buffer[argStart..<offset], encoding: .utf8) ?? "")
+        }
+        offset += 1
+        argStart = offset
+    }
+    return args
 }
 
 func debugLog(_ message: String) {
@@ -267,7 +299,7 @@ if sourceTag == "copilot" {
 // `getppid()` is a transient shell rather than the long-lived CLI process.
 let immediateParentPID = getppid()
 let ancestry = buildAncestry(startingAt: immediateParentPID)
-let coreAncestry = ancestry.map { (pid: Int32($0.pid), executablePath: $0.executablePath) }
+let coreAncestry = ancestry.map { (pid: Int32($0.pid), executablePath: $0.executablePath, args: $0.args) }
 
 // Source tag (e.g. "codex" when called via --source codex). If the caller did not pass
 // one (e.g. the omo OpenCode plugin triggering Claude hooks without --source), infer
