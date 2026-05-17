@@ -352,10 +352,6 @@ private struct BehaviorPage: View {
     @AppStorage(SettingsKey.maxToolHistory) private var maxToolHistory = SettingsDefaults.maxToolHistory
     @AppStorage(SettingsKey.autoApproveTools) private var autoApproveSet: Set<String> = .init(rawValue: SettingsDefaults.autoApproveTools) ?? []
     @AppStorage(SettingsKey.autoApproveMode) private var autoApproveMode: String = SettingsDefaults.autoApproveMode
-    @AppStorage(SettingsKey.excludedHookCwdSubstrings) private var excludedHookCwdSubstrings: String = SettingsDefaults.excludedHookCwdSubstrings
-    @AppStorage(SettingsKey.webhookEnabled) private var webhookEnabled: Bool = SettingsDefaults.webhookEnabled
-    @AppStorage(SettingsKey.webhookURL) private var webhookURL: String = SettingsDefaults.webhookURL
-    @AppStorage(SettingsKey.webhookEventFilter) private var webhookEventFilter: String = SettingsDefaults.webhookEventFilter
 
     private var pluginSessionModeBinding: Binding<String> {
         Binding(

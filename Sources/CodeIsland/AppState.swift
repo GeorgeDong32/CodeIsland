@@ -18,12 +18,6 @@ struct ProcessIdentity: Equatable {
     let startTime: Date?
 }
 
-struct CodexSubagentMetadata: Equatable, Sendable {
-    let parentThreadId: String
-    let agentType: String?
-    let agentNickname: String?
-}
-
 @MainActor
 @Observable
 final class AppState {
@@ -1243,75 +1237,6 @@ final class AppState {
             guard snapSource == normalized && snap.cliPid == pid_t(ppid) else { return false }
             return !requireActive || snap.status != .idle
         })?.key
-    }
-
-    func findSessionId(providerSessionId: String) -> String? {
-        sessions.first(where: { _, snap in
-            snap.providerSessionId == providerSessionId
-        })?.key
-    }
-
-    nonisolated static func codexSubagentMetadata(inTranscriptPath path: String) -> CodexSubagentMetadata? {
-        guard let firstLine = readFirstLine(path: path),
-              let data = firstLine.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let payload = json["payload"] as? [String: Any],
-              let source = payload["source"] as? [String: Any],
-              let subagent = source["subagent"] as? [String: Any],
-              !subagent.isEmpty else {
-            return nil
-        }
-
-        let parent = firstStringRecursively(in: subagent, key: "parent_thread_id")
-        guard let parent, !parent.isEmpty else { return nil }
-
-        let agentType = firstStringRecursively(in: subagent, key: "agent_role")
-            ?? subagent.keys.sorted().first
-        let nickname = firstStringRecursively(in: subagent, key: "agent_nickname")
-        return CodexSubagentMetadata(
-            parentThreadId: parent,
-            agentType: agentType,
-            agentNickname: nickname
-        )
-    }
-
-    private nonisolated static func readFirstLine(path: String, maxBytes: Int = 2_000_000) -> String? {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
-        defer { handle.closeFile() }
-
-        var data = Data()
-        while data.count < maxBytes {
-            let chunk = handle.readData(ofLength: 64 * 1024)
-            if chunk.isEmpty { break }
-            if let newline = chunk.firstIndex(of: UInt8(ascii: "\n")) {
-                data.append(chunk[..<newline])
-                break
-            }
-            data.append(chunk)
-        }
-        guard !data.isEmpty else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    private nonisolated static func firstStringRecursively(in value: Any, key: String) -> String? {
-        if let dict = value as? [String: Any] {
-            if let string = dict[key] as? String,
-               !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return string
-            }
-            for child in dict.values {
-                if let found = firstStringRecursively(in: child, key: key) {
-                    return found
-                }
-            }
-        } else if let array = value as? [Any] {
-            for child in array {
-                if let found = firstStringRecursively(in: child, key: key) {
-                    return found
-                }
-            }
-        }
-        return nil
     }
 
     func denyPermission() {
