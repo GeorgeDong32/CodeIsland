@@ -76,29 +76,88 @@ install_name_tool -add_rpath "@executable_path/../Frameworks" \
 
 # ============== Phase 4: Code Signing ==============
 
-# Use SIGN_ID env var, or auto-detect: prefer "Developer ID Application" for distribution,
-# fall back to any valid identity, then ad-hoc
-if [ -z "$SIGN_ID" ]; then
-    SIGN_ID=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/' 2>/dev/null || true)
-fi
-if [ -z "$SIGN_ID" ]; then
-    SIGN_ID=$(security find-identity -v -p codesigning | grep -v "REVOKED" | head -1 | sed 's/.*"\(.*\)".*/\1/' 2>/dev/null || true)
-fi
-if [ -z "$SIGN_ID" ]; then
-    echo "No developer certificate found, using ad-hoc signing..."
-    SIGN_ID="-"
+# Resolve signing identity: SIGN_ID env → Developer ID → any non-revoked → ad-hoc
+find_signing_identity() {
+    local identities
+    identities="$(security find-identity -v -p codesigning 2>/dev/null || true)"
+
+    local developer_id
+    developer_id="$(printf '%s\n' "$identities" | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/' || true)"
+    if [ -n "$developer_id" ]; then
+        printf '%s\n' "$developer_id"
+        return 0
+    fi
+
+    local any_identity
+    any_identity="$(printf '%s\n' "$identities" | grep -v "REVOKED" | grep '"' | head -1 | sed 's/.*"\(.*\)".*/\1/' || true)"
+    if [ -n "$any_identity" ]; then
+        printf '%s\n' "$any_identity"
+        return 0
+    fi
+
+    printf '%s\n' "-"
+}
+
+if [ -z "${SIGN_ID:-}" ]; then
+    SIGN_ID="$(find_signing_identity)"
 fi
 
+if [ "$SIGN_ID" = "-" ]; then
+    echo "No developer certificate found, using ad-hoc signing..."
+fi
+
+# Signing graph paths
+SPARKLE_FRAMEWORK="$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
+SPARKLE_VERSION_B="$SPARKLE_FRAMEWORK/Versions/B"
+SPARKLE_BINARY="$SPARKLE_VERSION_B/Sparkle"
+SPARKLE_AUTOUPDATE="$SPARKLE_VERSION_B/Autoupdate"
+SPARKLE_INSTALLER_XPC="$SPARKLE_VERSION_B/XPCServices/Installer.xpc"
+SPARKLE_INSTALLER_BINARY="$SPARKLE_INSTALLER_XPC/Contents/MacOS/Installer"
+SPARKLE_DOWNLOADER_XPC="$SPARKLE_VERSION_B/XPCServices/Downloader.xpc"
+SPARKLE_DOWNLOADER_BINARY="$SPARKLE_DOWNLOADER_XPC/Contents/MacOS/Downloader"
+SPARKLE_UPDATER_APP="$SPARKLE_VERSION_B/Updater.app"
+SPARKLE_UPDATER_BINARY="$SPARKLE_UPDATER_APP/Contents/MacOS/Updater"
+BRIDGE_BINARY="$APP_BUNDLE/Contents/Helpers/codeisland-bridge"
+MAIN_APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
+
+# Remove upstream Sparkle signatures to avoid Team ID mismatch
+remove_signature_if_present() {
+    local target="$1"
+    if [ -e "$target" ]; then
+        codesign --remove-signature "$target" 2>/dev/null || true
+    fi
+}
+
+echo "Removing existing Sparkle signatures..."
+remove_signature_if_present "$SPARKLE_INSTALLER_BINARY"
+remove_signature_if_present "$SPARKLE_INSTALLER_XPC"
+remove_signature_if_present "$SPARKLE_DOWNLOADER_BINARY"
+remove_signature_if_present "$SPARKLE_DOWNLOADER_XPC"
+remove_signature_if_present "$SPARKLE_UPDATER_BINARY"
+remove_signature_if_present "$SPARKLE_UPDATER_APP"
+remove_signature_if_present "$SPARKLE_AUTOUPDATE"
+remove_signature_if_present "$SPARKLE_BINARY"
+remove_signature_if_present "$SPARKLE_FRAMEWORK"
+
 echo "Code signing ($SIGN_ID)..."
-# Sign in order: nested components first, then parent
-codesign --force --options runtime --sign "$SIGN_ID" "$APP_BUNDLE/Contents/Helpers/codeisland-bridge"
-# Sparkle nested binaries (must match app signature to avoid Team ID mismatch)
-codesign --force --sign "$SIGN_ID" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
-codesign --force --sign "$SIGN_ID" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc"
-codesign --force --sign "$SIGN_ID" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc"
-codesign --force --sign "$SIGN_ID" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app"
-codesign --force --options runtime --sign "$SIGN_ID" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
-codesign --force --options runtime --sign "$SIGN_ID" --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
+
+if [ "$SIGN_ID" = "-" ]; then
+    # Ad-hoc: --deep signs all nested code in one pass to ensure consistent Team ID
+    codesign --force --deep --sign "$SIGN_ID" "$APP_BUNDLE"
+else
+    # Developer ID: explicit nested-first graph for notarization compatibility
+    codesign --force --options runtime --sign "$SIGN_ID" "$BRIDGE_BINARY"
+    codesign --force --sign "$SIGN_ID" "$SPARKLE_INSTALLER_BINARY"
+    codesign --force --sign "$SIGN_ID" "$SPARKLE_DOWNLOADER_BINARY"
+    codesign --force --sign "$SIGN_ID" "$SPARKLE_UPDATER_BINARY"
+    codesign --force --sign "$SIGN_ID" "$SPARKLE_AUTOUPDATE"
+    codesign --force --sign "$SIGN_ID" "$SPARKLE_BINARY"
+    codesign --force --sign "$SIGN_ID" "$SPARKLE_INSTALLER_XPC"
+    codesign --force --sign "$SIGN_ID" "$SPARKLE_DOWNLOADER_XPC"
+    codesign --force --sign "$SIGN_ID" "$SPARKLE_UPDATER_APP"
+    codesign --force --options runtime --sign "$SIGN_ID" "$SPARKLE_FRAMEWORK"
+    codesign --force --options runtime --sign "$SIGN_ID" --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
+fi
 
 # ============== Phase 5: Optional Notarization + DMG ==============
 
@@ -147,25 +206,86 @@ fi
 echo "Verifying bundle completeness..."
 verify_fail=0
 
-if [ ! -f "$APP_BUNDLE/Contents/Info.plist" ]; then
-    echo "MISSING: Info.plist"
-    verify_fail=1
-fi
+# Path existence checks
+for required_path in \
+    "$APP_BUNDLE/Contents/Info.plist" \
+    "$MAIN_APP_BINARY" \
+    "$BRIDGE_BINARY" \
+    "$SPARKLE_FRAMEWORK" \
+    "$SPARKLE_BINARY" \
+    "$SPARKLE_AUTOUPDATE" \
+    "$SPARKLE_INSTALLER_XPC" \
+    "$SPARKLE_INSTALLER_BINARY" \
+    "$SPARKLE_DOWNLOADER_XPC" \
+    "$SPARKLE_DOWNLOADER_BINARY" \
+    "$SPARKLE_UPDATER_APP" \
+    "$SPARKLE_UPDATER_BINARY"
+do
+    if [ ! -e "$required_path" ]; then
+        echo "MISSING: $required_path"
+        verify_fail=1
+    fi
+done
 
-if [ ! -f "$APP_BUNDLE/Contents/MacOS/$APP_NAME" ]; then
-    echo "MISSING: Main binary"
-    verify_fail=1
-fi
-
-if [ ! -d "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework" ]; then
-    echo "MISSING: Sparkle.framework"
-    verify_fail=1
-fi
-
-if ! otool -l "$APP_BUNDLE/Contents/MacOS/$APP_NAME" | grep -q "@executable_path/../Frameworks"; then
+# rpath check
+if ! otool -l "$MAIN_APP_BINARY" | grep -q "@executable_path/../Frameworks"; then
     echo "MISSING: rpath for Frameworks"
     verify_fail=1
 fi
+
+# Signature validity checks
+verify_signature() {
+    local target="$1"
+    if ! codesign --verify --verbose=2 "$target" >/dev/null 2>&1; then
+        echo "INVALID SIGNATURE: $target"
+        verify_fail=1
+    fi
+}
+
+for signed_target in \
+    "$BRIDGE_BINARY" \
+    "$SPARKLE_INSTALLER_BINARY" \
+    "$SPARKLE_INSTALLER_XPC" \
+    "$SPARKLE_DOWNLOADER_BINARY" \
+    "$SPARKLE_DOWNLOADER_XPC" \
+    "$SPARKLE_UPDATER_BINARY" \
+    "$SPARKLE_UPDATER_APP" \
+    "$SPARKLE_AUTOUPDATE" \
+    "$SPARKLE_BINARY" \
+    "$SPARKLE_FRAMEWORK" \
+    "$APP_BUNDLE"
+do
+    verify_signature "$signed_target"
+done
+
+# TeamIdentifier consistency check
+team_identifier() {
+    codesign -dv "$1" 2>&1 | sed -n 's/^TeamIdentifier=//p'
+}
+
+APP_TEAM_ID="$(team_identifier "$APP_BUNDLE")"
+if [ -z "$APP_TEAM_ID" ]; then
+    echo "MISSING TeamIdentifier: $APP_BUNDLE"
+    verify_fail=1
+fi
+
+for team_target in \
+    "$SPARKLE_BINARY" \
+    "$SPARKLE_AUTOUPDATE" \
+    "$SPARKLE_INSTALLER_BINARY" \
+    "$SPARKLE_INSTALLER_XPC" \
+    "$SPARKLE_DOWNLOADER_BINARY" \
+    "$SPARKLE_DOWNLOADER_XPC" \
+    "$SPARKLE_UPDATER_BINARY" \
+    "$SPARKLE_UPDATER_APP" \
+    "$SPARKLE_FRAMEWORK"
+do
+    TARGET_TEAM_ID="$(team_identifier "$team_target")"
+    if [ "$TARGET_TEAM_ID" != "$APP_TEAM_ID" ]; then
+        echo "TEAM ID MISMATCH: $team_target has TeamIdentifier='$TARGET_TEAM_ID', app has TeamIdentifier='$APP_TEAM_ID'"
+        verify_fail=1
+    fi
+done
 
 if [ $verify_fail -eq 1 ]; then
     echo "ERROR: Bundle verification failed"
