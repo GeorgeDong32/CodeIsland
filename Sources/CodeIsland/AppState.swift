@@ -145,6 +145,7 @@ final class AppState {
     private var modelReadRetryAt: [String: Date] = [:]
 
     private var dismissedPermissionSessionIds: Set<String> = []
+    private var dismissedQuestionSessionIds: Set<String> = []
     private func nextVisiblePermissionIndex() -> Int? {
         permissionQueue.firstIndex { request in
             let sid = request.event.sessionId ?? "default"
@@ -1703,6 +1704,7 @@ final class AppState {
             return
         }
         let pending = questionQueue.removeFirst()
+        dismissedQuestionSessionIds.remove(pending.event.sessionId ?? "default")
         let responseData: Data
         if pending.isFromPermission {
             let answerKey = pending.question.header ?? "answer"
@@ -1736,6 +1738,7 @@ final class AppState {
     func answerQuestionMulti(_ answers: [(question: String, answer: String)]) {
         guard !questionQueue.isEmpty else { return }
         let pending = questionQueue.removeFirst()
+        dismissedQuestionSessionIds.remove(pending.event.sessionId ?? "default")
         let responseData: Data
         if pending.isFromPermission {
             var answersDict: [String: String] = [:]
@@ -1842,6 +1845,7 @@ final class AppState {
     func skipQuestion() {
         guard !questionQueue.isEmpty else { return }
         let pending = questionQueue.removeFirst()
+        dismissedQuestionSessionIds.remove(pending.event.sessionId ?? "default")
         let responseData: Data
         if pending.isFromPermission {
             responseData = Self.permissionDenyResponse()
@@ -1856,20 +1860,22 @@ final class AppState {
         refreshDerivedState()
     }
 
-    /// Dismiss question without sending response (just close UI)
+    /// Dismiss question without sending response (just close UI, similar to dismissPermissionPrompt).
+    /// Item stays in questionQueue for drainQuestions to resume the continuation later.
     func dismissQuestion() {
-        guard !questionQueue.isEmpty else { return }
-        let pending = questionQueue.removeFirst()
-        // Return deny/empty to unblock CLI
-        if pending.isFromPermission {
-            pending.continuation.resume(returning: Self.permissionDenyResponse())
-        } else {
-            pending.continuation.resume(returning: Self.notificationResponse())
-        }
+        guard let pending = questionQueue.first else { return }
         let sessionId = pending.event.sessionId ?? "default"
-        sessions[sessionId]?.status = .processing
+        dismissedQuestionSessionIds.insert(sessionId)
 
-        showNextPending()
+        if questionQueue.firstIndex(where: { !dismissedQuestionSessionIds.contains($0.event.sessionId ?? "default") }) != nil {
+            showNextPending()
+        } else {
+            if case .questionCard = surface {
+                withAnimation(NotchAnimation.close) {
+                    surface = .collapsed
+                }
+            }
+        }
         refreshDerivedState()
     }
 
@@ -1906,6 +1912,7 @@ final class AppState {
     /// Drain all queued questions for a specific session.
     /// AskUserQuestion-derived requests are denied; notification questions return empty.
     private func drainQuestions(forSession sessionId: String, reason: String = "unknown") {
+        dismissedQuestionSessionIds.remove(sessionId)
         questionQueue.removeAll { item in
             guard item.event.sessionId == sessionId else { return false }
             if item.isFromPermission {
@@ -1933,7 +1940,9 @@ final class AppState {
                 surface = .approvalCard(sessionId: sid)
             }
             return true
-        } else if let next = questionQueue.first {
+        } else if let idx = questionQueue.firstIndex(where: { !dismissedQuestionSessionIds.contains($0.event.sessionId ?? "default") }) {
+            let next = questionQueue.remove(at: idx)
+            questionQueue.insert(next, at: 0)
             let sid = next.event.sessionId ?? "default"
             activeSessionId = sid
             surface = .questionCard(sessionId: sid)
