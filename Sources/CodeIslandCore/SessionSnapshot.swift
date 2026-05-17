@@ -31,6 +31,7 @@ public struct SessionSnapshot: Sendable {
         "hermes",
         "qwen",
         "kimi",
+        "cline",
     ]
 
     public static let ideCompletionSources: Set<String> = [
@@ -81,6 +82,8 @@ public struct SessionSnapshot: Sendable {
     public var remoteHostName: String?
     /// nil = unchecked, false = not YOLO, true = YOLO
     public var isYoloMode: Bool?
+    /// Cline task round has ended (guards against out-of-order in-flight events reviving session)
+    public var taskRoundEnded: Bool = false
 
     public init(startTime: Date = Date()) {
         self.startTime = startTime
