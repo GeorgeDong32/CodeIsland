@@ -82,7 +82,7 @@ find_signing_identity() {
     identities="$(security find-identity -v -p codesigning 2>/dev/null || true)"
 
     local developer_id
-    developer_id="$(printf '%s\n' "$identities" | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/' || true)"
+    developer_id="$(printf '%s\n' "$identities" | grep -v "REVOKED" | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/' || true)"
     if [ -n "$developer_id" ]; then
         printf '%s\n' "$developer_id"
         return 0
@@ -142,7 +142,8 @@ remove_signature_if_present "$SPARKLE_FRAMEWORK"
 echo "Code signing ($SIGN_ID)..."
 
 if [ "$SIGN_ID" = "-" ]; then
-    # Ad-hoc: --deep signs all nested code in one pass to ensure consistent Team ID
+    # Ad-hoc: --deep signs all nested code in one pass to ensure consistent Team ID.
+    # No --options runtime or --entitlements: adding them breaks ad-hoc Team ID unification.
     codesign --force --deep --sign "$SIGN_ID" "$APP_BUNDLE"
 else
     # Developer ID: explicit nested-first graph for notarization compatibility
@@ -260,7 +261,7 @@ done
 
 # TeamIdentifier consistency check
 team_identifier() {
-    codesign -dv "$1" 2>&1 | sed -n 's/^TeamIdentifier=//p'
+    codesign -dv "$1" 2>&1 | sed -n 's/^TeamIdentifier=//p' || true
 }
 
 APP_TEAM_ID="$(team_identifier "$APP_BUNDLE")"
@@ -270,6 +271,7 @@ if [ -z "$APP_TEAM_ID" ]; then
 fi
 
 for team_target in \
+    "$BRIDGE_BINARY" \
     "$SPARKLE_BINARY" \
     "$SPARKLE_AUTOUPDATE" \
     "$SPARKLE_INSTALLER_BINARY" \
