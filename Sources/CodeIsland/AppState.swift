@@ -7,6 +7,12 @@ import CodeIslandCore
 
 private let log = Logger(subsystem: "com.codeisland", category: "AppState")
 
+struct CodexSubagentMetadata: Equatable, Sendable {
+    let parentThreadId: String
+    let agentType: String?
+    let agentNickname: String?
+}
+
 struct ProcessIdentity: Equatable {
     let pid: pid_t
     let startTime: Date?
@@ -320,6 +326,11 @@ final class AppState {
         prunePendingToolUses()
 
         refreshDerivedState()
+    }
+
+    private nonisolated static func currentPluginSessionMode() -> String {
+        UserDefaults.standard.string(forKey: SettingsKey.pluginSessionMode)
+            ?? SettingsDefaults.pluginSessionMode
     }
 
     // MARK: - Process Monitoring (DispatchSource)
@@ -1056,8 +1067,12 @@ final class AppState {
         if sessions[sessionId] == nil {
             sessions[sessionId] = SessionSnapshot()
         }
-        // Extract metadata so blocking-first sessions have cwd, source, cliPid, terminal info
-        extractMetadata(into: &sessions, sessionId: sessionId, event: event)
+        // Extract metadata so blocking-first parent sessions have cwd/source/PID.
+        // Subagent events are routed through the parent session ID; their metadata
+        // can describe the child session and should not overwrite the parent.
+        if event.agentId == nil {
+            extractMetadata(into: &sessions, sessionId: sessionId, event: event)
+        }
         tryMonitorSession(sessionId)
 
         // New incoming permission request means session needs user decision again.
@@ -1111,7 +1126,11 @@ final class AppState {
         }
 
         let responseData: Data
-        if always {
+        if always, CodexPermissionRules.isCodexEvent(pending.event) {
+            _ = CodexPermissionRules().persistAlwaysAllowRule(for: pending.event)
+            let response = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
+            responseData = Data(response.utf8)
+        } else if always {
             let toolName = pending.event.toolName ?? ""
             var permissions: [[String: Any]] = [[
                 "type": "addRules",
@@ -1168,11 +1187,59 @@ final class AppState {
     /// Find an existing session whose source matches and whose CLI PID equals
     /// the supplied ppid. Used by HookServer to merge plugin-proxied events
     /// (e.g. omo) into their main session when pluginSessionMode == "merge". (#123)
-    func findSessionId(forSource source: String, ppid: Int) -> String? {
+    ///
+    /// We additionally require the candidate session to have been active in
+    /// the last 5 minutes. This guards against macOS PID reuse — a stale
+    /// session whose CLI long since exited could otherwise still match the
+    /// plugin event's `_ppid` if the OS recycled that PID for an unrelated
+    /// process. Live sessions update `lastActivity` on every event so the
+    /// window is generous; stale ones get skipped. (#123 review)
+    func findSessionId(
+        forSource source: String,
+        ppid: Int,
+        excluding excludedSessionId: String? = nil,
+        requireActive: Bool = false
+    ) -> String? {
         let normalized = SessionSnapshot.normalizedSupportedSource(source)
+        let cutoff = Date().addingTimeInterval(-300)
+        return sessions
+            .filter { sessionId, snap in
+                let snapSource = SessionSnapshot.normalizedSupportedSource(snap.source)
+                return snapSource == normalized
+                    && snap.cliPid == pid_t(ppid)
+                    && snap.lastActivity >= cutoff
+                    && sessionId != excludedSessionId
+                    && (!requireActive || snap.status != .idle)
+            }
+            .sorted { lhs, rhs in
+                let lhsActive = lhs.value.status != .idle
+                let rhsActive = rhs.value.status != .idle
+                if lhsActive != rhsActive { return lhsActive }
+                return lhs.value.startTime < rhs.value.startTime
+            }
+            .first?.key
+    }
+
+    func findSessionId(providerSessionId: String) -> String? {
+        if sessions[providerSessionId] != nil {
+            return providerSessionId
+        }
+        let codexAppId = AppState.codexAppSessionPrefix + providerSessionId
+        if sessions[codexAppId] != nil {
+            return codexAppId
+        }
         return sessions.first(where: { _, snap in
+            snap.providerSessionId == providerSessionId
+        })?.key
+    }
+
+    func findSessionId(forSource source: String, ppid: Int, excluding: String, requireActive: Bool) -> String? {
+        let normalized = SessionSnapshot.normalizedSupportedSource(source)
+        return sessions.first(where: { key, snap in
+            guard key != excluding else { return false }
             let snapSource = SessionSnapshot.normalizedSupportedSource(snap.source)
-            return snapSource == normalized && snap.cliPid == pid_t(ppid)
+            guard snapSource == normalized && snap.cliPid == pid_t(ppid) else { return false }
+            return !requireActive || snap.status != .idle
         })?.key
     }
 
@@ -1492,7 +1559,9 @@ final class AppState {
         if sessions[sessionId] == nil {
             sessions[sessionId] = SessionSnapshot()
         }
-        extractMetadata(into: &sessions, sessionId: sessionId, event: event)
+        if event.agentId == nil {
+            extractMetadata(into: &sessions, sessionId: sessionId, event: event)
+        }
         tryMonitorSession(sessionId)
 
         guard let question = QuestionPayload.from(event: event) else {
@@ -1522,11 +1591,14 @@ final class AppState {
         if sessions[sessionId] == nil {
             sessions[sessionId] = SessionSnapshot()
         }
-        extractMetadata(into: &sessions, sessionId: sessionId, event: event)
+        if event.agentId == nil {
+            extractMetadata(into: &sessions, sessionId: sessionId, event: event)
+        }
         tryMonitorSession(sessionId)
 
+        let originalQuestions = event.toolInput?["questions"] as? [[String: Any]]
         var askItems: [AskUserQuestionItem] = []
-        if let questions = event.toolInput?["questions"] as? [[String: Any]] {
+        if let questions = originalQuestions {
             var usedAnswerKeys = Set<String>()
             askItems = questions.enumerated().compactMap { index, item in
                 let questionText = item["question"] as? String ?? "Question"
@@ -1576,7 +1648,22 @@ final class AppState {
         }
 
         guard !askItems.isEmpty else {
-            let responseData = Self.permissionAllowResponse(updatedInput: ["answers": [:] as [String: String]])
+            let updatedInput = askUserQuestionUpdatedInput(
+                event: event,
+                answers: [:],
+                answer: nil,
+                originalQuestions: originalQuestions
+            )
+            let obj: [String: Any] = [
+                "hookSpecificOutput": [
+                    "hookEventName": "PermissionRequest",
+                    "decision": [
+                        "behavior": "allow",
+                        "updatedInput": updatedInput
+                    ] as [String: Any]
+                ] as [String: Any]
+            ]
+            let responseData = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
             continuation.resume(returning: responseData)
             sessions[sessionId]?.status = .processing
             refreshDerivedState()
@@ -1619,7 +1706,22 @@ final class AppState {
         let responseData: Data
         if pending.isFromPermission {
             let answerKey = pending.question.header ?? "answer"
-            responseData = Self.permissionAllowResponse(updatedInput: ["answers": [answerKey: answer]])
+            let updatedInput = askUserQuestionUpdatedInput(
+                event: pending.event,
+                answers: [answerKey: answer],
+                answer: answer,
+                originalQuestions: pending.event.toolInput?["questions"] as? [[String: Any]]
+            )
+            let obj: [String: Any] = [
+                "hookSpecificOutput": [
+                    "hookEventName": "PermissionRequest",
+                    "decision": [
+                        "behavior": "allow",
+                        "updatedInput": updatedInput
+                    ] as [String: Any]
+                ] as [String: Any]
+            ]
+            responseData = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
         } else {
             responseData = Self.notificationResponse(answer: answer)
         }
@@ -1693,10 +1795,22 @@ final class AppState {
                 answersDict[questionText] = answers.first?.answer ?? ""
             }
 
-            responseData = Self.permissionAllowResponse(updatedInput: [
-                "questions": questionsArray,
-                "answers": answersDict,
-            ])
+            let updatedInput = askUserQuestionUpdatedInput(
+                event: pending.event,
+                answers: answersDict,
+                answer: answers.first?.answer,
+                originalQuestions: pending.event.toolInput?["questions"] as? [[String: Any]]
+            )
+            let obj: [String: Any] = [
+                "hookSpecificOutput": [
+                    "hookEventName": "PermissionRequest",
+                    "decision": [
+                        "behavior": "allow",
+                        "updatedInput": updatedInput
+                    ] as [String: Any]
+                ] as [String: Any]
+            ]
+            responseData = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
         } else {
             responseData = Self.notificationResponse(answer: answers.first?.answer ?? "")
         }
@@ -1706,6 +1820,23 @@ final class AppState {
 
         showNextPending()
         refreshDerivedState()
+    }
+
+    private func askUserQuestionUpdatedInput(
+        event: HookEvent,
+        answers: [String: String],
+        answer: String?,
+        originalQuestions: [[String: Any]]?
+    ) -> [String: Any] {
+        var updatedInput = event.toolInput ?? [:]
+        if let originalQuestions {
+            updatedInput["questions"] = originalQuestions
+        }
+        updatedInput["answers"] = answers
+        if let answer {
+            updatedInput["answer"] = answer
+        }
+        return updatedInput
     }
 
     func skipQuestion() {
@@ -2178,6 +2309,7 @@ final class AppState {
             tryMonitorSession(p.sessionId)
         }
         SessionPersistence.clear()
+        _ = applyCodexSubsessionModeToKnownSessions()
         if activeSessionId == nil {
             activeSessionId = sessions.first(where: { $0.value.status != .idle })?.key
                 ?? sessions.keys.sorted().first
@@ -2354,6 +2486,11 @@ final class AppState {
     private func integrateDiscovered(_ discovered: [DiscoveredSession]) {
         var didMutate = false
         for info in discovered {
+            if routeDiscoveredSubsessionIfNeeded(info) {
+                didMutate = true
+                continue
+            }
+
             // Session already known — try to update PID and attach monitor.
             // Discovery PIDs are heuristic (matched by CWD), so when the session already
             // has a known-good alive PID that differs from discovery, we trust the existing
@@ -2465,6 +2602,9 @@ final class AppState {
             attachTranscriptTailerIfNeeded(sessionId: info.sessionId)
             didMutate = true
         }
+        if applyCodexSubsessionModeToKnownSessions() {
+            didMutate = true
+        }
         if didMutate && activeSessionId == nil {
             activeSessionId = sessions.keys.sorted().first
         }
@@ -2472,6 +2612,242 @@ final class AppState {
             scheduleSave()
         }
         refreshDerivedState()
+    }
+
+    @discardableResult
+    func applyCodexSubsessionModeToKnownSessions() -> Bool {
+        let mode = Self.currentPluginSessionMode()
+        guard mode == "hide" || mode == "merge" else {
+            return false
+        }
+
+        let candidates = sessions.map { (sessionId: $0.key, session: $0.value) }
+        var didMutate = false
+
+        for candidate in candidates where candidate.session.source == "codex" {
+            let providerSessionId = candidate.session.providerSessionId ?? candidate.sessionId
+            guard let metadata = Self.codexSubagentMetadata(
+                threadId: providerSessionId,
+                transcriptPath: candidate.session.transcriptPath
+            ),
+                  metadata.parentThreadId != providerSessionId else {
+                continue
+            }
+
+            if mode == "hide" {
+                if sessions[candidate.sessionId] != nil {
+                    removeSession(candidate.sessionId)
+                    didMutate = true
+                }
+                continue
+            }
+
+            guard let parentKey = findSessionId(providerSessionId: metadata.parentThreadId),
+                  parentKey != candidate.sessionId else {
+                continue
+            }
+
+            if sessions[candidate.sessionId] != nil {
+                removeSession(candidate.sessionId)
+                didMutate = true
+            }
+
+            if Self.codexThreadSpawnStatus(childThreadId: providerSessionId)?.lowercased() == "closed" {
+                if sessions[parentKey]?.subagents.removeValue(forKey: providerSessionId) != nil {
+                    didMutate = true
+                }
+                continue
+            }
+
+            let agentType = metadata.agentType ?? metadata.agentNickname ?? "Agent"
+            var subagent = sessions[parentKey]?.subagents[providerSessionId]
+                ?? SubagentState(agentId: providerSessionId, agentType: agentType)
+            subagent.status = candidate.session.status == .idle ? .running : candidate.session.status
+            subagent.currentTool = candidate.session.currentTool
+            subagent.toolDescription = candidate.session.toolDescription ?? metadata.agentNickname
+            if candidate.session.lastActivity > subagent.lastActivity {
+                subagent.lastActivity = candidate.session.lastActivity
+            }
+            sessions[parentKey]?.subagents[providerSessionId] = subagent
+
+            if sessions[parentKey]?.status != .waitingApproval && sessions[parentKey]?.status != .waitingQuestion {
+                sessions[parentKey]?.status = .running
+                sessions[parentKey]?.currentTool = "Agent"
+                sessions[parentKey]?.toolDescription = metadata.agentNickname ?? agentType
+            }
+            if candidate.session.lastActivity > (sessions[parentKey]?.lastActivity ?? .distantPast) {
+                sessions[parentKey]?.lastActivity = candidate.session.lastActivity
+            }
+            activeSessionId = parentKey
+            didMutate = true
+        }
+
+        return didMutate
+    }
+
+    func applyCurrentPluginSessionMode(persist: Bool = true) {
+        let mode = Self.currentPluginSessionMode()
+        var didMutate = false
+
+        switch mode {
+        case "separate":
+            didMutate = separateMergedCodexSubagents()
+        case "merge":
+            didMutate = applyCodexSubsessionModeToKnownSessions()
+        case "hide":
+            didMutate = applyCodexSubsessionModeToKnownSessions()
+            didMutate = hideMergedCodexSubagents() || didMutate
+        default:
+            return
+        }
+
+        if didMutate {
+            if persist {
+                scheduleSave()
+                startRotationIfNeeded()
+            }
+            refreshDerivedState()
+        }
+    }
+
+    @discardableResult
+    private func separateMergedCodexSubagents() -> Bool {
+        let parentCandidates = sessions.map { (sessionId: $0.key, session: $0.value) }
+        var didMutate = false
+
+        for parent in parentCandidates where parent.session.source == "codex" && !parent.session.subagents.isEmpty {
+            for (agentId, subagent) in parent.session.subagents {
+                let childKey = findSessionId(providerSessionId: agentId) ?? agentId
+                guard childKey != parent.sessionId else { continue }
+
+                var child = sessions[childKey] ?? SessionSnapshot(startTime: subagent.startTime)
+                child.source = "codex"
+                child.providerSessionId = agentId
+                child.cwd = child.cwd ?? parent.session.cwd
+                child.model = child.model ?? parent.session.model
+                child.permissionMode = child.permissionMode ?? parent.session.permissionMode
+                child.termApp = child.termApp ?? parent.session.termApp
+                child.itermSessionId = child.itermSessionId ?? parent.session.itermSessionId
+                child.ttyPath = child.ttyPath ?? parent.session.ttyPath
+                child.kittyWindowId = child.kittyWindowId ?? parent.session.kittyWindowId
+                child.tmuxPane = child.tmuxPane ?? parent.session.tmuxPane
+                child.tmuxClientTty = child.tmuxClientTty ?? parent.session.tmuxClientTty
+                child.tmuxEnv = child.tmuxEnv ?? parent.session.tmuxEnv
+                child.termBundleId = child.termBundleId ?? parent.session.termBundleId
+                child.cliPid = child.cliPid ?? parent.session.cliPid
+                child.cliStartTime = child.cliStartTime ?? parent.session.cliStartTime
+                child.status = subagent.status
+                child.currentTool = subagent.currentTool
+                child.toolDescription = subagent.toolDescription ?? subagent.agentType
+                child.lastActivity = subagent.lastActivity
+
+                let metadata = Self.codexSubagentMetadata(threadId: agentId, transcriptPath: child.transcriptPath)
+                if child.sessionTitle == nil {
+                    child.sessionTitle = metadata?.agentNickname ?? subagent.toolDescription ?? subagent.agentType
+                }
+                if child.transcriptPath == nil {
+                    child.transcriptPath = Self.codexTranscriptPath(
+                        sessionId: agentId,
+                        cwd: parent.session.cwd,
+                        processStart: parent.session.cliStartTime
+                    )
+                }
+                if let transcriptPath = child.transcriptPath {
+                    let (model, messages) = Self.readRecentFromCodexTranscript(path: transcriptPath)
+                    child.model = child.model ?? model
+                    if !messages.isEmpty {
+                        child.recentMessages = messages
+                        child.lastUserPrompt = messages.last(where: \.isUser)?.text
+                        child.lastAssistantMessage = messages.last(where: { !$0.isUser })?.text
+                    }
+                }
+
+                sessions[childKey] = child
+                refreshProviderTitle(for: childKey, providerSessionId: agentId)
+                attachTranscriptTailerIfNeeded(sessionId: childKey)
+                tryMonitorSession(childKey)
+                sessions[parent.sessionId]?.subagents.removeValue(forKey: agentId)
+                if subagent.status != .idle {
+                    activeSessionId = childKey
+                }
+                didMutate = true
+            }
+            if sessions[parent.sessionId]?.subagents.isEmpty == true {
+                clearSubagentProjection(fromParentSession: parent.sessionId)
+            }
+        }
+
+        return didMutate
+    }
+
+    @discardableResult
+    private func hideMergedCodexSubagents() -> Bool {
+        var didMutate = false
+        for (sessionId, session) in sessions where session.source == "codex" && !session.subagents.isEmpty {
+            sessions[sessionId]?.subagents.removeAll()
+            clearSubagentProjection(fromParentSession: sessionId)
+            didMutate = true
+        }
+        return didMutate
+    }
+
+    private func clearSubagentProjection(fromParentSession sessionId: String) {
+        guard sessions[sessionId]?.currentTool == "Agent" else { return }
+        sessions[sessionId]?.currentTool = nil
+        sessions[sessionId]?.toolDescription = nil
+        if sessions[sessionId]?.status == .running {
+            sessions[sessionId]?.status = .processing
+        }
+    }
+
+    private func routeDiscoveredSubsessionIfNeeded(_ info: DiscoveredSession) -> Bool {
+        guard info.source == "codex",
+              let parentSessionId = info.parentSessionId,
+              !parentSessionId.isEmpty else {
+            return false
+        }
+
+        let mode = Self.currentPluginSessionMode()
+        guard mode == "hide" || mode == "merge" else {
+            return false
+        }
+
+        if mode == "hide" {
+            if sessions[info.sessionId] != nil {
+                removeSession(info.sessionId)
+            }
+            return true
+        }
+
+        guard let parentKey = findSessionId(providerSessionId: parentSessionId) else {
+            return false
+        }
+
+        if sessions[info.sessionId] != nil {
+            removeSession(info.sessionId)
+        }
+
+        if info.subagentStatus?.lowercased() == "closed" {
+            sessions[parentKey]?.subagents.removeValue(forKey: info.sessionId)
+            return true
+        }
+
+        let agentType = info.agentType ?? info.agentNickname ?? "Agent"
+        var subagent = sessions[parentKey]?.subagents[info.sessionId]
+            ?? SubagentState(agentId: info.sessionId, agentType: agentType)
+        subagent.status = .running
+        subagent.toolDescription = info.agentNickname
+        subagent.lastActivity = Date()
+        sessions[parentKey]?.subagents[info.sessionId] = subagent
+
+        if sessions[parentKey]?.status != .waitingApproval && sessions[parentKey]?.status != .waitingQuestion {
+            sessions[parentKey]?.status = .running
+            sessions[parentKey]?.currentTool = "Agent"
+            sessions[parentKey]?.toolDescription = info.agentNickname ?? agentType
+        }
+        sessions[parentKey]?.lastActivity = Date()
+        activeSessionId = parentKey
+        return true
     }
 
     func stopSessionDiscovery() {
@@ -2491,18 +2867,18 @@ final class AppState {
         for key in Array(processMonitors.keys) { stopMonitor(key) }
     }
 
-    deinit {
-        MainActor.assumeIsolated {
-            rotationTimer?.invalidate()
-            cleanupTimer?.invalidate()
-            saveTimer?.invalidate()
-            if let stream = fsEventStream {
-                FSEventStreamStop(stream)
-                FSEventStreamInvalidate(stream)
-                FSEventStreamRelease(stream)
-            }
-            discoveryScanTask?.cancel()
-            for (_, m) in processMonitors { m.source.cancel() }
+    isolated deinit {
+        rotationTimer?.invalidate()
+        cleanupTimer?.invalidate()
+        saveTimer?.invalidate()
+        if let stream = fsEventStream {
+            FSEventStreamStop(stream)
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
+        }
+        discoveryScanTask?.cancel()
+        for (_, monitor) in processMonitors {
+            monitor.source.cancel()
         }
     }
 
@@ -2519,6 +2895,10 @@ final class AppState {
         /// When non-nil and the session is still live, AppState registers a JSONLTailer
         /// so incremental assistant appends reach the UI without another full scan.
         var transcriptPath: String? = nil
+        var parentSessionId: String? = nil
+        var subagentStatus: String? = nil
+        var agentType: String? = nil
+        var agentNickname: String? = nil
     }
 
     /// Find running `claude` processes, match to transcript files, extract recent messages
@@ -3716,6 +4096,7 @@ final class AppState {
             if modifiedAt.timeIntervalSinceNow < codexFreshnessLimit { continue }
 
             let (model, messages) = readRecentFromCodexTranscript(path: bestFile)
+            let subagentMetadata = codexSubagentMetadata(inTranscriptPath: bestFile)
 
             results.append(DiscoveredSession(
                 sessionId: sessionId,
@@ -3725,10 +4106,147 @@ final class AppState {
                 pid: pid,
                 modifiedAt: modifiedAt,
                 recentMessages: messages,
-                source: "codex"
+                source: "codex",
+                transcriptPath: bestFile,
+                parentSessionId: subagentMetadata?.parentThreadId,
+                subagentStatus: codexThreadSpawnStatus(childThreadId: sessionId),
+                agentType: subagentMetadata?.agentType,
+                agentNickname: subagentMetadata?.agentNickname
             ))
         }
         return results
+    }
+
+    nonisolated static func codexSubagentMetadata(inTranscriptPath path: String) -> CodexSubagentMetadata? {
+        guard let firstLine = readFirstLine(path: path),
+              let data = firstLine.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let payload = json["payload"] as? [String: Any],
+              let source = payload["source"] as? [String: Any],
+              let subagent = source["subagent"] as? [String: Any],
+              !subagent.isEmpty else {
+            return nil
+        }
+
+        let parent = firstStringRecursively(in: subagent, key: "parent_thread_id")
+        guard let parent, !parent.isEmpty else { return nil }
+
+        let agentType = firstStringRecursively(in: subagent, key: "agent_role")
+            ?? subagent.keys.sorted().first
+        let nickname = firstStringRecursively(in: subagent, key: "agent_nickname")
+        return CodexSubagentMetadata(
+            parentThreadId: parent,
+            agentType: agentType,
+            agentNickname: nickname
+        )
+    }
+
+    nonisolated static func codexSubagentMetadata(
+        threadId: String,
+        transcriptPath: String?,
+        statePath overrideStatePath: String? = nil
+    ) -> CodexSubagentMetadata? {
+        if let transcriptPath,
+           let metadata = codexSubagentMetadata(inTranscriptPath: transcriptPath) {
+            return metadata
+        }
+
+        let statePath = overrideStatePath ?? {
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            return "\(home)/.codex/state_5.sqlite"
+        }()
+        return withSQLiteDatabase(at: statePath) { db in
+            let sql = """
+                SELECT e.parent_thread_id, t.agent_role, t.agent_nickname, t.source
+                FROM thread_spawn_edges e
+                LEFT JOIN threads t ON t.id = e.child_thread_id
+                WHERE e.child_thread_id = ?
+                LIMIT 1
+                """
+            guard let statement = prepareSQLiteStatement(db: db, sql: sql) else { return nil }
+            defer { sqlite3_finalize(statement) }
+            bindSQLiteText(threadId, to: statement, index: 1)
+            guard sqlite3_step(statement) == SQLITE_ROW,
+                  let parent = nonEmptySQLiteColumnString(statement, index: 0) else {
+                return nil
+            }
+
+            var agentType = nonEmptySQLiteColumnString(statement, index: 1)
+            var nickname = nonEmptySQLiteColumnString(statement, index: 2)
+            if let source = nonEmptySQLiteColumnString(statement, index: 3),
+               let data = source.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: data) {
+                agentType = agentType ?? firstStringRecursively(in: json, key: "agent_role")
+                nickname = nickname ?? firstStringRecursively(in: json, key: "agent_nickname")
+            }
+
+            return CodexSubagentMetadata(
+                parentThreadId: parent,
+                agentType: agentType,
+                agentNickname: nickname
+            )
+        }
+    }
+
+    private nonisolated static func readFirstLine(path: String, maxBytes: Int = 2_000_000) -> String? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { handle.closeFile() }
+
+        var data = Data()
+        while data.count < maxBytes {
+            let chunk = handle.readData(ofLength: 64 * 1024)
+            if chunk.isEmpty { break }
+            if let newline = chunk.firstIndex(of: UInt8(ascii: "\n")) {
+                data.append(chunk[..<newline])
+                break
+            }
+            data.append(chunk)
+        }
+        guard !data.isEmpty else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private nonisolated static func firstStringRecursively(in value: Any, key: String) -> String? {
+        if let dict = value as? [String: Any] {
+            if let string = dict[key] as? String,
+               !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return string
+            }
+            for child in dict.values {
+                if let found = firstStringRecursively(in: child, key: key) {
+                    return found
+                }
+            }
+        } else if let array = value as? [Any] {
+            for child in array {
+                if let found = firstStringRecursively(in: child, key: key) {
+                    return found
+                }
+            }
+        }
+        return nil
+    }
+
+    private nonisolated static func nonEmptySQLiteColumnString(_ statement: OpaquePointer, index: Int32) -> String? {
+        guard let value = sqliteColumnString(statement, index: index)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
+    private nonisolated static func codexThreadSpawnStatus(childThreadId: String) -> String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let statePath = "\(home)/.codex/state_5.sqlite"
+        return withSQLiteDatabase(at: statePath) { db in
+            let sql = "SELECT status FROM thread_spawn_edges WHERE child_thread_id = ? LIMIT 1"
+            guard let statement = prepareSQLiteStatement(db: db, sql: sql) else { return nil }
+            defer { sqlite3_finalize(statement) }
+            bindSQLiteText(childThreadId, to: statement, index: 1)
+            guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+            return sqliteColumnString(statement, index: 0)
+        }
     }
 
     /// Find the most recent Codex session file matching a CWD

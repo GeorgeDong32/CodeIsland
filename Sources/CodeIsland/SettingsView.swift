@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import UniformTypeIdentifiers
 import CodeIslandCore
 
@@ -61,6 +62,7 @@ private let sidebarGroups: [SidebarGroup] = [
 struct SettingsView: View {
     @ObservedObject private var l10n = L10n.shared
     @State private var selectedPage: SettingsPage = .general
+    var appState: AppState?
 
     var body: some View {
         NavigationSplitView {
@@ -84,7 +86,7 @@ struct SettingsView: View {
             Group {
                 switch selectedPage {
                 case .general: GeneralPage()
-                case .behavior: BehaviorPage()
+                case .behavior: BehaviorPage(appState: appState)
                 case .appearance: AppearancePage()
                 case .mascots: MascotsPage()
                 case .sound: SoundPage()
@@ -334,6 +336,8 @@ private struct GeneralPage: View {
 
 private struct BehaviorPage: View {
     @ObservedObject private var l10n = L10n.shared
+    var appState: AppState?
+
     @AppStorage(SettingsKey.hideInFullscreen) private var hideInFullscreen = SettingsDefaults.hideInFullscreen
     @AppStorage(SettingsKey.hideWhenNoSession) private var hideWhenNoSession = SettingsDefaults.hideWhenNoSession
     @AppStorage(SettingsKey.smartSuppress) private var smartSuppress = SettingsDefaults.smartSuppress
@@ -348,6 +352,26 @@ private struct BehaviorPage: View {
     @AppStorage(SettingsKey.maxToolHistory) private var maxToolHistory = SettingsDefaults.maxToolHistory
     @AppStorage(SettingsKey.autoApproveTools) private var autoApproveSet: Set<String> = .init(rawValue: SettingsDefaults.autoApproveTools) ?? []
     @AppStorage(SettingsKey.autoApproveMode) private var autoApproveMode: String = SettingsDefaults.autoApproveMode
+
+    private var pluginSessionModeBinding: Binding<String> {
+        Binding(
+            get: { pluginSessionMode },
+            set: { newMode in
+                guard pluginSessionMode != newMode else { return }
+                pluginSessionMode = newMode
+                appState?.applyCurrentPluginSessionMode()
+            }
+        )
+    }
+
+    private func autoApproveBinding(for name: String) -> Binding<Bool> {
+        Binding(
+            get: { autoApproveSet.contains(name) },
+            set: { isOn in
+                if isOn { autoApproveSet.insert(name) } else { autoApproveSet.remove(name) }
+            }
+        )
+    }
 
     var body: some View {
         Form {
@@ -477,7 +501,7 @@ private struct BehaviorPage: View {
                     Text(l10n["tool_history_limit"])
                     Text(l10n["tool_history_limit_desc"])
                 }
-                Picker(selection: $pluginSessionMode) {
+                Picker(selection: pluginSessionModeBinding) {
                     Text(l10n["plugin_session_mode_separate"]).tag("separate")
                     Text(l10n["plugin_session_mode_merge"]).tag("merge")
                     Text(l10n["plugin_session_mode_hide"]).tag("hide")

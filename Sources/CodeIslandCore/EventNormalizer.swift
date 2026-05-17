@@ -40,6 +40,9 @@ public enum EventNormalizer {
         case "pre_compact":           return "PreCompact"
         case "post_compact":          return "PostCompact"
         case "notification":          return "Notification"
+        // Cline task lifecycle
+        case "TaskComplete":          return "TaskRoundComplete"
+        case "TaskCancel":            return "TaskRoundComplete"
         default:                      return name
         }
     }

@@ -29,6 +29,14 @@ enum HookFormat {
     case copilot
     /// Kimi Code CLI style: TOML [[hooks]] arrays in ~/.kimi/config.toml
     case kimi
+    /// Kiro CLI style: per-agent JSON file at ~/.kiro/agents/<name>.json
+    /// with hooks keyed by camelCase event names and `timeout_ms` (#127).
+    case kiroAgent
+    /// VSCode extension agents (e.g. Cline) that have no shell hook system.
+    /// Detection is file-poll based; no config is written on enable.
+    case none
+    /// Cline: per-event executable files in ~/Documents/Cline/Hooks/<EventName>
+    case cline
 
     var storageValue: String {
         switch self {
@@ -38,6 +46,9 @@ enum HookFormat {
         case .traecli: return "traecli"
         case .copilot: return "copilot"
         case .kimi: return "kimi"
+        case .kiroAgent: return "kiroAgent"
+        case .none: return "none"
+        case .cline: return "cline"
         }
     }
 
@@ -49,6 +60,9 @@ enum HookFormat {
         case "traecli": self = .traecli
         case "copilot": self = .copilot
         case "kimi": self = .kimi
+        case "kiroagent": self = .kiroAgent
+        case "none": self = .none
+        case "cline": self = .cline
         default: return nil
         }
     }
@@ -329,6 +343,23 @@ struct ConfigInstaller {
             format: .kimi,
             events: defaultEvents(for: .kimi)
         ),
+        // Cline — file-based hooks in ~/Documents/Cline/Hooks/<EventName>
+        CLIConfig(
+            name: "Cline", source: "cline",
+            configPath: "Documents/Cline/Hooks",
+            configKey: "",
+            format: .cline,
+            events: [
+                ("UserPromptSubmit", 5, true),
+                ("PreToolUse",       5, false),
+                ("PostToolUse",      5, true),
+                ("TaskStart",        5, false),
+                ("TaskResume",       5, true),
+                ("TaskCancel",       5, true),
+                ("TaskComplete",     5, true),
+                ("PreCompact",       5, true),
+            ]
+        ),
     ]
 
     static var allCLIs: [CLIConfig] {
@@ -417,6 +448,15 @@ struct ConfigInstaller {
                 ("Notification", 600, false),
                 ("PreCompact", 5, true),
             ]
+        case .kiroAgent:
+            return [
+                ("UserPromptSubmit", 5000, false),
+                ("PreToolUse", 5000, false),
+                ("PostToolUse", 5000, false),
+                ("Stop", 5000, false),
+            ]
+        case .cline, .none:
+            return []
         }
     }
 
@@ -561,7 +601,7 @@ struct ConfigInstaller {
             }
         }
 
-        // Codex requires codex_hooks = true in config.toml
+        // Codex requires hooks = true in config.toml
         if isEnabled(source: "codex"),
            fm.fileExists(atPath: codexHome()) {
             enableCodexHooksConfig(fm: fm)
@@ -605,6 +645,10 @@ struct ConfigInstaller {
     static func isInstalled(source: String) -> Bool {
         if source == "opencode" { return isOpencodePluginInstalled(fm: FileManager.default) }
         if source == "traecli" { return isTraecliHooksInstalled(fm: FileManager.default) }
+        if source == "cline" {
+            guard let cli = allCLIs.first(where: { $0.source == "cline" }) else { return false }
+            return isClineHooksInstalled(cli: cli, fm: FileManager.default)
+        }
         guard let cli = allCLIs.first(where: { $0.source == source }) else { return false }
         return isHooksInstalled(for: cli, fm: FileManager.default)
     }
@@ -651,6 +695,10 @@ struct ConfigInstaller {
         } else {
             if source == "opencode" {
                 uninstallOpencodePlugin(fm: fm)
+            } else if source == "cline" {
+                if let cli = allCLIs.first(where: { $0.source == "cline" }) {
+                    uninstallClineHooks(cli: cli, fm: fm)
+                }
             } else if let cli = allCLIs.first(where: { $0.source == source }) {
                 if cli.source == "traecli" {
                     uninstallTraecliHooks(fm: fm)
@@ -696,7 +744,7 @@ struct ConfigInstaller {
                 }
             }
         }
-        // Codex config.toml: ensure codex_hooks = true
+        // Codex config.toml: ensure hooks = true
         if isEnabled(source: "codex"),
            fm.fileExists(atPath: codexHome()) {
             enableCodexHooksConfig(fm: fm)
@@ -902,7 +950,8 @@ struct ConfigInstaller {
     // MARK: - External CLIs (use bridge binary directly)
 
     @discardableResult
-    private static func installExternalHooks(cli: CLIConfig, fm: FileManager) -> Bool {
+    static func installExternalHooks(cli: CLIConfig, fm: FileManager) -> Bool {
+        if cli.format == .cline { return installClineHooks(cli: cli, fm: fm) }
         if cli.format == .kimi {
             // Kimi: do not create ~/.kimi or config files unless there is already
             // evidence of an existing Kimi installation/configuration.
@@ -957,16 +1006,23 @@ struct ConfigInstaller {
             case .nested:
                 entry = ["hooks": [["type": "command", "command": baseCommand, "timeout": timeout] as [String: Any]]]
             case .flat:
-                entry = ["command": baseCommand]
+                entry = ["command": "\(baseCommand) --event \(event)"]
             case .traecli:
                 // Treat like flat for custom JSON hook configs; built-in TraeCli uses YAML install path.
-                entry = ["command": baseCommand]
+                entry = ["command": "\(baseCommand) --event \(event)"]
             case .copilot:
                 // Copilot CLI stdin lacks session_id/hook_event_name — pass event name via flag
                 let copilotCommand = "\(baseCommand) --event \(event)"
                 entry = ["type": "command", "bash": copilotCommand, "timeoutSec": timeout]
             case .kimi:
                 // Handled earlier in the function; should never reach here
+                return false
+            case .kiroAgent:
+                // Kiro entries: { command, matcher: "*", timeout_ms }. Caller declares
+                // timeout in seconds for consistency with other CLIs; convert to ms here.
+                entry = ["command": baseCommand, "matcher": "*", "timeout_ms": timeout * 1000]
+            case .cline, .none:
+                // Handled at the top of installExternalHooks; never reaches here
                 return false
             }
             eventEntries.append(entry)
@@ -1510,26 +1566,40 @@ struct ConfigInstaller {
 
     // MARK: - Codex config.toml
 
-    /// Ensure codex_hooks = true under [features] in $CODEX_HOME/config.toml
+    /// Ensure hooks = true under [features] in $CODEX_HOME/config.toml
     /// (or ~/.codex/config.toml when unset) so Codex actually fires hook events.
     @discardableResult
-    private static func enableCodexHooksConfig(fm: FileManager) -> Bool {
+    static func enableCodexHooksConfig(fm: FileManager) -> Bool {
         let configPath = codexHome() + "/config.toml"
+        try? fm.createDirectory(
+            atPath: (configPath as NSString).deletingLastPathComponent,
+            withIntermediateDirectories: true
+        )
         var contents = ""
         if fm.fileExists(atPath: configPath) {
             contents = (try? String(contentsOfFile: configPath, encoding: .utf8)) ?? ""
         }
 
         // Already set to true (non-commented) — don't touch
-        if contents.range(of: #"(?m)^\s*codex_hooks\s*=\s*true"#, options: .regularExpression) != nil {
+        if contents.range(of: #"(?m)^\s*hooks\s*=\s*true"#, options: .regularExpression) != nil {
             return true
         }
 
         // Set to false (non-commented) — flip it to true in place
-        if contents.range(of: #"(?m)^\s*codex_hooks\s*=\s*false"#, options: .regularExpression) != nil {
+        if contents.range(of: #"(?m)^\s*hooks\s*=\s*false"#, options: .regularExpression) != nil {
             contents = contents.replacingOccurrences(
-                of: #"(?m)^\s*codex_hooks\s*=\s*false"#,
-                with: "codex_hooks = true",
+                of: #"(?m)^\s*hooks\s*=\s*false"#,
+                with: "hooks = true",
+                options: .regularExpression
+            )
+            return fm.createFile(atPath: configPath, contents: contents.data(using: .utf8))
+        }
+
+        // Migrate the retired feature name used by older Codex releases.
+        if contents.range(of: #"(?m)^\s*codex_hooks\s*=\s*(true|false)"#, options: .regularExpression) != nil {
+            contents = contents.replacingOccurrences(
+                of: #"(?m)^\s*codex_hooks\s*=\s*(true|false)"#,
+                with: "hooks = true",
                 options: .regularExpression
             )
             return fm.createFile(atPath: configPath, contents: contents.data(using: .utf8))
@@ -1539,12 +1609,12 @@ struct ConfigInstaller {
         var lines = contents.components(separatedBy: "\n")
         if let featIdx = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "[features]" }) {
             // Insert after [features] line
-            lines.insert("codex_hooks = true", at: featIdx + 1)
+            lines.insert("hooks = true", at: featIdx + 1)
         } else {
             // No [features] section — append one
             if !(lines.last ?? "").isEmpty { lines.append("") }
             lines.append("[features]")
-            lines.append("codex_hooks = true")
+            lines.append("hooks = true")
         }
         let result = lines.joined(separator: "\n")
         return fm.createFile(atPath: configPath, contents: result.data(using: .utf8))
@@ -2029,5 +2099,61 @@ struct ConfigInstaller {
             }
         }
         return false
+    }
+
+    // MARK: - Cline file-based hooks
+
+    private static let clineHookMarker = "codeisland-bridge --source cline"
+
+    // Cline requires valid JSON on stdout from every hook invocation.
+    // Run the bridge in the background (forwarding stdin) so it can report
+    // status to CodeIsland, then immediately return {"cancel":false} to Cline.
+    private static let clineHookScript = """
+        #!/bin/bash
+        INPUT=$(cat)
+        printf '%s' "$INPUT" | ~/.codeisland/codeisland-bridge --source cline "$@" >/dev/null 2>&1 &
+        printf '{"cancel":false}'
+        """
+
+    @discardableResult
+    private static func installClineHooks(cli: CLIConfig, fm: FileManager) -> Bool {
+        let hooksDir = cli.fullPath
+        if !fm.fileExists(atPath: hooksDir) {
+            try? fm.createDirectory(atPath: hooksDir, withIntermediateDirectories: true)
+        }
+        var ok = true
+        for (event, _, _) in cli.events {
+            let filePath = "\(hooksDir)/\(event)"
+            if !fm.createFile(atPath: filePath, contents: Data(clineHookScript.utf8)) {
+                ok = false
+            }
+            chmod(filePath, 0o755)
+        }
+        return ok
+    }
+
+    private static func isClineHooksInstalled(cli: CLIConfig, fm: FileManager) -> Bool {
+        let hooksDir = cli.fullPath
+        return cli.events.allSatisfy { (event, _, _) in
+            let filePath = "\(hooksDir)/\(event)"
+            guard fm.fileExists(atPath: filePath),
+                  let data = fm.contents(atPath: filePath),
+                  let content = String(data: data, encoding: .utf8)
+            else { return false }
+            return content.contains(clineHookMarker)
+        }
+    }
+
+    private static func uninstallClineHooks(cli: CLIConfig, fm: FileManager) {
+        let hooksDir = cli.fullPath
+        for (event, _, _) in cli.events {
+            let filePath = "\(hooksDir)/\(event)"
+            guard fm.fileExists(atPath: filePath),
+                  let data = fm.contents(atPath: filePath),
+                  let content = String(data: data, encoding: .utf8),
+                  content.contains(clineHookMarker)
+            else { continue }
+            try? fm.removeItem(atPath: filePath)
+        }
     }
 }

@@ -31,6 +31,15 @@ public struct SessionSnapshot: Sendable {
         "hermes",
         "qwen",
         "kimi",
+        "cline",
+    ]
+
+    public static let ideCompletionSources: Set<String> = [
+        "cursor",
+        "trae",
+        "traecn",
+        "codebuddy",
+        "codybuddycn",
     ]
 
     public var status: AgentStatus = .idle
@@ -56,6 +65,7 @@ public struct SessionSnapshot: Sendable {
     public var itermSessionId: String?  // iTerm2 session ID for direct activation
     public var ttyPath: String?         // /dev/ttys00X
     public var kittyWindowId: String?   // Kitty window ID for precise focus
+    public var weztermPaneId: String?   // WezTerm-family pane ID (from WEZTERM_PANE env)
     public var tmuxPane: String?        // tmux pane identifier (%0, %1, etc.)
     public var tmuxClientTty: String?   // tmux client TTY for real terminal detection
     public var tmuxEnv: String?         // raw TMUX env var (socket info for non-default tmux server)
@@ -73,6 +83,8 @@ public struct SessionSnapshot: Sendable {
     public var remoteHostName: String?
     /// nil = unchecked, false = not YOLO, true = YOLO
     public var isYoloMode: Bool?
+    /// Cline task round has ended (guards against out-of-order in-flight events reviving session)
+    public var taskRoundEnded: Bool = false
 
     public init(startTime: Date = Date()) {
         self.startTime = startTime
@@ -501,8 +513,12 @@ public func reduceEvent(
         sessions[sessionId] = SessionSnapshot()
     }
 
-    // Always update metadata from every event
-    extractMetadata(into: &sessions, sessionId: sessionId, event: event)
+    // Always update metadata from parent events. Subagent events are routed
+    // through the parent session ID, so applying their metadata here would
+    // overwrite the parent's model/transcript/title with child-session values.
+    if event.agentId == nil {
+        extractMetadata(into: &sessions, sessionId: sessionId, event: event)
+    }
     let isRemote = sessions[sessionId]?.isRemote == true
 
     // Route subagent-specific events
@@ -598,7 +614,39 @@ public func reduceEvent(
             sessions[sessionId]?.lastAssistantMessage = text
             sessions[sessionId]?.addRecentMessage(ChatMessage(isUser: false, text: text))
         }
+        if let source = sessions[sessionId]?.source,
+           SessionSnapshot.ideCompletionSources.contains(source) {
+            sessions[sessionId]?.status = .idle
+            sessions[sessionId]?.currentTool = nil
+            sessions[sessionId]?.toolDescription = nil
+            effects.append(.enqueueCompletion(sessionId: sessionId))
+        } else {
+            sessions[sessionId]?.status = .processing
+        }
+    case "TaskRoundComplete":
+        sessions[sessionId]?.interrupted = (event.eventName == "TaskCancel")
         sessions[sessionId]?.status = .processing
+        sessions[sessionId]?.currentTool = nil
+        sessions[sessionId]?.toolDescription = nil
+        let assistantMsg = firstStringFromEvent(
+            event,
+            keys: ["last_assistant_message", "text", "message", "summary"],
+            includeNested: true
+        )
+        if let msg = assistantMsg {
+            sessions[sessionId]?.lastAssistantMessage = msg
+            sessions[sessionId]?.addRecentMessage(ChatMessage(isUser: false, text: msg))
+        } else if sessions[sessionId]?.lastAssistantMessage == nil,
+                  sessions[sessionId]?.recentMessages.last?.isUser == true {
+            sessions[sessionId]?.addRecentMessage(ChatMessage(isUser: false, text: "[回复完成]"))
+        }
+        // Cline tasks are single-round — treat completion/cancellation as session end,
+        // and latch a flag so out-of-order in-flight tool events don't revive it.
+        if sessions[sessionId]?.source == "cline" {
+            sessions[sessionId]?.status = .idle
+            sessions[sessionId]?.taskRoundEnded = true
+        }
+        effects.append(.enqueueCompletion(sessionId: sessionId))
     case "Stop":
         // Detect ESC/Ctrl+C interruption
         let stopReason = event.rawJSON["stop_reason"] as? String ?? ""
@@ -646,6 +694,7 @@ public func reduceEvent(
         if let ses = event.rawJSON["_iterm_session"] as? String, !ses.isEmpty { sessions[sessionId]?.itermSessionId = ses }
         if let tty = event.rawJSON["_tty"] as? String, !tty.isEmpty { sessions[sessionId]?.ttyPath = tty }
         if let kitty = event.rawJSON["_kitty_window"] as? String, !kitty.isEmpty { sessions[sessionId]?.kittyWindowId = kitty }
+        if let wezPane = event.rawJSON["_wezterm_pane"] as? String, !wezPane.isEmpty { sessions[sessionId]?.weztermPaneId = wezPane }
         if let pane = event.rawJSON["_tmux_pane"] as? String, !pane.isEmpty { sessions[sessionId]?.tmuxPane = pane }
         if let tmuxTty = event.rawJSON["_tmux_client_tty"] as? String, !tmuxTty.isEmpty { sessions[sessionId]?.tmuxClientTty = tmuxTty }
         if let tmux = event.rawJSON["_tmux"] as? String, !tmux.isEmpty { sessions[sessionId]?.tmuxEnv = tmux }
@@ -766,6 +815,9 @@ public func extractMetadata(into sessions: inout [String: SessionSnapshot], sess
     if let kitty = event.rawJSON["_kitty_window"] as? String, !kitty.isEmpty {
         sessions[sessionId]?.kittyWindowId = kitty
     }
+    if let wezPane = event.rawJSON["_wezterm_pane"] as? String, !wezPane.isEmpty {
+        sessions[sessionId]?.weztermPaneId = wezPane
+    }
     if let pane = event.rawJSON["_tmux_pane"] as? String, !pane.isEmpty {
         sessions[sessionId]?.tmuxPane = pane
     }
@@ -800,6 +852,10 @@ public func extractMetadata(into sessions: inout [String: SessionSnapshot], sess
         if sessions[sessionId]?.kittyWindowId == nil,
            let kitty = env["KITTY_WINDOW_ID"], !kitty.isEmpty {
             sessions[sessionId]?.kittyWindowId = kitty
+        }
+        if sessions[sessionId]?.weztermPaneId == nil,
+           let wezPane = env["WEZTERM_PANE"], !wezPane.isEmpty {
+            sessions[sessionId]?.weztermPaneId = wezPane
         }
         if sessions[sessionId]?.tmuxPane == nil,
            let pane = env["TMUX_PANE"], !pane.isEmpty {
@@ -862,6 +918,24 @@ private func firstStringFromEvent(_ event: HookEvent, keys: [String], includeNes
     return nil
 }
 
+private func subagentType(from event: HookEvent) -> String {
+    firstStringFromEvent(event, keys: ["agent_type", "agentType"], includeNested: false) ?? "Agent"
+}
+
+private func ensureSubagent(
+    sessions: inout [String: SessionSnapshot],
+    sessionId: String,
+    agentId: String,
+    event: HookEvent
+) {
+    if sessions[sessionId]?.subagents[agentId] == nil {
+        sessions[sessionId]?.subagents[agentId] = SubagentState(
+            agentId: agentId,
+            agentType: subagentType(from: event)
+        )
+    }
+}
+
 /// Handle subagent events. Returns true if the event was consumed.
 private func handleSubagentEvent(
     sessions: inout [String: SessionSnapshot],
@@ -873,8 +947,8 @@ private func handleSubagentEvent(
     effects: inout [SideEffect]
 ) -> Bool {
     switch eventName {
-    case "SubagentStart":
-        let agentType = event.rawJSON["agent_type"] as? String ?? "Agent"
+    case "SubagentStart", "SessionStart":
+        let agentType = subagentType(from: event)
         sessions[sessionId]?.subagents[agentId] = SubagentState(
             agentId: agentId,
             agentType: agentType
@@ -889,7 +963,21 @@ private func handleSubagentEvent(
         effects.append(.setActiveSession(sessionId: sessionId))
         return true
 
-    case "SubagentStop":
+    case "UserPromptSubmit":
+        ensureSubagent(sessions: &sessions, sessionId: sessionId, agentId: agentId, event: event)
+        sessions[sessionId]?.subagents[agentId]?.status = .processing
+        sessions[sessionId]?.subagents[agentId]?.lastActivity = Date()
+        if sessions[sessionId]?.status != .waitingApproval && sessions[sessionId]?.status != .waitingQuestion {
+            let agentType = sessions[sessionId]?.subagents[agentId]?.agentType
+            sessions[sessionId]?.status = .running
+            sessions[sessionId]?.currentTool = "Agent"
+            sessions[sessionId]?.toolDescription = agentType
+        }
+        sessions[sessionId]?.lastActivity = Date()
+        effects.append(.setActiveSession(sessionId: sessionId))
+        return true
+
+    case "SubagentStop", "Stop", "SessionEnd":
         sessions[sessionId]?.subagents.removeValue(forKey: agentId)
         // If no more subagents, revert parent to processing (waiting for main thread to continue)
         if sessions[sessionId]?.subagents.isEmpty == true {
@@ -903,6 +991,7 @@ private func handleSubagentEvent(
         return true
 
     case "PreToolUse":
+        ensureSubagent(sessions: &sessions, sessionId: sessionId, agentId: agentId, event: event)
         sessions[sessionId]?.subagents[agentId]?.status = .running
         sessions[sessionId]?.subagents[agentId]?.currentTool = event.toolName
         sessions[sessionId]?.subagents[agentId]?.toolDescription = event.toolDescription
@@ -915,6 +1004,7 @@ private func handleSubagentEvent(
         return true
 
     case "PostToolUse":
+        ensureSubagent(sessions: &sessions, sessionId: sessionId, agentId: agentId, event: event)
         if let tool = sessions[sessionId]?.subagents[agentId]?.currentTool {
             let agentType = sessions[sessionId]?.subagents[agentId]?.agentType
             let desc = sessions[sessionId]?.subagents[agentId]?.toolDescription
@@ -928,6 +1018,7 @@ private func handleSubagentEvent(
         return true
 
     case "PostToolUseFailure":
+        ensureSubagent(sessions: &sessions, sessionId: sessionId, agentId: agentId, event: event)
         if let tool = sessions[sessionId]?.subagents[agentId]?.currentTool {
             let agentType = sessions[sessionId]?.subagents[agentId]?.agentType
             let desc = sessions[sessionId]?.subagents[agentId]?.toolDescription

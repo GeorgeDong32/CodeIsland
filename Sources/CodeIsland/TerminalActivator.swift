@@ -164,8 +164,15 @@ struct TerminalActivator {
             return
         }
 
+        // Kaku is a WezTerm fork: same `cli list` JSON shape, different binary + bundle id.
+        // Match by bundle id (most reliable) or termApp string fallback.
+        if session.termBundleId == "fun.tw93.kaku" || lower == "kaku" {
+            activateKaku(ttyPath: effectiveTty, cwd: session.cwd, paneId: session.weztermPaneId, cliPid: session.cliPid)
+            return
+        }
+
         if lower.contains("wezterm") || lower.contains("wez") {
-            activateWezTerm(ttyPath: effectiveTty, cwd: session.cwd)
+            activateWezTerm(ttyPath: effectiveTty, cwd: session.cwd, paneId: session.weztermPaneId, cliPid: session.cliPid)
             return
         }
 
@@ -634,27 +641,88 @@ struct TerminalActivator {
 
     // MARK: - WezTerm (CLI: wezterm cli list + activate-tab)
 
-    private static func activateWezTerm(ttyPath: String?, cwd: String?) {
-        bringToFront("WezTerm")
-        guard let bin = findBinary("wezterm") else { return }
+    private static func activateWezTerm(ttyPath: String?, cwd: String?, paneId: String? = nil, cliPid: pid_t? = nil) {
+        activateWeztermFamily(
+            displayName: "WezTerm",
+            cliName: "wezterm",
+            bundleCandidates: [
+                "/Applications/WezTerm.app/Contents/MacOS/wezterm",
+                NSHomeDirectory() + "/Applications/WezTerm.app/Contents/MacOS/wezterm",
+            ],
+            ttyPath: ttyPath,
+            cwd: cwd,
+            paneId: paneId,
+            cliPid: cliPid
+        )
+    }
+
+    // MARK: - Kaku (WezTerm fork, bundle id fun.tw93.kaku, CLI: `kaku cli ...`)
+
+    private static func activateKaku(ttyPath: String?, cwd: String?, paneId: String? = nil, cliPid: pid_t? = nil) {
+        activateWeztermFamily(
+            displayName: "Kaku",
+            cliName: "kaku",
+            bundleCandidates: [
+                "/Applications/Kaku.app/Contents/MacOS/kaku",
+                NSHomeDirectory() + "/Applications/Kaku.app/Contents/MacOS/kaku",
+            ],
+            ttyPath: ttyPath,
+            cwd: cwd,
+            paneId: paneId,
+            cliPid: cliPid
+        )
+    }
+
+    /// Shared WezTerm-family pane activation: bring app to front, then ask its CLI
+    /// to focus the matching pane. Match precedence: explicit paneId → TTY → CWD.
+    private static func activateWeztermFamily(
+        displayName: String,
+        cliName: String,
+        bundleCandidates: [String],
+        ttyPath: String?,
+        cwd: String?,
+        paneId: String?,
+        cliPid: pid_t?
+    ) {
+        bringToFront(displayName)
+        guard let bin = findBinary(cliName, extraPaths: bundleCandidates) else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             guard let json = runProcess(bin, args: ["cli", "list", "--format", "json"]),
                   let panes = try? JSONSerialization.jsonObject(with: json) as? [[String: Any]] else { return }
 
-            // Find tab: prefer TTY match, fallback to CWD
-            var tabId: Int?
-            if let tty = ttyPath {
-                tabId = panes.first(where: { ($0["tty_name"] as? String) == tty })?["tab_id"] as? Int
+            // Find pane: prefer process-resolved TTY, then captured TTY, then CWD.
+            var matchedPaneId: Int?
+            var matchedTabId: Int?
+            let processTty = cliPid.flatMap(ProcessRunner.ttyForPid)
+            let candidateTtys = [processTty, ttyPath]
+                .compactMap { $0 }
+                .filter { !$0.isEmpty && $0 != "/dev/tty" }
+            for tty in candidateTtys where matchedPaneId == nil && matchedTabId == nil {
+                if let pane = panes.first(where: { ($0["tty_name"] as? String) == tty }) {
+                    matchedPaneId = pane["pane_id"] as? Int
+                    matchedTabId = pane["tab_id"] as? Int
+                }
             }
-            if tabId == nil, let cwd = cwd {
+            // Prefer explicit pane ID (from WEZTERM_PANE env) if available
+            if let paneId = paneId, let pid = Int(paneId) {
+                matchedPaneId = pid
+            }
+            if matchedTabId == nil, let cwd = cwd {
                 let cwdUrl = "file://" + cwd
-                tabId = panes.first(where: {
+                if let pane = panes.first(where: {
                     guard let paneCwd = $0["cwd"] as? String else { return false }
                     return paneCwd == cwdUrl || paneCwd == cwd
-                })?["tab_id"] as? Int
+                }) {
+                    if matchedPaneId == nil { matchedPaneId = pane["pane_id"] as? Int }
+                    matchedTabId = pane["tab_id"] as? Int
+                }
             }
 
-            if let id = tabId {
+            // Prefer pane-level activation (wezterm cli activate-pane), fall back to tab
+            if let pid = matchedPaneId {
+                _ = runProcess(bin, args: ["cli", "activate-pane", "--pane-id", "\(pid)"])
+            }
+            if let id = matchedTabId {
                 _ = runProcess(bin, args: ["cli", "activate-tab", "--tab-id", "\(id)"])
             }
         }
