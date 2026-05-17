@@ -92,6 +92,11 @@ fi
 echo "Code signing ($SIGN_ID)..."
 # Sign in order: nested components first, then parent
 codesign --force --options runtime --sign "$SIGN_ID" "$APP_BUNDLE/Contents/Helpers/codeisland-bridge"
+# Sparkle nested binaries (must match app signature to avoid Team ID mismatch)
+codesign --force --sign "$SIGN_ID" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
+codesign --force --sign "$SIGN_ID" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc"
+codesign --force --sign "$SIGN_ID" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Downloader.xpc"
+codesign --force --sign "$SIGN_ID" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app"
 codesign --force --options runtime --sign "$SIGN_ID" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework"
 codesign --force --options runtime --sign "$SIGN_ID" --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
 
