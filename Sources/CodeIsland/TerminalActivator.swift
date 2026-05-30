@@ -449,6 +449,7 @@ struct TerminalActivator {
                             repeat with s in sessions of t
                                 try
                                     if tty of s is "\(escapeAppleScript(fullTty))" then
+                                        select w
                                         select t
                                         select s
                                         set index of w to 1
@@ -475,6 +476,7 @@ struct TerminalActivator {
                         repeat with s in sessions of t
                             try
                                 if name of s contains "\(escapeAppleScript(dirName))" or path of s contains "\(escapeAppleScript(dirName))" then
+                                    select w
                                     select t
                                     select s
                                     set index of w to 1
@@ -508,6 +510,7 @@ struct TerminalActivator {
                         repeat with aSession in sessions of aTab
                             if unique ID of aSession is "\(escapeAppleScript(sessionId))" then
                                 set miniaturized of aWindow to false
+                                select aWindow
                                 select aTab
                                 select aSession
                                 return
