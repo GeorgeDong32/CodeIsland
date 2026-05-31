@@ -142,3 +142,31 @@ Every CLI in the built-in `CLIConfig` registry SHALL have a corresponding mascot
 - **WHEN** a session for that custom CLI becomes active
 - **THEN** `MascotView` MUST display a documented generic fallback mascot
 - **AND** the app MUST NOT crash or render an empty space
+
+### Requirement: Session Card Permission Indicator
+
+The session card SHALL display a permission-mode indicator driven by the hook-reported `permissionMode` field, with icon and color varying by CLI permission mode.
+
+#### Scenario: Permission mode indicator rendering
+
+- **GIVEN** a session with a hook-reported `permissionMode`
+- **WHEN** the session card renders its identity line
+- **THEN** the indicator SHALL render as follows:
+  - `bypassPermissions` → `⏵⏵` in `#ff6666` (red)
+  - `auto` → `⏵⏵` in `#ffcc00` (yellow)
+  - `acceptEdits` → `⏵⏵` in `#af87fe` (purple)
+  - `plan` → `⏸` in `#73b3b0` (teal)
+  - `default` → no indicator
+
+#### Scenario: Fast-forward modes are tappable
+
+- **GIVEN** a session with `permissionMode` in {`auto`, `acceptEdits`, `bypassPermissions`}
+- **WHEN** the user taps the `⏵⏵` indicator
+- **THEN** the app SHALL call `toggleAutoApprove(sessionId:)` for that session
+
+#### Scenario: Plan indicator is static
+
+- **GIVEN** a session with `permissionMode = "plan"`
+- **WHEN** the session card renders
+- **THEN** the `⏸` indicator SHALL NOT have a tap gesture attached
+- **AND** taps within its bounds SHALL fall through to the parent card
