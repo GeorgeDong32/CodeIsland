@@ -995,6 +995,27 @@ final class AppState {
             executeEffect(effect, sessionId: sessionId)
         }
 
+        // Sync auto-approve state with hook-reported permission mode.
+        let autoModes: Set<String> = ["auto", "acceptEdits", "bypassPermissions"]
+        if let mode = sessions[sessionId]?.permissionMode {
+            if autoModes.contains(mode) {
+                // CLI is in an auto mode — activate if not already active
+                if autoApproveSessionId != sessionId {
+                    autoApproveSessionId = sessionId
+                    autoApproveModeSnapshot = {
+                        switch mode {
+                        case "bypassPermissions": return .bypassPermissions
+                        case "acceptEdits": return .addRules
+                        default: return .auto
+                        }
+                    }()
+                }
+            } else if autoApproveSessionId == sessionId {
+                // CLI left auto mode — deactivate to stay in sync
+                deactivateAutoApprove(sessionId: sessionId)
+            }
+        }
+
         if let provider = sessions[sessionId]?.source,
            sessions[sessionId]?.isRemote != true,
            SessionTitleStore.supports(provider: provider) {
