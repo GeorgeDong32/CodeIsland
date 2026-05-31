@@ -1,0 +1,160 @@
+schema: spec-driven
+
+context: |
+  ## BINDING GOVERNANCE — CodeIsland Constitution v1.2.0
+  
+  The following principles are NON-NEGOTIABLE. All artifacts you create
+  MUST comply with these rules. Violations will be rejected.
+  Source of truth: .specify/memory/constitution.md
+  
+  ---
+  
+  ### I. Modular Architecture (Library-First)
+  
+  CodeIsland MUST be organized into discrete, focused modules with clear boundaries.
+  - `CodeIslandCore` — Shared domain logic, data models, event processing.
+    MUST be framework-agnostic (no AppKit/SwiftUI imports).
+  - `CodeIsland` — macOS UI layer. MAY import AppKit/SwiftUI and CodeIslandCore only.
+  - `CodeIslandBridge` — Standalone hook forwarder binary. ~86KB, no
+    dependencies beyond Foundation/Darwin.
+  - Modules MUST NOT import each other's implementation details; only public APIs are contracts.
+  
+  ### II. Core-UI Separation
+  
+  All business logic (event normalization, session state, process resolution) MUST live in `CodeIslandCore`.
+  - Session state management (`SessionSnapshot`, `reduceEvent`) belongs in Core.
+  - UI components (panel views, settings, mascots) belong in the `CodeIsland` module.
+  - Core MUST NOT import any UI framework.
+  
+  ### III. Native Bridge Pattern
+  
+  Hook events from AI tools are forwarded through a native Swift binary (`codeisland-bridge`), not shell scripts.
+  - Bridge MUST be a compiled Swift binary with no external library dependencies (Foundation + Darwin only).
+  - Bridge MUST use Unix Domain Sockets for communication with the main app.
+  - Bridge MUST parse JSON natively, validate `session_id` before sending, and collect terminal environment data.
+  - Bridge MUST implement SIGPIPE protection and hard deadlines (SIGALRM) to prevent hangs.
+  - Bridge MUST support `--source` flag and MUST infer source from process ancestry when absent.
+  
+  ### IV. Hook Event Protocol
+  
+  All AI tool integrations MUST conform to a shared Hook Event Protocol.
+  - Events are JSON objects via Unix socket with at minimum `hook_event_name` and `session_id`.
+  - The bridge enriches each event with `_source`, `_ppid`, `_tty`, `_tmux`, `_term_bundle`, `_cmux_surface_id`, `_cmux_workspace_id`.
+  - EventNormalizer maps diverse CLI payloads into canonical PascalCase names.
+  - Six hook format types: `claude`, `nested`, `flat`, `traecli`, `copilot`, `kimi`.
+  - Blocking events MUST wait for user response; non-blocking events MUST send immediately.
+  - Bridge MUST discard events missing a valid `session_id`.
+  
+  ### V. Multi-Terminal Compatibility
+  
+  CodeIsland MUST support all major macOS terminals and IDEs without user configuration.
+  - Supported: iTerm2, Apple_Terminal, Ghostty, WezTerm, kitty, tmux, Warp, Alacritty, cmux.
+  - Terminal detection MUST use multiple signals: TERM_PROGRAM, __CFBundleIdentifier, ITERM_SESSION_ID, etc.
+  - IDE integrated terminals MUST be detected separately from native app mode using bundle ID heuristics.
+  - Smart notification suppression MUST operate at the tab level, not the terminal-app level.
+  
+  ### VI. Immutable State Management
+  
+  Session state updates MUST use pure reducer functions with immutable data structures.
+  - `reduceEvent(sessions:event:maxHistory:)` is a pure function returning `[SideEffect]`.
+  - Side effects are returned as enum values; the caller executes them.
+  - State containers MUST use `@Observable final class`. Legacy `ObservableObject`/`@Published` is prohibited.
+  
+  ### VII. Internationalization
+  
+  All user-facing strings MUST support both Chinese and English with automatic system language detection.
+  - All strings MUST be externalized into `L10n.swift`.
+  - UI MUST NOT embed raw Chinese or English strings in view code.
+  
+  ### VIII. Pixel-Art Mascot System
+  
+  Each supported AI tool MUST have a distinct pixel-art mascot animation displayed in the notch panel.
+  - Mascots are GIF or animated image resources in `Resources/mascots/` keyed by source name.
+  
+  ### IX. Extensible CLI Architecture
+  
+  Adding support for a new AI coding tool MUST NOT require modifying core event-processing logic.
+  - Each CLI is described by a `CLIConfig` struct: display name, source identifier, config file path, hook format, event list.
+  - Built-in CLIs are defined in a declarative array; custom CLIs stored in `UserDefaults`.
+  - `SessionSnapshot.normalizedSupportedSource` MUST handle aliases.
+  - Hook installation MUST iterate over `allCLIs` (built-in + custom) without special-casing.
+  - CLI version detection MUST gate versioned events.
+  
+  ### X. Remote Session Support
+  
+  CodeIsland MUST support monitoring AI agent sessions running on remote hosts via SSH tunnel forwarding.
+  - Remote session IDs MUST be namespaced with `remote:<hostId>:` prefix.
+  - Auto-reconnect MUST use exponential backoff (5s → 300s).
+  - Process monitoring MUST be skipped for remote sessions.
+  
+  ### XI. Graceful Degradation
+  
+  The bridge and hook system MUST fail silently rather than block or crash the host AI tool.
+  - If the CodeIsland socket does not exist, the bridge MUST exit with code 0 immediately.
+  - If socket connection fails, JSON parsing fails, or `session_id` is missing, exit silently.
+  - Non-blocking events: hard send timeout (3s) and overall process timeout (SIGALRM, 8s).
+  - Hook installation MUST NOT create config directories for uninstalled CLIs.
+  
+  ### XII. Swift Coding Standards
+  
+  All Swift source MUST adhere to these conventions:
+  - Concurrency: @MainActor for UI types, Sendable for cross-isolation structs, @Observable (not ObservableObject), @ObservationIgnored, Task { @MainActor in } (not DispatchQueue.main).
+  - Error Handling: guard-early-return, silent failure in bridge/hook paths, os.log Logger (never print).
+  - Naming: TypeName.swift or TypeName+Feature.swift, private let log = Logger(subsystem:category:), enum namespaces for stateless utilities.
+  - Type Design: struct over class, enum namespace for pure functions, minimal public API surface, Set for unordered unique collections.
+  - Memory: [weak self] in escaping closures, no retain cycles in NWConnection/DispatchSource/timer handlers.
+  - Organization: one type per file, MARK sections, <500 lines (split with extensions), imports ordered: system → project → third-party.
+  
+  ### XIII. Testing Discipline
+  
+  Core logic MUST have automated test coverage; tests MUST be deterministic and self-contained.
+  - Unit tests MUST cover all pure functions in CodeIslandCore.
+  - Test file naming: <TestedType>Tests.swift.
+  - Tests MUST NOT depend on external network, real filesystem state, or running processes.
+  - Tests MUST be runnable via `swift test` without manual setup.
+  - New features touching Core MUST include at least one happy-path and one edge-case test.
+  
+  ### XIV. Authoritative Reference Sources
+  
+  Before modifying hook integration, event normalization, or CLI config installation code,
+  MUST consult the official documentation for the affected CLI tool.
+  
+  Official Hooks Documentation Registry:
+  - Claude Code: https://docs.anthropic.com/en/docs/claude-code/hooks
+  - Codex (OpenAI): https://developers.openai.com/codex/hooks
+  - Gemini CLI: https://geminicli.com/docs/hooks/
+  - GitHub Copilot CLI: https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/use-hooks
+  - Cursor: https://cursor.com/docs/hooks
+  - Kimi Code CLI: https://moonshotai.github.io/kimi-cli/en/customization/hooks.html
+  - Qwen Code: https://qwenlm.github.io/qwen-code-docs/en/users/features/hooks/
+  - Trae Agent: https://github.com/bytedance/trae-agent (Issue #397)
+  
+  Platform & Framework References:
+  - Swift Concurrency: https://docs.swift.org/swift-book/documentation/the-swift-programming-language/concurrency/
+  - Network.framework: https://developer.apple.com/documentation/network
+  - AppKit: https://developer.apple.com/documentation/appkit
+  - Swift Observation: https://developer.apple.com/documentation/observation
+  
+  ---
+  
+  Tech stack: Swift 5.9+, macOS 14.0+ (Sonoma), SPM, AppKit, Unix Domain Sockets, Swift Concurrency
+  Commit format: <type>(<scope>): <subject> (feat|fix|refactor|docs|style|chore|perf)
+  Branch naming: feat/<name>, fix/<name>, release/v<version>
+
+rules:
+  proposal:
+    - "Read .specify/memory/constitution.md in full before writing"
+    - "Capabilities MUST align with Principle IX — new CLIs added as data not code"
+    - "If proposing hook changes, cite which CLI official docs were consulted (Principle XIV)"
+  specs:
+    - "Use MUST/SHOULD/MAY language consistently"
+    - "Hook-related specs MUST reference official CLI documentation URLs"
+    - "Requirements MUST NOT contradict constitution principles"
+  design:
+    - "Architecture MUST comply with Principle I (Modular) and II (Core-UI Separation)"
+    - "Concurrency MUST follow Principle XII (@MainActor, Sendable, no DispatchQueue.main)"
+    - "Bridge changes MUST preserve Principle XI (graceful degradation)"
+  tasks:
+    - "Core logic tasks MUST include a test subtask (Principle XIII)"
+    - "Bridge tasks MUST verify silent-exit behavior"
+    - "Each task should reference which constitution principle it serves"
