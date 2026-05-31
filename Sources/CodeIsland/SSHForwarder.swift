@@ -35,6 +35,37 @@ final class SSHForwarder {
         let currentGeneration = generation
         status = .connecting
 
+        // Remove any stale remote socket left over from a previous tunnel before
+        // opening this one. macOS system SSH (LibreSSL) does not honour
+        // StreamLocalBindUnlink=yes for -R forwarding, so a leftover socket causes
+        // "remote port forwarding failed" on reconnect (#206). The cleanup spawns
+        // its own short-lived SSH; run it off the main thread because a blocking
+        // ConnectTimeout would otherwise freeze the menu-bar UI for seconds when the
+        // host is unreachable. The tunnel starts only after cleanup returns, so the
+        // -R bind never races the leftover socket.
+        let cleanupArguments = Self.cleanupArguments(host: host, remoteSocketPath: remoteSocketPath)
+        let cleanupEnvironment = buildEnvironment(host: host)
+        DispatchQueue.global(qos: .userInitiated).async {
+            Self.runCleanup(arguments: cleanupArguments, environment: cleanupEnvironment)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                // A newer connect()/disconnect() may have superseded this attempt
+                // while the cleanup SSH was in flight — bail if so.
+                guard self.generation == currentGeneration else { return }
+                guard case .connecting = self.status else { return }
+                self.startTunnel(
+                    host: host,
+                    localSocketPath: localSocketPath,
+                    remoteSocketPath: remoteSocketPath,
+                    generation: currentGeneration
+                )
+            }
+        }
+    }
+
+    /// Launch the long-lived `ssh -N -R` tunnel process. Always invoked on the main
+    /// actor, after `runCleanup` has cleared any leftover remote socket.
+    private func startTunnel(host: RemoteHost, localSocketPath: String, remoteSocketPath: String, generation currentGeneration: UInt64) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
         process.arguments = buildArguments(host: host, localSocketPath: localSocketPath, remoteSocketPath: remoteSocketPath)
@@ -97,6 +128,49 @@ final class SSHForwarder {
             status = .disconnected
         }
         self.process = nil
+    }
+
+    /// Remove a stale Unix-domain socket on the remote host before forwarding by
+    /// running `rm -f <remoteSocketPath>` over its own short-lived SSH.
+    ///
+    /// macOS system SSH (`/usr/bin/ssh`, LibreSSL build) ignores
+    /// `StreamLocalBindUnlink=yes` for `-R` (remote) forwarding.  When a tunnel
+    /// drops the listen socket is left behind and reconnect fails with
+    /// "remote port forwarding failed for listen path …".  A quick `rm -f`
+    /// over SSH sidesteps the issue.  See issue #206.
+    ///
+    /// `nonisolated` so it can run on a background queue: it touches no actor
+    /// state — only the value-type `arguments`/`environment` handed in — and
+    /// blocks on `waitUntilExit()`, which must never run on the main thread.
+    nonisolated private static func runCleanup(arguments: [String], environment: [String: String]) {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        proc.arguments = arguments
+        proc.standardInput = FileHandle.nullDevice
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        proc.environment = environment
+
+        try? proc.run()
+        proc.waitUntilExit()
+    }
+
+    /// Build SSH arguments that remove a stale remote socket file.
+    /// Extracted for testability.  See `cleanupStaleRemoteSocket`.
+    static func cleanupArguments(host: RemoteHost, remoteSocketPath: String) -> [String] {
+        var args: [String] = [
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=5",
+        ]
+        if let port = host.port {
+            args += ["-p", String(port)]
+        }
+        let trimmedIdentity = host.identityFile.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedIdentity.isEmpty {
+            args += ["-i", trimmedIdentity]
+        }
+        args += [host.sshTarget, "rm", "-f", remoteSocketPath]
+        return args
     }
 
     private func buildArguments(host: RemoteHost, localSocketPath: String, remoteSocketPath: String) -> [String] {
