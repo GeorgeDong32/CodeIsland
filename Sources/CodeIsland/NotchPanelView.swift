@@ -2116,7 +2116,7 @@ private struct SessionIdentityLine: View {
                     Text("⏵")
                 }
                     .font(.system(size: sessionFontSize + 2, weight: .bold))
-                    .foregroundStyle(Color(red: 1.0, green: 0.27, blue: 0.27))
+                    .foregroundStyle(Color(red: 1.0, green: 0.8, blue: 0.0))
                     .padding(.horizontal, 4)
                     .padding(.vertical, 2)
                     .fixedSize()
@@ -2126,6 +2126,15 @@ private struct SessionIdentityLine: View {
                         SoundManager.shared.preview("8bit_complete")
                     }
                     .help(L10n.shared["click_to_disable"])
+            }
+
+            // Hook-reported permission mode (observed metadata, secondary display)
+            if let permissionMode = session.permissionMode, !permissionMode.isEmpty {
+                Text(permissionMode)
+                    .font(.system(size: sessionFontSize - 2, weight: .medium, design: .monospaced))
+                    .foregroundStyle(sessionColor.opacity(0.5))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
         }
     }
