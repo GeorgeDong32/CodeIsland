@@ -2063,6 +2063,43 @@ private struct ThinScrollView<Content: View>: NSViewRepresentable {
     }
 }
 
+private struct PermissionIndicatorConfig {
+    let symbol: String
+    let color: Color
+    let togglesAutoApprove: Bool
+}
+
+private func permissionIndicatorConfig(for permissionMode: String?) -> PermissionIndicatorConfig? {
+    switch permissionMode {
+    case "bypassPermissions":
+        return PermissionIndicatorConfig(
+            symbol: "⏵⏵",
+            color: Color(red: 1.0, green: 0.4, blue: 0.4),
+            togglesAutoApprove: true
+        )
+    case "auto":
+        return PermissionIndicatorConfig(
+            symbol: "⏵⏵",
+            color: Color(red: 1.0, green: 0.8, blue: 0.0),
+            togglesAutoApprove: true
+        )
+    case "acceptEdits":
+        return PermissionIndicatorConfig(
+            symbol: "⏵⏵",
+            color: Color(red: 175.0 / 255.0, green: 135.0 / 255.0, blue: 254.0 / 255.0),
+            togglesAutoApprove: true
+        )
+    case "plan":
+        return PermissionIndicatorConfig(
+            symbol: "⏸",
+            color: Color(red: 0.45, green: 0.7, blue: 0.69),
+            togglesAutoApprove: false
+        )
+    default:
+        return nil
+    }
+}
+
 private struct SessionIdentityLine: View {
     let appState: AppState
     let session: SessionSnapshot
@@ -2109,32 +2146,26 @@ private struct SessionIdentityLine: View {
                     .fixedSize()
             }
 
-            // Auto-approve active indicator (tappable to disable)
-            if appState.isAutoApproveActive(for: sessionId) {
-                HStack(spacing: 0) {
-                    Text("⏵")
-                    Text("⏵")
-                }
+            // Permission mode indicator — icon and color vary by CLI permission mode
+            if let config = permissionIndicatorConfig(for: session.permissionMode) {
+                let indicator = Text(config.symbol)
                     .font(.system(size: sessionFontSize + 2, weight: .bold))
-                    .foregroundStyle(Color(red: 1.0, green: 0.8, blue: 0.0))
+                    .foregroundStyle(config.color)
                     .padding(.horizontal, 4)
                     .padding(.vertical, 2)
                     .fixedSize()
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        appState.toggleAutoApprove(sessionId: sessionId)
-                        SoundManager.shared.preview("8bit_complete")
-                    }
-                    .help(L10n.shared["click_to_disable"])
-            }
 
-            // Hook-reported permission mode (observed metadata, secondary display)
-            if let permissionMode = session.permissionMode, !permissionMode.isEmpty {
-                Text(permissionMode)
-                    .font(.system(size: sessionFontSize - 2, weight: .medium, design: .monospaced))
-                    .foregroundStyle(sessionColor.opacity(0.5))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                if config.togglesAutoApprove {
+                    indicator
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            appState.toggleAutoApprove(sessionId: sessionId)
+                            SoundManager.shared.preview("8bit_complete")
+                        }
+                        .help(L10n.shared["click_to_disable"])
+                } else {
+                    indicator
+                }
             }
         }
     }
