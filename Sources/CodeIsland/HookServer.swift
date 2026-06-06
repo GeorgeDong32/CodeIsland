@@ -344,7 +344,10 @@ class HookServer {
 
             // Auto-approve safe internal tools without showing UI
             if let toolName = event.toolName, Self.autoApproveTools.contains(toolName) {
-                sendResponse(connection: connection, data: AppState.simpleAllowResponse)
+                sendResponse(
+                    connection: connection,
+                    data: AppState.allowResponseData(for: event)
+                )
                 return
             }
 
@@ -378,7 +381,10 @@ class HookServer {
                         // Fall through to normal permission handling below
                     } else {
                         // Other CLIs: keep silent approval (no setMode support)
-                        sendResponse(connection: connection, data: AppState.simpleAllowResponse)
+                        sendResponse(
+                            connection: connection,
+                            data: AppState.allowResponseData(for: event)
+                        )
                         return
                     }
                 } else {

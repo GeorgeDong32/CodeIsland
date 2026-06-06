@@ -134,6 +134,90 @@ final class AppStatePermissionFlowTests: XCTestCase {
         XCTAssertEqual(appState.permissionQueue.count, 0)
     }
 
+    // MARK: - Codex permission response format (regression for #N: codex bridge suppressionOutput)
+
+    func testCodexApproveOneTimeOmitsSuppressOutput() async throws {
+        let appState = AppState()
+        let event = try makeCodexPermissionRequestEvent(sessionId: "codex-once", toolName: "Bash")
+
+        let responseTask = Task<Data, Never> {
+            await withCheckedContinuation { continuation in
+                appState.handlePermissionRequest(event, continuation: continuation)
+            }
+        }
+        await Task.yield()
+
+        appState.approvePermission(always: false)
+
+        let data = await responseTask.value
+        try assertCodexAllowShape(data)
+    }
+
+    func testCodexApproveAlwaysOmitsSuppressOutput() async throws {
+        // The `always` path calls `persistAlwaysAllowRule`, which writes
+        // rules under $CODEX_HOME. Redirect to a temp dir for isolation.
+        let tempDir = NSTemporaryDirectory() + "codeisland-test-\(UUID().uuidString)"
+        setenv("CODEX_HOME", tempDir, 1)
+        defer { try? FileManager.default.removeItem(atPath: tempDir) }
+
+        let appState = AppState()
+        let event = try makeCodexPermissionRequestEvent(sessionId: "codex-always", toolName: "Bash")
+
+        let responseTask = Task<Data, Never> {
+            await withCheckedContinuation { continuation in
+                appState.handlePermissionRequest(event, continuation: continuation)
+            }
+        }
+        await Task.yield()
+
+        appState.approvePermission(always: true)
+
+        let data = await responseTask.value
+        // The `always` path keeps the original hand-rolled literal at
+        // AppState.swift:1153 which lacks `continue: true` (Codex parser
+        // treats missing `continue` as default-true, so this still works).
+        try assertCodexAllowShape(data, requireContinue: false)
+    }
+
+    func testCodexDenyOmitsSuppressOutput() async throws {
+        let appState = AppState()
+        let event = try makeCodexPermissionRequestEvent(sessionId: "codex-deny", toolName: "Bash")
+
+        let responseTask = Task<Data, Never> {
+            await withCheckedContinuation { continuation in
+                appState.handlePermissionRequest(event, continuation: continuation)
+            }
+        }
+        await Task.yield()
+
+        appState.denyPermission()
+
+        let data = await responseTask.value
+        try assertCodexDenyShape(data)
+    }
+
+    func testClaudeApproveOneTimeRetainsSuppressOutput() async throws {
+        // Regression guard: Claude/legacy path must keep `suppressOutput: true`
+        // (Codex is the one that rejects it, not Claude).
+        let appState = AppState()
+        let event = try makePermissionRequestEvent(sessionId: "claude-once", toolName: "Bash")
+
+        let responseTask = Task<Data, Never> {
+            await withCheckedContinuation { continuation in
+                appState.handlePermissionRequest(event, continuation: continuation)
+            }
+        }
+        await Task.yield()
+
+        appState.approvePermission(always: false)
+
+        let data = await responseTask.value
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(json["suppressOutput"] as? Bool, true, "claude path must keep suppressOutput")
+        XCTAssertEqual(json["continue"] as? Bool, true)
+        XCTAssertEqual(try extractPermissionBehavior(from: data), "allow")
+    }
+
     // MARK: - Helpers
 
     private func makePermissionRequestEvent(sessionId: String, toolName: String) throws -> HookEvent {
@@ -149,6 +233,44 @@ final class AppStatePermissionFlowTests: XCTestCase {
             throw NSError(domain: "AppStatePermissionFlowTests", code: 1)
         }
         return event
+    }
+
+    private func makeCodexPermissionRequestEvent(sessionId: String, toolName: String) throws -> HookEvent {
+        let payload: [String: Any] = [
+            "hook_event_name": "PermissionRequest",
+            "session_id": sessionId,
+            "tool_name": toolName,
+            "tool_input": ["command": "echo test"],
+            "_source": "codex",
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        guard let event = HookEvent(from: data) else {
+            XCTFail("Failed to parse HookEvent")
+            throw NSError(domain: "AppStatePermissionFlowTests", code: 1)
+        }
+        return event
+    }
+
+    private func assertCodexAllowShape(_ data: Data, requireContinue: Bool = true) throws {
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertNil(json["suppressOutput"], "codex must not receive suppressOutput (rejected by output_parser.rs)")
+        if requireContinue {
+            XCTAssertEqual(json["continue"] as? Bool, true)
+        }
+        let hso = try XCTUnwrap(json["hookSpecificOutput"] as? [String: Any])
+        XCTAssertEqual(hso["hookEventName"] as? String, "PermissionRequest")
+        let decision = try XCTUnwrap(hso["decision"] as? [String: Any])
+        XCTAssertEqual(decision["behavior"] as? String, "allow")
+    }
+
+    private func assertCodexDenyShape(_ data: Data) throws {
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertNil(json["suppressOutput"], "codex must not receive suppressOutput on deny either")
+        XCTAssertEqual(json["continue"] as? Bool, true)
+        let hso = try XCTUnwrap(json["hookSpecificOutput"] as? [String: Any])
+        XCTAssertEqual(hso["hookEventName"] as? String, "PermissionRequest")
+        let decision = try XCTUnwrap(hso["decision"] as? [String: Any])
+        XCTAssertEqual(decision["behavior"] as? String, "deny")
     }
 
     private func extractPermissionBehavior(from responseData: Data) throws -> String {

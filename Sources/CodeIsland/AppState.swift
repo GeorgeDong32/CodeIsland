@@ -1196,7 +1196,7 @@ final class AppState {
             }
             responseData = Self.permissionAllowResponse(updatedPermissions: cleanupPermissions)
         } else {
-            responseData = Self.simpleAllowResponse
+            responseData = Self.allowResponseData(for: pending.event)
         }
 
         pending.continuation.resume(returning: responseData)
@@ -1270,7 +1270,7 @@ final class AppState {
         let pending = permissionQueue.removeFirst()
         let sessionId = pending.event.sessionId ?? "default"
         dismissedPermissionSessionIds.remove(sessionId)
-        pending.continuation.resume(returning: Self.permissionDenyResponse())
+        pending.continuation.resume(returning: Self.denyResponseData(for: pending.event))
         sessions[sessionId]?.status = .idle
         sessions[sessionId]?.currentTool = nil
         sessions[sessionId]?.toolDescription = nil
@@ -1337,9 +1337,9 @@ final class AppState {
 
         let responseData: Data
         if let feedback, !feedback.isEmpty {
-            responseData = Self.permissionDenyResponse(message: feedback)
+            responseData = Self.denyResponseData(for: pending.event, message: feedback)
         } else {
-            responseData = Self.permissionDenyResponse()
+            responseData = Self.denyResponseData(for: pending.event)
         }
         pending.continuation.resume(returning: responseData)
         sessions[sessionId]?.status = .idle
@@ -1412,12 +1412,17 @@ final class AppState {
     /// - User taps the ⏵⏵ indicator to manually toggle off
     private func flushPendingPermissionsForAutoApprove(sessionId: String) {
         let isClaudeCode = sessions[sessionId]?.isClaude == true
-        let response = isClaudeCode ? Self.autoApproveInitialResponse() : Self.simpleAllowResponse
 
         var didFlush = false
         while let idx = permissionQueue.firstIndex(where: { $0.event.sessionId == sessionId }) {
             let pending = permissionQueue.remove(at: idx)
-            pending.continuation.resume(returning: response)
+            let data: Data
+            if isClaudeCode {
+                data = Self.autoApproveInitialResponse()
+            } else {
+                data = Self.allowResponseData(for: pending.event)
+            }
+            pending.continuation.resume(returning: data)
             didFlush = true
         }
         if didFlush {
@@ -1434,6 +1439,24 @@ final class AppState {
     static let simpleAllowResponse = Data(
         #"{"continue":true,"suppressOutput":true,"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#.utf8
     )
+
+    /// Codex-specific simple allow response. Codex CLI v0.137.0's
+    /// `output_parser.rs::parse_permission_request` rejects hook responses
+    /// containing `suppressOutput: true` and silently falls back to the
+    /// terminal approval flow, so the Codex variant must omit that field.
+    private static let codexSimpleAllowResponse = Data(
+        #"{"continue":true,"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#.utf8
+    )
+
+    /// Pick the right allow-response bytes for the event's CLI source.
+    /// Codex-specific variant omits `suppressOutput`; Claude/legacy sources
+    /// keep the original `simpleAllowResponse`.
+    static func allowResponseData(for event: HookEvent? = nil) -> Data {
+        if let event, CodexPermissionRules.isCodexEvent(event) {
+            return codexSimpleAllowResponse
+        }
+        return simpleAllowResponse
+    }
 
     /// Generic ack response for non-permission events (no hookSpecificOutput)
     static let ackResponse = Data(#"{"continue":true,"suppressOutput":true}"#.utf8)
@@ -1456,18 +1479,23 @@ final class AppState {
     ]
 
     /// Build a hook response with correct top-level fields.
+    /// Pass `omitSuppressOutput: true` for Codex CLI targets, whose
+    /// `output_parser.rs` rejects responses containing that field.
     private static func hookResponse(
         hookEventName: String,
-        decision: [String: Any]
+        decision: [String: Any],
+        omitSuppressOutput: Bool = false
     ) -> Data {
-        let obj: [String: Any] = [
+        var obj: [String: Any] = [
             "continue": true,
-            "suppressOutput": true,
             "hookSpecificOutput": [
                 "hookEventName": hookEventName,
                 "decision": decision,
             ] as [String: Any],
         ]
+        if !omitSuppressOutput {
+            obj["suppressOutput"] = true
+        }
         return (try? JSONSerialization.data(withJSONObject: obj)) ?? Self.simpleAllowResponse
     }
 
@@ -1487,6 +1515,23 @@ final class AppState {
         var decision: [String: Any] = ["behavior": "deny"]
         if let message, !message.isEmpty { decision["message"] = message }
         return hookResponse(hookEventName: "PermissionRequest", decision: decision)
+    }
+
+    /// Pick the right deny-response bytes for the event's CLI source.
+    /// Same root cause as `allowResponseData(for:)` — Codex rejects
+    /// `suppressOutput: true`. Optional `message` is forwarded into
+    /// `decision.message` for both branches.
+    static func denyResponseData(for event: HookEvent? = nil, message: String? = nil) -> Data {
+        if let event, CodexPermissionRules.isCodexEvent(event) {
+            var decision: [String: Any] = ["behavior": "deny"]
+            if let message, !message.isEmpty { decision["message"] = message }
+            return hookResponse(
+                hookEventName: "PermissionRequest",
+                decision: decision,
+                omitSuppressOutput: true
+            )
+        }
+        return permissionDenyResponse(message: message)
     }
 
     /// Build a Notification response. Answer is at hookSpecificOutput.answer (not inside decision).
