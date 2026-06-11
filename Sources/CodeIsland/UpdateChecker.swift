@@ -194,16 +194,6 @@ final class UpdateChecker: ObservableObject {
             "App not found in DMG"
         }
     }
-
-    nonisolated func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
-        let description = error.localizedDescription
-        Task { @MainActor in
-            Self.log.debug("Sparkle aborted: \(description)")
-            if self.state == .checking {
-                self.state = .failed(description)
-            }
-        }
-    }
 }
 
 // MARK: - Download progress delegate
