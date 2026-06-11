@@ -885,6 +885,23 @@ struct TerminalActivator {
         }
     }
 
+    /// Bring an app forward without calling `NSRunningApplication.activate()`.
+    /// `activate()` triggers Ghostty's quick-terminal pop-up when Ghostty has no visible
+    /// window — that's why activateGhostty avoids it too. Using only unhide +
+    /// `NSWorkspace.openApplication` is safe across all parent terminals (Ghostty, iTerm2,
+    /// WezTerm, Kaku, kitty, Warp, Terminal.app, cmux) and still handles Space switching.
+    /// Backported from upstream `4066315` for use by `activateWarp` (#205).
+    private static func raiseAppWithoutQuickTerminal(bundleId: String) {
+        if let app = NSWorkspace.shared.runningApplications.first(where: {
+            $0.bundleIdentifier == bundleId
+        }) {
+            if app.isHidden { app.unhide() }
+        }
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
+            NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+        }
+    }
+
     // MARK: - Generic (bring app to front)
 
     private static func bringToFront(_ termApp: String) {
