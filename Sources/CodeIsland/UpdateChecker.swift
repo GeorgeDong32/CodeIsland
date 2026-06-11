@@ -170,7 +170,6 @@ final class UpdateChecker: ObservableObject {
         return false
     }
 
-<<<<<<< HEAD
     @discardableResult
     private nonisolated static func runShellProcess(_ executable: String, args: [String]) throws -> String {
         let process = Process()
