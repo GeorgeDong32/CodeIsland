@@ -43,6 +43,28 @@ public struct SessionSnapshot: Sendable {
         "codybuddycn",
     ]
 
+    /// Desktop-IDE *host* sources. Their GUI host/helper processes (e.g.
+    /// "Cursor Helper", "Trae Helper", the IDE's own `.../MacOS/<App>` binary)
+    /// appear in the process ancestry of ANY CLI agent launched from that IDE's
+    /// integrated terminal, and would be greedily matched by the loose
+    /// `/<source>` substring rule in `CLIProcessResolver.sourceMatchesExecutablePath`.
+    /// These must never be recovered via ancestry inference: a desktop IDE always
+    /// reports itself explicitly through `--source`, or is detected via its
+    /// dedicated `-cli` variant (`cursor-cli`, `qoder-cli`, `traecli`). Excluding
+    /// them keeps e.g. Claude Code run inside Cursor's terminal — whose `claude`
+    /// process is a source-less Node binary — from being mis-attributed to
+    /// "cursor". (#220)
+    public static let ideHostSources: Set<String> = [
+        "cursor",
+        "trae",
+        "traecn",
+        "qoder",
+        "codebuddy",
+        "codybuddycn",
+        "stepfun",
+        "antigravity",
+    ]
+
     public var status: AgentStatus = .idle
     public var currentTool: String?
     public var toolDescription: String?
