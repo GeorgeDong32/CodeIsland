@@ -2982,6 +2982,7 @@ private let cliIconFiles: [String: String] = [
     "hermes": "hermes",
     "qwen": "qwen",
     "kimi": "kimi",
+    "pi": "pi",
     "opencode": "opencode",
 ]
 
