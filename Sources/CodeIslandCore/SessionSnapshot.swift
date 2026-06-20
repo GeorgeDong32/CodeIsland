@@ -66,6 +66,8 @@ public struct SessionSnapshot: Sendable {
     public var ttyPath: String?         // /dev/ttys00X
     public var kittyWindowId: String?   // Kitty window ID for precise focus
     public var weztermPaneId: String?   // WezTerm-family pane ID (from WEZTERM_PANE env)
+    public var zellijPaneId: String?    // Zellij pane ID (from ZELLIJ_PANE env)
+    public var zellijSessionName: String? // Zellij session name (from ZELLIJ_SESSION_NAME env)
     public var tmuxPane: String?        // tmux pane identifier (%0, %1, etc.)
     public var tmuxClientTty: String?   // tmux client TTY for real terminal detection
     public var tmuxEnv: String?         // raw TMUX env var (socket info for non-default tmux server)
@@ -98,8 +100,16 @@ public struct SessionSnapshot: Sendable {
         let aliases: [String: String] = [
             "factory": "droid",
             "ag": "antigravity",
+            "anti-gravity": "antigravity",
+            "anti gravity": "antigravity",
             "work-buddy": "workbuddy",
+            "work body": "workbuddy",
+            "work-body": "workbuddy",
+            "workbody": "workbuddy",
             "hermes-agent": "hermes",
+            "hermes-agents": "hermes",
+            "hermes agent": "hermes",
+            "hermes agents": "hermes",
             "qwen-code": "qwen",
             "qwencode": "qwen",
             "cursor-agent": "cursor-cli",

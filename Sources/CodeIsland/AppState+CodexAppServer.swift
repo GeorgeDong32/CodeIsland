@@ -8,7 +8,10 @@ extension AppState {
     /// keeps the two channels' session namespaces disjoint so a user running
     /// Codex Desktop AND Codex CLI simultaneously doesn't see them collapse.
     static let codexAppSessionPrefix = "codexapp:"
-    private static let codexAppBundleId = "com.openai.codex"
+    // Plain `let` constants — nonisolated so NSWorkspace notification
+    // handlers on background queues can read them without Swift 6
+    // Sendable warnings.
+    nonisolated static let codexAppBundleId = "com.openai.codex"
 
     // MARK: - Public lifecycle
 
