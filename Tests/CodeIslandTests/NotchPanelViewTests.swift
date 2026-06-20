@@ -123,4 +123,90 @@ final class NotchPanelViewTests: XCTestCase {
         XCTAssertEqual(timeline.clickPointY, 16.0, accuracy: 0.1)
     }
 
+    // MARK: - AUTO APPROVE banner removal (change: remove-auto-approve-banner)
+    //
+    // The red "⏵⏵ AUTO APPROVE  点击禁用" banner used to be rendered inside the
+    // approval card when isAutoApproveActive was true. It replaced Allow/Deny buttons
+    // and frequently blocked normal per-tool approval. Removal verification:
+    // (a) the hardcoded literal "AUTO APPROVE" no longer appears in the view source;
+    // (b) the orange AUTO_APPROVE PixelButton (the manual entry point) is preserved.
+    // These are source-level guards because no SwiftUI render test infrastructure exists
+    // in the project (the existing tests are pure helper-function tests).
+
+    private static let notchPanelSource: String = {
+        // The file is part of the same SPM target; the test loads the source from the
+        // path computed relative to the test bundle. Falls back to "" if unavailable.
+        let bundlePath = Bundle(for: NotchPanelViewTests.self).bundlePath
+        let candidates = [
+            bundlePath + "/Sources/CodeIsland/NotchPanelView.swift",
+            // Derived from the project's root when running tests via `swift test`
+            bundlePath + "/../../../../Sources/CodeIsland/NotchPanelView.swift",
+        ]
+        for path in candidates {
+            if let contents = try? String(contentsOfFile: path, encoding: .utf8) {
+                return contents
+            }
+        }
+        return ""
+    }()
+
+    func testApprovalCardDoesNotRenderAutoApproveBannerInBypassMode() {
+        // Fast-fail: the source-literal guards below would vacuously pass against
+        // an empty source string (e.g. if the SPM bundle layout changes and the
+        // path candidates stop resolving). Pin the resolution up-front so any
+        // such regression fails loudly here instead of silently in the guards.
+        XCTAssertFalse(
+            Self.notchPanelSource.isEmpty,
+            "Could not locate NotchPanelView.swift from the test bundle — the path candidates in `notchPanelSource` may need updating."
+        )
+        // Guard against regression: the red banner literal must not be reintroduced
+        // anywhere in NotchPanelView.swift. The orange AUTO_APPROVE PixelButton uses
+        // the L10n key "auto_approve" (lowercase, separate literal), which is allowed.
+        XCTAssertFalse(
+            Self.notchPanelSource.contains("\"AUTO APPROVE\""),
+            "NotchPanelView.swift must not contain the hardcoded \"AUTO APPROVE\" banner literal"
+        )
+    }
+
+    func testApprovalCardDoesNotRenderAutoApproveBannerInAutoMode() {
+        XCTAssertFalse(
+            Self.notchPanelSource.isEmpty,
+            "Could not locate NotchPanelView.swift from the test bundle"
+        )
+        // Same guard; both bypassPermissions and auto triggered the deleted banner,
+        // and both must remain banner-free. The literal is the same in both modes,
+        // so a second test ensures both coverage paths are recorded in the suite.
+        XCTAssertFalse(
+            Self.notchPanelSource.contains("⏵⏵ AUTO APPROVE"),
+            "NotchPanelView.swift must not contain the \"⏵⏵ AUTO APPROVE\" status-bar text"
+        )
+    }
+
+    func testOrangeAutoApproveButtonIsPreservedAsEntryPoint() {
+        XCTAssertFalse(
+            Self.notchPanelSource.isEmpty,
+            "Could not locate NotchPanelView.swift from the test bundle"
+        )
+        // The orange AUTO_APPROVE PixelButton (the manual entry point into AUTO mode
+        // when isAutoApproveActive == false) must remain. Users without CLI-driven
+        // auto mode still need a way to enter AUTO from the UI.
+        XCTAssertTrue(
+            Self.notchPanelSource.contains("L10n.shared[\"auto_approve\"]"),
+            "NotchPanelView.swift must still expose the orange AUTO_APPROVE PixelButton as a manual entry point"
+        )
+    }
+
+    func testSessionCardTapToDeactivateAutoApproveIsPreserved() {
+        XCTAssertFalse(
+            Self.notchPanelSource.isEmpty,
+            "Could not locate NotchPanelView.swift from the test bundle"
+        )
+        // SessionCard top ⏵⵵ indicator's tap-to-deactivate must remain so users have
+        // a discoverable way to exit AUTO after the banner is gone.
+        XCTAssertTrue(
+            Self.notchPanelSource.contains("appState.toggleAutoApprove(sessionId: sessionId)"),
+            "NotchPanelView.swift must keep at least one call site of appState.toggleAutoApprove for SessionCard deactivation"
+        )
+    }
+
 }

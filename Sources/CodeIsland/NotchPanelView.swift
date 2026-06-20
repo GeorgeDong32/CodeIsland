@@ -1034,32 +1034,7 @@ private struct ApprovalBar: View {
             }
 
             // Pixel-style buttons (or auto-approve status bar)
-            if isAutoApproveActive {
-                // Auto-approve active: show status bar instead of buttons
-                HStack(spacing: 6) {
-                    Text("⏵⏵ AUTO APPROVE")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(Color(red: 1.0, green: 0.84, blue: 0.0))
-                    Spacer()
-                    Text(L10n.shared["click_to_disable"])
-                        .font(.system(size: 9))
-                        .foregroundStyle(.white.opacity(0.4))
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
-                .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color(red: 0.55, green: 0.0, blue: 0.0))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 4)
-                        .strokeBorder(Color(red: 1.0, green: 0.27, blue: 0.27), lineWidth: 2)
-                )
-                .shadow(color: Color(red: 1.0, green: 0.27, blue: 0.27).opacity(0.4), radius: 4)
-                .padding(.horizontal, 14)
-                .contentShape(Rectangle())
-                .onTapGesture { toggleAutoApprove() }
-            } else if tool == "ExitPlanMode" {
+            if tool == "ExitPlanMode" {
                 // Plan approval options (OptionRow style, consistent with AskQuestion)
                 let planColor = planApprovalColor
                 VStack(spacing: 4) {
