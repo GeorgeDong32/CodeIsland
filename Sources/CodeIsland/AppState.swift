@@ -1313,6 +1313,16 @@ final class AppState {
         return nil
     }
 
+    /// Resolve the setMode value for the Plan card's auto-accept OptionRow.
+    /// Priority:
+    /// 1. permission_suggestions (preserves Claude Code's explicit hint)
+    /// 2. SettingsManager.shared.planAutoAcceptMode.rawValue ("auto" or "acceptEdits")
+    /// 3. "acceptEdits" as the final safety net (handled by the caller)
+    func smartModeForPendingPlan() -> String? {
+        if let suggested = suggestedModeForPendingPlan() { return suggested }
+        return SettingsManager.shared.planAutoAcceptMode.rawValue
+    }
+
     /// Approve ExitPlanMode with optional permission mode change
     func approvePlanWithMode(_ mode: String?) {
         guard !permissionQueue.isEmpty else { return }
@@ -1430,7 +1440,7 @@ final class AppState {
             let pending = permissionQueue.remove(at: idx)
             let data: Data
             if isClaudeCode {
-                data = Self.autoApproveInitialResponse()
+                data = autoApproveInitialResponse(for: sessionId)
             } else {
                 data = Self.allowResponseData(for: pending.event)
             }
@@ -1571,17 +1581,37 @@ final class AppState {
     /// - bypassPermissions: Sets session to `bypassPermissions` mode and sends tool whitelist rules.
     ///   Whitelisted built-in tools auto-approved; uncovered tools trigger PermissionRequest.
     ///   Only effective with `--dangerously-skip-permissions` launch flag.
+    ///
+    /// - Parameter sessionId: If provided, uses the session's `observedPermissionMode` history
+    ///   to select the mode (bypass → .bypassPermissions, auto → .auto) before falling back
+    ///   to the global `autoApproveMode` setting.
+
+    /// Resolve the effective AutoApproveMode for a session's AUTO button.
+    /// Priority: observed bypass → observed auto → global setting.
+    /// Never returns .addRules when the session has an observed auto or bypass history.
+    private func effectiveAutoApproveMode(for sessionId: String?) -> AutoApproveMode {
+        guard let sid = sessionId,
+              let observed = sessions[sid]?.observedPermissionMode else {
+            return SettingsManager.shared.autoApproveMode
+        }
+        switch observed {
+        case "bypassPermissions": return .bypassPermissions
+        case "auto": return .auto
+        default: return SettingsManager.shared.autoApproveMode
+        }
+    }
+
     @MainActor
-    static func autoApproveInitialResponse() -> Data {
-        let mode = SettingsManager.shared.autoApproveMode
+    func autoApproveInitialResponse(for sessionId: String? = nil) -> Data {
+        let mode = effectiveAutoApproveMode(for: sessionId)
         switch mode {
         case .auto:
             // Native Auto Mode — classifier handles everything, no whitelist needed
-            return permissionAllowResponse(updatedPermissions: [
+            return Self.permissionAllowResponse(updatedPermissions: [
                 ["type": "setMode", "mode": "auto", "destination": "session"],
             ])
         case .addRules:
-            return permissionAllowResponse(updatedPermissions: [
+            return Self.permissionAllowResponse(updatedPermissions: [
                 // Switch to acceptEdits so the CLI shows the correct mode
                 [
                     "type": "setMode",
@@ -1591,14 +1621,14 @@ final class AppState {
                 // Send tool whitelist rules for session-level auto-approve
                 [
                     "type": "addRules",
-                    "rules": autoApproveToolNames.map { ["toolName": $0, "ruleContent": "*"] },
+                    "rules": Self.autoApproveToolNames.map { ["toolName": $0, "ruleContent": "*"] },
                     "behavior": "allow",
                     "destination": "session",
                 ],
             ])
         case .bypassPermissions:
             // Bypass mode — send setMode + whitelist (only works with --dangerously-skip-permissions)
-            return permissionAllowResponse(updatedPermissions: [
+            return Self.permissionAllowResponse(updatedPermissions: [
                 [
                     "type": "setMode",
                     "mode": "bypassPermissions",
@@ -1607,7 +1637,7 @@ final class AppState {
                 // Add tool whitelist rules so covered tools are auto-approved
                 [
                     "type": "addRules",
-                    "rules": autoApproveToolNames.map { ["toolName": $0, "ruleContent": "*"] },
+                    "rules": Self.autoApproveToolNames.map { ["toolName": $0, "ruleContent": "*"] },
                     "behavior": "allow",
                     "destination": "session",
                 ],
@@ -2388,6 +2418,7 @@ final class AppState {
             snapshot.zellijSessionName = p.zellijSessionName
             snapshot.weztermPaneId = p.weztermPaneId
             snapshot.lastActivity = p.lastActivity
+            snapshot.observedPermissionMode = p.observedPermissionMode
             // Restore persisted cliPid only if the process is still alive — avoids
             // stale sessions reappearing briefly after the app or IDE restarts (#46).
             if let pid = p.cliPid, pid > 0 {

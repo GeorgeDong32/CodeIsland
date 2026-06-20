@@ -139,6 +139,12 @@ final class L10n: ObservableObject {
         "auto_approve_EnterPlanMode": "Enter plan mode",
         "auto_approve_ExitPlanMode": "Exit plan mode and request approval",
 
+        // Plan auto-accept mode
+        "plan_auto_accept_mode": "Plan Auto-Accept Mode",
+        "plan_auto_accept_mode_desc": "Choose how the Plan card's auto-accept approves permissions. Auto uses Claude's classifier (recommended). Accept Edits whitelists known tools only.",
+        "plan_auto_accept_mode_auto": "Auto",
+        "plan_auto_accept_mode_acceptEdits": "Accept Edits",
+
         // Permission buttons
         "auto_approve": "AUTO",
         "bypass_permission_tooltip": "Auto-approve this tool for the rest of the session",
@@ -416,6 +422,12 @@ final class L10n: ObservableObject {
         "auto_approve_TodoWrite": "写入待办列表",
         "auto_approve_EnterPlanMode": "进入计划模式",
         "auto_approve_ExitPlanMode": "退出计划模式并请求审批",
+
+        // Plan auto-accept mode
+        "plan_auto_accept_mode": "Plan 自动接受模式",
+        "plan_auto_accept_mode_desc": "选择 Plan 卡片自动接受时的权限模式。智能自动使用 Claude 分类器（推荐）。批量允许仅白名单已知工具。",
+        "plan_auto_accept_mode_auto": "智能自动",
+        "plan_auto_accept_mode_acceptEdits": "批量允许",
 
         // Permission buttons
         "auto_approve": "自动批准",
@@ -695,6 +707,12 @@ final class L10n: ObservableObject {
         "auto_approve_EnterPlanMode": "プランモードに移行",
         "auto_approve_ExitPlanMode": "プランモードを終了して承認を要求",
 
+        // Plan auto-accept mode (English fallback — Japanese locale not yet translated)
+        "plan_auto_accept_mode": "Plan Auto-Accept Mode",
+        "plan_auto_accept_mode_desc": "Choose how the Plan card's auto-accept approves permissions. Auto uses Claude's classifier (recommended). Accept Edits whitelists known tools only.",
+        "plan_auto_accept_mode_auto": "Auto",
+        "plan_auto_accept_mode_acceptEdits": "Accept Edits",
+
         // Permission buttons
         "auto_approve": "自動承認",
         "bypass_permission_tooltip": "このセッション中、このツールを自動承認",
@@ -973,6 +991,12 @@ final class L10n: ObservableObject {
         "auto_approve_EnterPlanMode": "계획 모드 진입",
         "auto_approve_ExitPlanMode": "계획 모드 종료 및 승인 요청",
 
+        // Plan auto-accept mode (English fallback — Korean locale not yet translated)
+        "plan_auto_accept_mode": "Plan Auto-Accept Mode",
+        "plan_auto_accept_mode_desc": "Choose how the Plan card's auto-accept approves permissions. Auto uses Claude's classifier (recommended). Accept Edits whitelists known tools only.",
+        "plan_auto_accept_mode_auto": "Auto",
+        "plan_auto_accept_mode_acceptEdits": "Accept Edits",
+
         // Permission buttons
         "auto_approve": "자동 승인",
         "bypass_permission_tooltip": "이 세션 중 이 도구 자동 승인",
@@ -1250,6 +1274,12 @@ final class L10n: ObservableObject {
         "auto_approve_TodoWrite": "Yapılacaklar listesine yaz",
         "auto_approve_EnterPlanMode": "Plan moduna gir",
         "auto_approve_ExitPlanMode": "Plan modundan çık ve onay iste",
+
+        // Plan auto-accept mode (English fallback — Turkish locale not yet translated)
+        "plan_auto_accept_mode": "Plan Auto-Accept Mode",
+        "plan_auto_accept_mode_desc": "Choose how the Plan card's auto-accept approves permissions. Auto uses Claude's classifier (recommended). Accept Edits whitelists known tools only.",
+        "plan_auto_accept_mode_auto": "Auto",
+        "plan_auto_accept_mode_acceptEdits": "Accept Edits",
 
         // Permission buttons
         "auto_approve": "OTOMATIK ONAY",

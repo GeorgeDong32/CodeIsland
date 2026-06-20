@@ -352,6 +352,7 @@ private struct BehaviorPage: View {
     @AppStorage(SettingsKey.maxToolHistory) private var maxToolHistory = SettingsDefaults.maxToolHistory
     @AppStorage(SettingsKey.autoApproveTools) private var autoApproveSet: Set<String> = .init(rawValue: SettingsDefaults.autoApproveTools) ?? []
     @AppStorage(SettingsKey.autoApproveMode) private var autoApproveMode: String = SettingsDefaults.autoApproveMode
+    @AppStorage(SettingsKey.planAutoAcceptMode) private var planAutoAcceptMode: String = SettingsDefaults.planAutoAcceptMode
 
     private var pluginSessionModeBinding: Binding<String> {
         Binding(
@@ -438,6 +439,22 @@ private struct BehaviorPage: View {
                 Picker(selection: $autoApproveMode) {
                     ForEach(AutoApproveMode.allCases) { mode in
                         Text(l10n["auto_approve_mode_\(mode.rawValue)"])
+                            .tag(mode.rawValue)
+                    }
+                } label: {
+                    EmptyView()
+                }
+                .pickerStyle(.segmented)
+            }
+
+            // Plan card auto-accept mode — user picks between auto (recommended) and acceptEdits
+            Section(l10n["plan_auto_accept_mode"]) {
+                Text(l10n["plan_auto_accept_mode_desc"])
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Picker(selection: $planAutoAcceptMode) {
+                    ForEach(PlanAutoAcceptMode.allCases) { mode in
+                        Text(l10n["plan_auto_accept_mode_\(mode.rawValue)"])
                             .tag(mode.rawValue)
                     }
                 } label: {

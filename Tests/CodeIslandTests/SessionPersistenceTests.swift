@@ -66,7 +66,8 @@ final class SessionPersistenceTests: XCTestCase {
             cliPid: 456,
             cliStartTime: cliStartTime,
             startTime: startTime,
-            lastActivity: startTime.addingTimeInterval(30)
+            lastActivity: startTime.addingTimeInterval(30),
+            observedPermissionMode: nil
         )
 
         let encoder = JSONEncoder()

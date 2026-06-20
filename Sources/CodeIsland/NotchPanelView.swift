@@ -1064,7 +1064,7 @@ private struct ApprovalBar: View {
                             isSelected: false,
                             accent: planColor,
                             action: {
-                                let mode = appState.suggestedModeForPendingPlan() ?? "acceptEdits"
+                                let mode = appState.smartModeForPendingPlan() ?? "acceptEdits"
                                 appState.approvePlanWithMode(mode)
                             }
                         )

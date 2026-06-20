@@ -48,6 +48,14 @@ enum AutoApproveMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// Plan card auto-accept mode — only auto or acceptEdits.
+/// The Plan card never sends bypassPermissions (that is a session-level decision).
+enum PlanAutoAcceptMode: String, CaseIterable, Identifiable {
+    case auto = "auto"
+    case acceptEdits = "acceptEdits"
+    var id: String { rawValue }
+}
+
 enum SettingsKey {
     // Language
     static let appLanguage = "appLanguage"                 // "system", "en", "zh", "ja", "ko", "tr"
@@ -123,6 +131,9 @@ enum SettingsKey {
 
     // Auto-approve mode strategy (auto / addRules / bypass)
     static let autoApproveMode = "autoApproveMode"
+
+    // Plan card auto-accept mode (auto / acceptEdits)
+    static let planAutoAcceptMode = "planAutoAcceptMode"
 }
 
 struct SettingsDefaults {
@@ -174,6 +185,8 @@ struct SettingsDefaults {
     static let autoApproveTools = "TaskCreate,TaskUpdate,TaskGet,TaskList,TaskOutput,TaskStop,TodoRead,TodoWrite,EnterPlanMode,ExitPlanMode"
 
     static let autoApproveMode = AutoApproveMode.auto.rawValue
+
+    static let planAutoAcceptMode = PlanAutoAcceptMode.auto.rawValue
 }
 
 @MainActor
@@ -221,6 +234,7 @@ class SettingsManager {
             SettingsKey.defaultSource: SettingsDefaults.defaultSource,
             SettingsKey.autoApproveTools: SettingsDefaults.autoApproveTools,
             SettingsKey.autoApproveMode: SettingsDefaults.autoApproveMode,
+            SettingsKey.planAutoAcceptMode: SettingsDefaults.planAutoAcceptMode,
         ])
     }
 
@@ -364,6 +378,14 @@ class SettingsManager {
             return AutoApproveMode(rawValue: raw) ?? .addRules
         }
         set { defaults.set(newValue.rawValue, forKey: SettingsKey.autoApproveMode) }
+    }
+
+    var planAutoAcceptMode: PlanAutoAcceptMode {
+        get {
+            let raw = defaults.string(forKey: SettingsKey.planAutoAcceptMode) ?? SettingsDefaults.planAutoAcceptMode
+            return PlanAutoAcceptMode(rawValue: raw) ?? .auto
+        }
+        set { defaults.set(newValue.rawValue, forKey: SettingsKey.planAutoAcceptMode) }
     }
 }
 

@@ -31,6 +31,7 @@ struct PersistedSession: Codable {
     let cliStartTime: Date?
     let startTime: Date
     let lastActivity: Date
+    let observedPermissionMode: String?
 }
 
 enum SessionPersistence {
@@ -66,7 +67,8 @@ enum SessionPersistence {
                 cliPid: s.cliPid,
                 cliStartTime: s.cliStartTime,
                 startTime: s.startTime,
-                lastActivity: s.lastActivity
+                lastActivity: s.lastActivity,
+                observedPermissionMode: s.observedPermissionMode
             )
         }
         do {
