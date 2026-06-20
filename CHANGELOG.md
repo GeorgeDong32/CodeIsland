@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [v1.2.7] - 2026-06-21
 
 ### English
 - Fix: remove the red "AUTO APPROVE" status bar from the permission approval card. When a session's `permission_mode` is `auto` or `bypassPermissions`, the bar used to replace the Allow / Deny / Always buttons, blocking normal per-tool approval. The card now always shows the action buttons; the AUTO state is conveyed solely by the SessionCard top ⏵⏵ indicator (driven by `permission_mode`). The orange AUTO_APPROVE button and the long-press ALWAYS gesture remain as the manual entry points into AUTO mode.
@@ -9,6 +9,8 @@
 ### 中文
 - 修复：移除审批卡内红色 "AUTO APPROVE" 状态条。当会话的 `permission_mode` 为 `auto` 或 `bypassPermissions` 时，状态条曾完全替换 Allow / Deny / Always 按钮，导致无法按单个工具授权。审批卡现在始终显示操作按钮；AUTO 状态仅由 SessionCard 顶部 ⏵⏵ 徽章呈现（由 `permission_mode` 驱动）。橙色 AUTO_APPROVE 按钮和长按 ALWAYS 手势仍保留，作为手动进入 AUTO 模式的入口。
 - 修复：Plan 卡片自动接受现在默认使用 `auto` 模式（Claude Code 推荐的基于分类器的方式），不再硬编码 `acceptEdits`。设置中新增"Plan 自动接受模式"选项，允许用户在 `auto`（推荐）和 `acceptEdits`（白名单）之间选择，默认为 `auto`。橙色 AUTO_APPROVE 按钮会根据会话历史记忆：若会话之前使用过 `bypassPermissions` 则恢复 bypass，若为 `auto` 则使用 auto，新会话无历史时回退到全局 `autoApproveMode` 设置。橙色按钮绝不会主动发送 `acceptEdits`，除非该选项为用户在全局设置中的选择且会话无历史记录。
+
+## [v1.2.6] - 2026-06-13
 
 ## [v1.0.27] - 2026-05-30
 
