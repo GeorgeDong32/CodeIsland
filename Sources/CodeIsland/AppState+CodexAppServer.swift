@@ -98,10 +98,12 @@ extension AppState {
 
     private func removeCodexAppServerSessions() {
         let stale = sessions.keys.filter { $0.hasPrefix(AppState.codexAppSessionPrefix) }
+        // Route every removal through the unified cleanup path so any per-session
+        // resources (pending permissions/questions, transcript tailer, monitor,
+        // completion queue) are drained once, not re-implemented here. See MEM-003.
         for id in stale {
-            sessions.removeValue(forKey: id)
+            removeSession(id)
         }
-        refreshDerivedState()
     }
 
     // MARK: - Notification dispatch
@@ -165,9 +167,10 @@ extension AppState {
     private func applyCodexThreadClosedNotification(params: [String: AnyCodableLike]) {
         guard let threadId = params["threadId"]?.asString else { return }
         let sessionId = AppState.codexAppSessionPrefix + threadId
-        sessions.removeValue(forKey: sessionId)
-        detachTranscriptTailer(sessionId: sessionId)
-        refreshDerivedState()
+        // Reuse the unified removal path so any future per-session resources
+        // (pending permission/question state, completion entries, derived state)
+        // are cleaned up consistently with process-exit / reducer-effect paths. See MEM-004.
+        removeSession(sessionId)
     }
 
     /// Map a ThreadStatus union onto our flat AgentStatus enum. Shared between the

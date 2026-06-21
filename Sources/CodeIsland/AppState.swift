@@ -38,6 +38,19 @@ final class AppState {
     var permissionQueue: [PermissionRequest] = []
     var questionQueue: [QuestionRequest] = []
 
+    /// Bounded growth for blocking permission/question queues. A storm of
+    /// abandoned blocking requests or connections that never transition can
+    /// otherwise retain continuations, raw payloads, and NWConnection state
+    /// until the 5-minute safety cleanup. See MEM-005.
+    @ObservationIgnored
+    private let maxPermissionPerSession = 16
+    @ObservationIgnored
+    private let maxPermissionGlobal = 64
+    @ObservationIgnored
+    private let maxQuestionPerSession = 8
+    @ObservationIgnored
+    private let maxQuestionGlobal = 32
+
     @ObservationIgnored
     private(set) var recentHookEvents: [DiagnosticHookEvent] = []
     @ObservationIgnored
@@ -549,9 +562,15 @@ final class AppState {
     }
 
     /// Remove a session, clean up its monitor, and resume any pending continuations.
-    /// Every removal path (cleanup timer, process exit, reducer effect) goes through here
-    /// so leaked continuations / connections are impossible.
-    private func removeSession(_ sessionId: String) {
+    /// Every removal path (cleanup timer, process exit, reducer effect, Codex app-server
+    /// bulk close) goes through here so leaked continuations / connections are impossible.
+    ///
+    /// Marked `internal` so the in-module `AppState+CodexAppServer` extension can
+    /// route its bulk and thread-close paths through the same teardown. The class is
+    /// `@MainActor`, so every call site is implicitly main-isolated; do not invoke
+    /// from a background context. See MEM-003 / MEM-004.
+    @MainActor
+    func removeSession(_ sessionId: String) {
         // Reset auto-approve state for this session
         if autoApproveSessionId == sessionId {
             autoApproveSessionId = nil
@@ -1132,6 +1151,7 @@ final class AppState {
         }
 
         permissionQueue.append(request)
+        enforcePermissionQueueCaps(sessionId: sessionId)
 
         // Show UI only if this is the first (or only) queued item
         if permissionQueue.count == 1 {
@@ -1684,6 +1704,7 @@ final class AppState {
 
         let request = QuestionRequest(event: event, question: question, continuation: continuation)
         questionQueue.append(request)
+        enforceQuestionQueueCaps(sessionId: sessionId)
 
         if questionQueue.count == 1 {
             activeSessionId = sessionId
@@ -1797,6 +1818,7 @@ final class AppState {
             askUserQuestionState: askState
         )
         questionQueue.append(request)
+        enforceQuestionQueueCaps(sessionId: sessionId)
 
         if questionQueue.count == 1 {
             activeSessionId = sessionId
@@ -2002,6 +2024,60 @@ final class AppState {
             log.notice("⚠️ permission deny reason=drainPermissions(\(reason, privacy: .public)) session=\(sessionId, privacy: .public) toolUseId=\(item.toolUseId ?? "nil", privacy: .public) tool=\(item.event.toolName ?? "nil", privacy: .public)")
             item.continuation.resume(returning: denyResponse)
             return true
+        }
+    }
+
+    /// Enforce per-session and global caps on the permission queue.
+    /// Older queued items are auto-denied (continuation resumed) so stuck or
+    /// abandoned blocking requests cannot accumulate forever. See MEM-005.
+    private func enforcePermissionQueueCaps(sessionId: String) {
+        let perSessionCap = self.maxPermissionPerSession
+        let globalCap = self.maxPermissionGlobal
+        // 1. Per-session cap: drop oldest in this session beyond the limit.
+        var perSession = 0
+        // Walk from newest to oldest; count entries for this session and deny
+        // those beyond maxPermissionPerSession.
+        for index in permissionQueue.indices.reversed() where permissionQueue[index].event.sessionId == sessionId {
+            perSession += 1
+            if perSession > perSessionCap {
+                let victim = permissionQueue.remove(at: index)
+                log.notice("⚠️ permission deny reason=capPerSession(\(perSessionCap)) session=\(sessionId, privacy: .public) toolUseId=\(victim.toolUseId ?? "nil", privacy: .public)")
+                victim.continuation.resume(returning: Self.permissionDenyResponse())
+            }
+        }
+
+        // 2. Global cap: if the queue still exceeds the global limit, deny the
+        //    oldest items until under the cap.
+        while permissionQueue.count > globalCap {
+            let victim = permissionQueue.removeFirst()
+            log.notice("⚠️ permission deny reason=capGlobal(\(globalCap)) session=\(victim.event.sessionId ?? "default", privacy: .public)")
+            victim.continuation.resume(returning: Self.permissionDenyResponse())
+        }
+    }
+
+    /// Enforce per-session and global caps on the question queue. See MEM-005.
+    private func enforceQuestionQueueCaps(sessionId: String) {
+        let perSessionCap = self.maxQuestionPerSession
+        let globalCap = self.maxQuestionGlobal
+        var perSession = 0
+        for index in questionQueue.indices.reversed() where questionQueue[index].event.sessionId == sessionId {
+            perSession += 1
+            if perSession > perSessionCap {
+                let victim = questionQueue.remove(at: index)
+                log.notice("⚠️ question drain reason=capPerSession(\(perSessionCap)) session=\(sessionId, privacy: .public)")
+                let response: Data = victim.isFromPermission
+                    ? Data(#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#.utf8)
+                    : Self.notificationResponse()
+                victim.continuation.resume(returning: response)
+            }
+        }
+        while questionQueue.count > globalCap {
+            let victim = questionQueue.removeFirst()
+            log.notice("⚠️ question drain reason=capGlobal(\(globalCap)) session=\(victim.event.sessionId ?? "default", privacy: .public)")
+            let response: Data = victim.isFromPermission
+                ? Data(#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#.utf8)
+                : Self.notificationResponse()
+            victim.continuation.resume(returning: response)
         }
     }
 

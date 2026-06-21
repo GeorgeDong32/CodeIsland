@@ -57,12 +57,26 @@ public final class JSONLTailer: @unchecked Sendable {
     private let onDelta: DeltaHandler
     private var watches: [String: Watch] = [:]
 
+    /// Maximum number of bytes accepted from a single `readFromOffset` call.
+    /// A large transcript append or a writer that omits newlines can otherwise
+    /// cause a memory spike of appended bytes plus combined copies. See MEM-006.
+    public let maxDeltaBytes: Int
+
+    /// Maximum bytes retained in `Watch.pendingFragment`. A partial frame
+    /// without a newline is held until the next event; a runaway writer or a
+    /// delayed FS event must not let this grow without bound. See MEM-006.
+    public let maxPendingFragmentBytes: Int
+
     public init(
         queue: DispatchQueue = DispatchQueue(label: "com.codeisland.jsonl-tailer"),
-        onDelta: @escaping DeltaHandler
+        onDelta: @escaping DeltaHandler,
+        maxDeltaBytes: Int = 4 * 1024 * 1024,
+        maxPendingFragmentBytes: Int = 1 * 1024 * 1024
     ) {
         self.queue = queue
         self.onDelta = onDelta
+        self.maxDeltaBytes = maxDeltaBytes
+        self.maxPendingFragmentBytes = maxPendingFragmentBytes
     }
 
     deinit {
@@ -177,10 +191,45 @@ public final class JSONLTailer: @unchecked Sendable {
         }
 
         guard let appended = readFromOffset(watch: watch) else { return }
-        let combined = watch.pendingFragment + appended
+        // Enforce delta cap. A writer that omits newlines or a large append can
+        // otherwise blow up the combined buffer; on overflow we drop the watch
+        // and re-attach so we don't leak per-watch state. See MEM-006.
+        //
+        // Self-heal note: if the JSONLTailer is deallocated between the detach
+        // and the delayed re-attach, the watch is lost. Callers (AppState's
+        // `attachTranscriptTailerIfNeeded`) detect this via a stale
+        // `attachedTranscriptPaths` entry and re-attach on the next discovery
+        // sweep, so dropped watches do not permanently strand a session.
+        if appended.count > maxDeltaBytes {
+            let path = watch.filePath
+            let sid = watch.sessionId
+            detachOnQueue(sessionId: sid)
+            queue.asyncAfter(deadline: .now() + .milliseconds(50)) { [weak self] in
+                self?.attachOnQueue(sessionId: sid, filePath: path, initialOffset: 0)
+            }
+            return
+        }
+
+        var combined = watch.pendingFragment + appended
+        if combined.count > maxPendingFragmentBytes + maxDeltaBytes {
+            // Combined size still bounded: drop the prefix that exceeds the
+            // pending-fragment cap so memory is hard-bounded even when the
+            // writer keeps appending without a newline. See MEM-006.
+            let overflow = combined.count - maxPendingFragmentBytes
+            combined.removeFirst(overflow)
+            watch.offset += off_t(overflow)
+        }
 
         let scan = JSONLTailer.scanLines(combined)
-        watch.pendingFragment = scan.trailingFragment
+        // Trailing fragment must also stay under cap. If still too large after
+        // scanning, discard the tail and rewind so we don't retain unbounded
+        // bytes waiting for a newline that never arrives. See MEM-006.
+        var trailing = scan.trailingFragment
+        if trailing.count > maxPendingFragmentBytes {
+            watch.offset += off_t(trailing.count - maxPendingFragmentBytes)
+            trailing = trailing.suffix(maxPendingFragmentBytes)
+        }
+        watch.pendingFragment = trailing
         watch.offset += off_t(combined.count - scan.trailingFragment.count)
 
         if !scan.delta.isEmpty {

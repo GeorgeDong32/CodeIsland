@@ -134,6 +134,11 @@ class PanelWindowController: NSObject, NSWindowDelegate {
     private var sessionObservationTask: Task<Void, Never>?
     private var fullscreenLatch = false
     private var settingsObservers: [NSObjectProtocol] = []
+    // Lifetime observers installed in showPanel(); torn down in deinit so repeated
+    // showPanel calls do not leak notification-center bookkeeping. Each entry
+    // tracks the center it was registered with so deinit removes from the right
+    // one. See MEM-001.
+    private var lifetimeObservers: [(token: NSObjectProtocol, center: NotificationCenter)] = []
     private var globalClickMonitor: Any?
     private var lastChosenScreenSignature = ""
     private var isAnimatingScreenHop = false
@@ -183,7 +188,7 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         panel.orderFrontRegardless()
 
         // Screen change observer
-        NotificationCenter.default.addObserver(
+        let screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
             queue: .main
@@ -196,9 +201,10 @@ class PanelWindowController: NSObject, NSWindowDelegate {
                 self?.refreshCurrentScreen(forceRebuild: true)
             }
         }
+        lifetimeObservers.append((screenObserver, NotificationCenter.default))
 
         // Active space change — check fullscreen
-        NSWorkspace.shared.notificationCenter.addObserver(
+        let spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil,
             queue: .main
@@ -222,9 +228,10 @@ class PanelWindowController: NSObject, NSWindowDelegate {
                 }
             }
         }
+        lifetimeObservers.append((spaceObserver, NSWorkspace.shared.notificationCenter))
 
         // Frontmost app change
-        NSWorkspace.shared.notificationCenter.addObserver(
+        let frontAppObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: .main
@@ -235,6 +242,7 @@ class PanelWindowController: NSObject, NSWindowDelegate {
                 if !self.fullscreenLatch { self.updateVisibility() }
             }
         }
+        lifetimeObservers.append((frontAppObserver, NSWorkspace.shared.notificationCenter))
 
         // Observe session changes via @Observable tracking
         sessionObservationTask = Task { @MainActor [weak self] in
@@ -598,8 +606,15 @@ class PanelWindowController: NSObject, NSWindowDelegate {
     deinit {
         autoScreenPoller?.invalidate()
         fullscreenPoller?.invalidate()
+        sessionObservationTask?.cancel()
         for observer in settingsObservers {
             NotificationCenter.default.removeObserver(observer)
+        }
+        // Remove each lifetime observer from the center it was registered with.
+        // Calling removeObserver on the wrong center is a no-op on modern macOS
+        // but is semantically wrong and brittle against SDK changes. See MEM-001.
+        for entry in lifetimeObservers {
+            entry.center.removeObserver(entry.token)
         }
         if let monitor = globalClickMonitor {
             NSEvent.removeMonitor(monitor)

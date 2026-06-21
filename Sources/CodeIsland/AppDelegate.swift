@@ -9,6 +9,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var panelController: PanelWindowController?
     private var hookServer: HookServer?
     private var hookRecoveryTimer: Timer?
+    private var hookActivationObserver: NSObjectProtocol?
     private var lastHookCheck: Date = .distantPast
     private var globalShortcutMonitor: Any?
     private var localShortcutMonitor: Any?
@@ -55,7 +56,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.checkAndRepairHooks()
             }
         }
-        NSWorkspace.shared.notificationCenter.addObserver(
+        let activationToken = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil, queue: .main
         ) { [weak self] _ in
@@ -63,6 +64,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.checkAndRepairHooks()
             }
         }
+        hookActivationObserver = activationToken
 
         #if DEBUG
         // Preview mode: inject mock data if --preview flag is present
@@ -102,6 +104,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         hookRecoveryTimer?.invalidate()
+        if let token = hookActivationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(token)
+            hookActivationObserver = nil
+        }
         teardownGlobalShortcut()
         appState.saveSessions()
         RemoteManager.shared.shutdown()

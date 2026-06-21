@@ -121,18 +121,29 @@ public final class CodexAppServerClient: @unchecked Sendable {
     private var nextRequestId: Int64 = 1
     private var isStopped: Bool = true
 
+    /// Hard cap on `readBuffer` total bytes. Malformed or very large app-server
+    /// output can otherwise grow the buffer without bound. See MEM-007.
+    public let maxBufferSize: Int
+    /// Hard cap on a single JSON frame. A frame exceeding this size is dropped.
+    /// See MEM-007.
+    public let maxFrameSize: Int
+
     public var onMessage: MessageHandler?
     public var onExit: ExitHandler?
 
     public init(
         executableURL: URL = URL(fileURLWithPath: CodexAppServerClient.defaultExecutablePath),
         arguments: [String] = ["app-server", "--listen", "stdio://"],
-        callbackQueue: DispatchQueue = .main
+        callbackQueue: DispatchQueue = .main,
+        maxBufferSize: Int = 4 * 1024 * 1024,
+        maxFrameSize: Int = 1 * 1024 * 1024
     ) {
         self.executableURL = executableURL
         self.arguments = arguments
         self.callbackQueue = callbackQueue
         self.ioQueue = DispatchQueue(label: "com.codeisland.codex-app-server-io")
+        self.maxBufferSize = maxBufferSize
+        self.maxFrameSize = maxFrameSize
     }
 
     /// Default location of the Codex binary bundled with the desktop app.
@@ -276,7 +287,19 @@ public final class CodexAppServerClient: @unchecked Sendable {
 
     private func ingest(data: Data) {
         readBuffer.append(data)
-        let parsed = CodexAppServerClient.drainMessages(buffer: &readBuffer)
+        // Enforce buffer cap before parsing. A malicious or runaway server can
+        // otherwise grow `readBuffer` without bound. On overflow we drop the
+        // trailing content and stop the client so callers observe a clean
+        // shutdown instead of a memory spike. See MEM-007.
+        if readBuffer.count > maxBufferSize {
+            readBuffer.removeAll(keepingCapacity: true)
+            stop()
+            return
+        }
+        let parsed = CodexAppServerClient.drainMessages(
+            buffer: &readBuffer,
+            maxFrameSize: maxFrameSize
+        )
         guard !parsed.isEmpty else { return }
         for message in parsed {
             let handler = self.onMessage
@@ -302,7 +325,13 @@ public final class CodexAppServerClient: @unchecked Sendable {
 
     /// Consume as many complete newline-delimited JSON messages as possible
     /// from the buffer. Trailing partial bytes remain in the buffer untouched.
-    public static func drainMessages(buffer: inout Data) -> [CodexJSONRPCMessage] {
+    /// Frames whose byte length exceeds `maxFrameSize` are skipped (along with
+    /// their trailing newline) so a single malformed frame cannot allocate a
+    /// large parsed message. See MEM-007.
+    public static func drainMessages(
+        buffer: inout Data,
+        maxFrameSize: Int = Int.max
+    ) -> [CodexJSONRPCMessage] {
         var results: [CodexJSONRPCMessage] = []
         let newline: UInt8 = 0x0A
         var searchStart = buffer.startIndex
@@ -312,8 +341,12 @@ public final class CodexAppServerClient: @unchecked Sendable {
                 break
             }
             let lineBytes = buffer[searchStart..<newlineIndex]
-            if !lineBytes.isEmpty, let parsed = parseMessage(Data(lineBytes)) {
-                results.append(parsed)
+            // Skip oversized frames instead of allocating a Data copy or
+            // attempting to parse — preserves buffer-bounded memory. See MEM-007.
+            if lineBytes.count <= maxFrameSize {
+                if !lineBytes.isEmpty, let parsed = parseMessage(Data(lineBytes)) {
+                    results.append(parsed)
+                }
             }
             searchStart = buffer.index(after: newlineIndex)
         }

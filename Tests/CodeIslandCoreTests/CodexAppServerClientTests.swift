@@ -139,4 +139,57 @@ final class CodexAppServerClientTests: XCTestCase {
         }
         XCTAssertEqual(dict?["k4"]?.asObject?["inner"]?.asBool, true)
     }
+
+    // MARK: - MEM-007 buffer / frame caps
+
+    func testDrainMessagesDropsOversizedFrame() {
+        // Frame well over the configured cap should be skipped, not parsed.
+        var buffer = Data()
+        let oversized = Data(repeating: 0x20, count: 2048)  // spaces, 2KB
+        buffer.append(oversized)
+        buffer.append(0x0A)
+        let small = Data(#"{"jsonrpc":"2.0","method":"thread/started","params":{}}"#.utf8)
+        buffer.append(small)
+        buffer.append(0x0A)
+
+        let messages = CodexAppServerClient.drainMessages(buffer: &buffer, maxFrameSize: 512)
+        XCTAssertEqual(messages.count, 1)
+        XCTAssertEqual(messages.first?.kind, .notification(method: "thread/started"))
+        XCTAssertTrue(buffer.isEmpty)
+    }
+
+    func testDrainMessagesNeverTerminatedFrameStaysInBuffer() {
+        // Trailing partial frame must remain in the buffer regardless of frame cap.
+        var buffer = Data(#"{"jsonrpc":"2.0","method":"turn/started"#.utf8)
+        let messages = CodexAppServerClient.drainMessages(buffer: &buffer, maxFrameSize: 64)
+        XCTAssertTrue(messages.isEmpty)
+        XCTAssertEqual(String(data: buffer, encoding: .utf8), #"{"jsonrpc":"2.0","method":"turn/started"#)
+    }
+
+    func testDrainMessagesAcceptsFramesExactlyAtCap() {
+        // A valid JSON frame whose byte length is at the cap must still parse
+        // (the cap is `<=`, not `<`). Fixture is a 63-byte JSON-RPC request
+        // body; with newline terminator the frame is exactly 64 bytes, matching
+        // `maxFrameSize`. Padding length chosen so the body is a valid JSON
+        // envelope — verified independently that 35 'p' chars produces 63 bytes.
+        let body = #"{"method":"x","id":1,"p":"ppppppppppppppppppppppppppppppppppp"}"#
+        XCTAssertEqual(body.utf8.count, 63, "test fixture drift — adjust padding")
+
+        var buffer = Data(body.utf8)
+        buffer.append(0x0A)
+
+        let messages = CodexAppServerClient.drainMessages(buffer: &buffer, maxFrameSize: 64)
+        XCTAssertEqual(messages.count, 1, "frame at exactly maxFrameSize must be parsed")
+        XCTAssertEqual(messages.first?.kind, .request(method: "x", id: .int(1)))
+    }
+
+    func testDrainMessagesRejectsFrameOneByteOverCap() {
+        // Frame body of `maxFrameSize` bytes (plus newline = maxFrameSize+1) must be skipped.
+        let body = String(repeating: "p", count: 64)
+        var buffer = Data(body.utf8)
+        buffer.append(0x0A)
+        let messages = CodexAppServerClient.drainMessages(buffer: &buffer, maxFrameSize: 64)
+        XCTAssertTrue(messages.isEmpty, "frame one byte over cap must be skipped")
+        XCTAssertTrue(buffer.isEmpty, "skipped frame should still be consumed from buffer")
+    }
 }
