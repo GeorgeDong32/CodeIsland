@@ -5,7 +5,6 @@ context: |
   
   The following principles are NON-NEGOTIABLE. All artifacts you create
   MUST comply with these rules. Violations will be rejected.
-  Source of truth: .specify/memory/constitution.md
   
   ---
   
@@ -143,7 +142,6 @@ context: |
 
 rules:
   proposal:
-    - "Read .specify/memory/constitution.md in full before writing"
     - "Capabilities MUST align with Principle IX — new CLIs added as data not code"
     - "If proposing hook changes, cite which CLI official docs were consulted (Principle XIV)"
   specs:
