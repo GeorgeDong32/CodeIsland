@@ -26,17 +26,24 @@
 - [ ] 3.4 Threshold: `.running` (with tool) uses `transcriptStaleWithToolSeconds`; `.processing` (no tool) uses `transcriptStaleNoToolSeconds`. Both compared in seconds.
 - [ ] 3.5 Run `swift build` to confirm the change compiles.
 
-## 4. Add Subagent-by-cwd Merge (Preprocessor)
+## 4. Add Subagent-by-cwd Merge (Post-hoc Reconciliation)
 
-- [ ] 4.1 In [Sources/CodeIsland/AppState.swift](Sources/CodeIsland/AppState.swift) `handleEvent`, after the existing worktree-skip guard, add a new block.
-- [ ] 4.2 Define `cwdCollapseSources: Set<String> = ["cursor", "cursor-cli", "trae", "traecn", "codebuddy", "codybuddycn"]` as a private static constant on `AppState`.
-- [ ] 4.3 If `event.agentId == nil` and `event.sessionId` is non-empty and the normalized source is in `cwdCollapseSources`, call `findParentSessionId(forSubagentCandidate:event:)`.
-- [ ] 4.4 If a parent is found, construct a new `HookEvent` with the same payload but `sessionId: parentId` and `agentId: "auto-cwd-" + originalSessionId`. Replace `event` with the rewritten copy.
-- [ ] 4.5 Implement `findParentSessionId(forSubagentCandidate:event:)`:
-  - Extract the event's `source`, `cwd`, and 5 terminal identifiers from `event.rawJSON` (`_term_bundle`, `_iterm_session`, `_tty`, `_tmux_pane`, `_cmux_surface_id`) and from `event.rawJSON` directly for the matching session-side fields.
-  - Walk `appState.sessions`; for each entry where `source == eventSource && cwd == eventCwd && lastActivity within 60s && at least one terminal id matches`, return the entry's `sessionId`.
-  - Return `nil` if no match.
-- [ ] 4.6 Run `swift build` to confirm the change compiles.
+- [ ] 4.1 Delete the event-time merge code from `handleEvent`: remove the `mergeIntoParentSessionIfMatches(event:)` call and the `let event = mergedEvent ?? event` line ([AppState.swift:998-1010](Sources/CodeIsland/AppState.swift)).
+- [ ] 4.2 Delete the `mergeIntoParentSessionIfMatches(event:)`, `terminalIdsMatch(event:session:)` methods and the `cwdCollapseSources` / `cwdCollapseWindow` static constants from `AppState`.
+- [ ] 4.3 Add a new `sessionTerminalIdsMatch(session:parent:)` static method that compares two `SessionSnapshot` values (not event+session). Same 5-way any-match logic: `termBundleId`, `itermSessionId`, `ttyPath`, `tmuxPane`, `cmuxSurfaceId`.
+- [ ] 4.4 Add a new `applyCursorSubagentMerge() -> Bool` method on `AppState`:
+  - Group sessions by `"\(source)|\(cwd)"` where source is in the whitelist `["cursor", "cursor-cli", "trae", "traecn", "codebuddy", "codybuddycn"]` and cwd is non-empty.
+  - Within each group with 2+ members, sort by `startTime`. Keep the first as parent.
+  - For each child: check `child.startTime - parent.startTime <= 60s`, and `sessionTerminalIdsMatch` passes. If yes:
+    - Create `SubagentState(agentId: childSessionId, agentType: child.currentTool ?? child.toolDescription ?? "Agent")` with child's status, currentTool, toolDescription, lastActivity.
+    - Write into `sessions[parentId]?.subagents[childSessionId]`.
+    - Update parent status to `.running` with `currentTool = "Agent"`.
+    - Update parent's `lastActivity` if child's is newer.
+    - Call `removeSession(childSessionId)`.
+  - Return `didMutate`.
+- [ ] 4.5 In `handleEvent`, after `let effects = reduceEvent(...)` and before `refreshDerivedState()`, add: `_ = applyCursorSubagentMerge()`.
+- [ ] 4.6 In `integrateDiscoveredSessions`, after the existing `applyCodexSubsessionModeToKnownSessions()` call, add: `_ = applyCursorSubagentMerge()`.
+- [ ] 4.7 Run `swift build` to confirm the change compiles.
 
 ## 5. Add Subagent Fast Cleanup (Phase 6)
 
@@ -104,12 +111,12 @@
   - `testLastActivityRecentKeepsSessionActive` (mtime 70s ago, lastActivity 5s ago → no change, the tool just ran)
   - `testTranscriptStaleThresholdZeroDisabled` (threshold 0 → no flip regardless of mtime)
   - `testTranscriptMissingFileTreatedAsInfinitelyStale` (mtime → .distantPast → flip)
-- [ ] 10.3 Create `Tests/CodeIslandCoreTests/CursorSubagentCollapseTests.swift` with tests:
-  - `testCwdCollapseMergesSecondCursorSessionIntoFirst` (two cursor sessions, same cwd, same terminal, 30s apart → second event routed to first session's subagents)
-  - `testCwdCollapseSkipsWhenTargetIdle` (first session's lastActivity > 60s ago → no merge)
-  - `testCwdCollapseSkipsClaudeCode` (source: claude → preprocessor returns event unchanged)
-  - `testCwdCollapseRequiresTerminalIdMatch` (same cwd but no overlapping terminal id → no merge)
-  - `testCwdCollapseSynthesizesAgentIdWithPrefix` (assert `subagents["auto-cwd-<original>"]` is created)
+- [ ] 10.3 Rewrite `Tests/CodeIslandCoreTests/CursorSubagentCollapseTests.swift` (post-hoc reconciliation):
+  - `testPostHocMergeMovesChildIntoParentSubagents` (two cursor sessions same cwd+terminal, 30s apart → after `applyCursorSubagentMerge`, child removed from sessions, child's sessionId in parent.subagents)
+  - `testPostHocMergeSkipsWhenGapExceeds60s` (child.startTime > 60s after parent → no merge, both remain)
+  - `testPostHocMergeSkipsClaudeCode` (source: claude → not in whitelist, no merge)
+  - `testPostHocMergeRequiresTerminalIdMatch` (same cwd but different terminal → no merge)
+  - `testPostHocMergeKeepsChildStatusInSubagentState` (child was .running → merged subagent.status == .running)
 - [ ] 10.4 Create `Tests/CodeIslandCoreTests/SubagentFastCleanupTests.swift` with tests:
   - `testSubagentIdleOver30sIsRemoved` (subagent.status = .idle, lastActivity = 60s ago, threshold 30 → removed)
   - `testSubagentIdleUnder30sIsKept` (lastActivity = 10s ago → kept)
@@ -137,7 +144,7 @@
 - [ ] 12.3 Open the app, navigate to Settings → Sessions, confirm three new Pickers visible with correct defaults.
 - [ ] 12.4 In Cursor: open a session, hit ESC → confirm the card disappears within 1 second (was: 30 minutes).
 - [ ] 12.5 In Claude Code: open a session, hit ESC during a long generation → confirm the card flips to "interrupted" within ~60 seconds.
-- [ ] 12.6 In Cursor: open a second session in the same workspace within 60s → confirm both share one card with a `+1 Sub` badge.
+- [ ] 12.6 Inject synthetic subagent events via socket (Python script): main-1 SessionStart + 3x sub UserPromptSubmit in same cwd/terminal → confirm only 1 card visible (parent), with `+3 Sub` badge. child sessions removed from `sessions` dict.
 - [ ] 12.7 Change "Subagent Cleanup" to 15s in Settings → confirm idle subagent badges decrement faster.
 - [ ] 12.8 Change "Transcript Stale (no tool)" to 0 → confirm the Claude Code interrupt fallback is disabled (sessions stay in "thinking" until Stop fires).
 - [ ] 12.9 Open `~/.codeisland/sessions.json` and confirm the three new settings appear in the diagnostics export.

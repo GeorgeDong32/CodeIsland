@@ -18,7 +18,7 @@ The current cleanup thresholds (180s/300s for stuck sessions, 10-minute idle for
 
 - **Transcript-staleness interrupt detection.** `cleanupIdleSessions` in [Sources/CodeIsland/AppState.swift:185](Sources/CodeIsland/AppState.swift) gains a new phase 7 that detects "the session looks active but the transcript file has not been written to in N seconds". When both the transcript `mtime` and the session `lastActivity` are older than the threshold, the session is flipped to `.idle` with `interrupted = true` (without removal, so the existing idle-timeout path handles eventual cleanup). This is the Claude Code double-ESC / single-ESC fallback.
 
-- **Subagent merge by cwd for IDE-family CLIs.** The `handleEvent` entry point in [Sources/CodeIsland/AppState.swift:955](Sources/CodeIsland/AppState.swift) gains a preprocessor that, for sources in the whitelist `{cursor, cursor-cli, trae, traecn, codebuddy, codybuddycn}`, attempts to find an existing active session for the same `(source, cwd, terminal_id)` tuple within a 60-second window. If found, the event is rewritten to point at the existing session as a synthesized subagent (`agentId = "auto-cwd-<original_session_id>"`) so the reducer's existing `handleSubagentEvent` routing absorbs it. Claude Code's own `agent_id`-based subagent routing is unchanged (not in the whitelist).
+- **Subagent merge by cwd for IDE-family CLIs (post-hoc reconciliation).** A new `applyCursorSubagentMerge()` method runs after `reduceEvent` returns (same pattern as `applyCodexSubsessionModeToKnownSessions` for Codex). It groups existing sessions by `(source, cwd, terminal_id)`, designates the oldest (by `startTime`) as the parent, moves all others into the parent's `subagents` dictionary as `SubagentState` entries, and removes the child sessions via `removeSession`. Sources in the whitelist `{cursor, cursor-cli, trae, traecn, codebuddy, codybuddycn}` are affected; Claude Code's own `agent_id`-based subagent routing is unchanged.
 
 - **Subagent fast cleanup.** `cleanupIdleSessions` gains a new phase 6 that removes `SubagentState` entries whose `lastActivity` is older than the configured subagent-cleanup threshold (default 30s). This keeps the `+N Sub` badge accurate without waiting for the long global session timeout.
 
@@ -35,7 +35,7 @@ The current cleanup thresholds (180s/300s for stuck sessions, 10-minute idle for
 
 - `Sources/CodeIslandCore/SessionSnapshot.swift`: `case "Stop"` branches on `source` and `stopReason` to decide between `.removeSession` and `.enqueueCompletion`.
 - `Sources/CodeIsland/AppState.swift`:
-  - `handleEvent` adds the cwd-merge preprocessor with a source whitelist.
+  - New `applyCursorSubagentMerge()` post-hoc reconciliation (same pattern as `applyCodexSubsessionModeToKnownSessions`), called from `handleEvent` after `reduceEvent` returns and from `integrateDiscoveredSessions`. Removes child sessions and moves them into parent's `subagents` dict.
   - `cleanupIdleSessions` adds phase 6 (subagent fast cleanup) and phase 7 (transcript staleness), both reading thresholds from `SettingsManager`.
 - `Sources/CodeIsland/Settings.swift`: three new `SettingsKey` constants, three `SettingsDefaults`, three `SettingsManager` computed properties, registered in the `defaults.register` dict.
 - `Sources/CodeIsland/SettingsView.swift`: three new `@AppStorage` bindings and three new `Picker` sections in the existing `sessions` block.

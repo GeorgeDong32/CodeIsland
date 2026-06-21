@@ -101,42 +101,44 @@ The `SessionSnapshot.reduceEvent` function SHALL treat `Stop` events differently
 
 ### Requirement: CWD-Based Subagent Merge for IDE-Family CLIs
 
-The `AppState.handleEvent` entry point SHALL attempt to merge a new hook event into an existing active session when the source is in the IDE-family whitelist and the merge criteria are met. This absorbs parallel subagent processes (typical of Cursor's `cursor-agent` subprocesses) into the parent's session card as synthesized subagents. This requirement is NEW.
+`AppState` SHALL perform a post-hoc reconciliation (`applyCursorSubagentMerge()`) after each hook event is processed, grouping existing sessions by `(source, cwd, terminal_id)` and merging child sessions into the parent's `subagents` dictionary. This follows the same pattern as `applyCodexSubsessionModeToKnownSessions` for Codex. This requirement is NEW.
 
-#### Scenario: Second event in same workspace is merged into the first session
+#### Scenario: Child sessions in same workspace are merged into the parent
 
-- **GIVEN** an active session `parent` in `appState.sessions` with `source == "cursor"`, `cwd == "/proj"`, and a matching terminal identifier (any of `termBundleId`, `itermSessionId`, `ttyPath`, `tmuxPane`, `cmuxSurfaceId`)
-- **AND** `parent.lastActivity` is within the last 60 seconds
-- **WHEN** a new `HookEvent` arrives with `event.agentId == nil`, `event.sessionId == "new-id"`, and the same source / cwd / terminal identifier
-- **THEN** `handleEvent` SHALL rewrite the event to `sessionId: "parent"` and `agentId: "auto-cwd-new-id"`
-- **AND** the reducer's existing `handleSubagentEvent` routing SHALL absorb the event into `parent.subagents["auto-cwd-new-id"]`
+- **GIVEN** two or more sessions in `appState.sessions` with `source == "cursor"`, the same `cwd`, and at least one matching terminal identifier (any of `termBundleId`, `itermSessionId`, `ttyPath`, `tmuxPane`, `cmuxSurfaceId`)
+- **AND** the child's `startTime` is within 60 seconds of the parent's `startTime`
+- **WHEN** `applyCursorSubagentMerge()` runs (after `reduceEvent` returns)
+- **THEN** the child session SHALL be removed from `sessions` via `removeSession`
+- **AND** a `SubagentState` entry SHALL be created in the parent's `subagents[childSessionId]` with the child's status, currentTool, toolDescription, and lastActivity
+- **AND** the parent's status SHALL be updated to `.running` with `currentTool = "Agent"` if not in a waiting state
 
-#### Scenario: Merge is skipped when the target session is older than 60 seconds
+#### Scenario: Merge is skipped when the gap exceeds 60 seconds
 
-- **GIVEN** an existing session `parent` with `lastActivity` more than 60 seconds ago
-- **WHEN** a new event with the same source / cwd / terminal identifier arrives
-- **THEN** the merge preprocessor SHALL NOT rewrite the event
-- **AND** the event SHALL be processed as a fresh top-level session (creating a new entry in `appState.sessions` if no matching one exists)
+- **GIVEN** a parent session created at `T0` and a child session created at `T0 + 120s` (same cwd/terminal/source)
+- **WHEN** `applyCursorSubagentMerge()` runs
+- **THEN** both sessions SHALL remain independent in `sessions`
+- **AND** no `SubagentState` entries SHALL be created
 
 #### Scenario: Merge is skipped when no terminal identifier matches
 
-- **GIVEN** an existing session `parent` with `cwd == "/proj"` but `termBundleId == "com.googlecode.iterm2"`
-- **WHEN** a new event arrives with `cwd == "/proj"` but `_term_bundle == "com.apple.Terminal"`
-- **THEN** the merge preprocessor SHALL NOT rewrite the event
-- **AND** the new event SHALL be processed as a fresh top-level session
+- **GIVEN** two sessions with the same `source` and `cwd` but different terminal identifiers (e.g. one in iTerm, one in Terminal.app)
+- **WHEN** `applyCursorSubagentMerge()` runs
+- **THEN** both sessions SHALL remain independent
+- **AND** no merge SHALL occur
 
 #### Scenario: Merge is skipped for non-whitelisted sources
 
-- **GIVEN** an existing session `parent` with `source == "claude"` and the matching cwd / terminal identifier
-- **WHEN** a new event with `source == "claude"` arrives (the source whitelist does NOT include `"claude"`)
-- **THEN** the merge preprocessor SHALL NOT rewrite the event
-- **AND** Claude Code's existing `agent_id`-based subagent routing SHALL handle the event as before
+- **GIVEN** two sessions with `source == "claude"` and the same cwd/terminal
+- **WHEN** `applyCursorSubagentMerge()` runs
+- **THEN** no merge SHALL occur (whitelist does not include `"claude"`)
+- **AND** Claude Code's existing `agent_id`-based subagent routing SHALL handle the events as before
 
-#### Scenario: Synthesized agentId has the `auto-cwd-` prefix
+#### Scenario: Child session ID becomes the subagent key
 
-- **WHEN** the merge preprocessor rewrites an event whose original `sessionId` is `sess_abc123`
-- **THEN** the new `agentId` SHALL be exactly `"auto-cwd-sess_abc123"`
-- **AND** the prefix `auto-cwd-` SHALL be stable across runs (used in diagnostics and tests to identify synthesized entries)
+- **GIVEN** a child session with `sessionId == "cursor-ppid-12345"`
+- **WHEN** the child is merged into the parent
+- **THEN** the parent's `subagents` dictionary SHALL contain the key `"cursor-ppid-12345"`
+- **AND** the `SubagentState.agentId` SHALL be `"cursor-ppid-12345"` (the child's original session ID, no synthetic prefix needed)
 
 ### Requirement: Cleanup Phases are Additive and Non-Destructive
 

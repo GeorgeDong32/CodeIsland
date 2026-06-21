@@ -43,23 +43,24 @@ The three existing cleanup thresholds (180s / 300s stuck-session reset, 10-minut
 - **Why**: The `lastActivity` check guards against the case where a long-running tool is between calls — the transcript may not be written for a few seconds while the tool runs, but a hook event updates `lastActivity`. Requiring both to be stale means a slow tool will not be misclassified as interrupted. This matches the existing phase 2 (stuck-session reset) approach in spirit.
 - **Where**: [Sources/CodeIsland/AppState.swift:185](Sources/CodeIsland/AppState.swift) `cleanupIdleSessions` new phase 7.
 
-### Decision 3: Subagent-by-cwd merge uses a 60-second window
+### Decision 3: Subagent-by-cwd merge uses post-hoc reconciliation, not event-time rewrite
 
-- **What**: The preprocessor only merges a new event into an existing session if the existing session's `lastActivity` is within the last 60 seconds.
-- **Why**: A user who opens two independent sessions in the same workspace 10 minutes apart should not have them collapsed. The 60s window is long enough to catch a "user prompt sent → next cursor-agent spawns immediately" sequence, but short enough to avoid false positives during normal multi-task workflows.
-- **Where**: [Sources/CodeIsland/AppState.swift:955](Sources/CodeIsland/AppState.swift) `handleEvent` preprocessor, with the merge logic factored into a private helper `findParentSessionId(forSubagentCandidate:event:)`.
+- **What**: A new `applyCursorSubagentMerge() -> Bool` method runs AFTER `reduceEvent` returns (and also in `integrateDiscoveredSessions` on app start). It groups existing sessions by `(source in whitelist, cwd, terminal_id match)`, then within each group designates the oldest (by `startTime`) as the parent, moves all others into the parent's `subagents` dictionary, and removes the child sessions via `removeSession`. The 60-second window applies to the gap between the parent's and child's `startTime` — if the child was created more than 60s after the parent, it is treated as a genuinely independent session.
+- **Why (post-hoc over event-time)**: An event-time rewrite in `handleEvent` (the original approach) fails because `reduceEvent` creates the child session in `sessions` BEFORE the merge can redirect it. The child session is immediately visible as a standalone card. Post-hoc reconciliation — the same pattern used by `applyCodexSubsessionModeToKnownSessions` for Codex — lets the child be created normally, then removes it after the fact. This is the proven pattern in this codebase.
+- **Why (60-second window)**: A user who opens two independent sessions in the same workspace 10 minutes apart should not have them collapsed. The 60s window is long enough to catch a "user prompt sent → next cursor-agent spawns immediately" sequence, but short enough to avoid false positives during normal multi-task workflows.
+- **Where**: [Sources/CodeIsland/AppState.swift](Sources/CodeIsland/AppState.swift) new method `applyCursorSubagentMerge()`, called from `handleEvent` (after `reduceEvent`) and from `integrateDiscoveredSessions`.
 
 ### Decision 4: Merge key is `(source, cwd, terminal_id)` with any-of terminal matching
 
-- **What**: The merge key requires the same `source` and same `cwd`, and at least one matching terminal identifier: `termBundleId`, `itermSessionId`, `ttyPath`, `tmuxPane`, or `cmuxSurfaceId`.
+- **What**: The grouping key requires the same `source` (from the whitelist) and same `cwd`, and at least one matching terminal identifier: `termBundleId`, `itermSessionId`, `ttyPath`, `tmuxPane`, or `cmuxSurfaceId`.
 - **Why**: A bare `(source, cwd)` match would conflate sessions running in two different IDE windows or terminal tabs in the same project. Terminal-id matching disambiguates "user in iTerm tab A is doing one thing, user in iTerm tab B is doing another". Any-of matching is forgiving — different terminals expose different env vars, and we do not want to require ALL of them to be present, just at least one.
-- **Where**: Same `findParentSessionId` helper as Decision 3.
+- **Where**: Same `applyCursorSubagentMerge()` helper as Decision 3, with a companion `sessionTerminalIdsMatch(session:parent:)` static method.
 
-### Decision 5: Synthesized subagent `agentId` is `auto-cwd-<original_session_id>`
+### Decision 5: Child session ID becomes the SubagentState key in the parent
 
-- **What**: When the preprocessor rewrites an event, the new `agentId` is `"auto-cwd-" + originalSessionId`. The `originalSessionId` is the new event's pre-rewrite `session_id`.
-- **Why**: The string prefix `auto-cwd-` makes the synthesized subagent easy to identify in diagnostics and tests, distinguishing it from genuine `agent_id` payloads from Claude Code. Using the original session id as the suffix guarantees uniqueness across multiple parallel merges into the same parent.
-- **Where**: [Sources/CodeIsland/AppState.swift:955](Sources/CodeIsland/AppState.swift) `handleEvent` preprocessor, at the point of rewrite.
+- **What**: When a child session is merged into the parent, its original `sessionId` is used as the key in `parent.subagents[childSessionId]`. No synthetic `agentId` prefix is needed — the child's session ID is already unique and distinguishable from Claude Code's `agent_id` payloads.
+- **Why**: This matches the Codex pattern exactly — `applyCodexSubsessionModeToKnownSessions` uses `providerSessionId` (the child's thread ID) as the subagent key. Using the child's session ID directly avoids introducing a new naming convention and keeps the subagents dictionary consistent across all sources.
+- **Where**: `applyCursorSubagentMerge()` in [Sources/CodeIsland/AppState.swift](Sources/CodeIsland/AppState.swift).
 
 ### Decision 6: Subagent fast cleanup is threshold-driven, per-cleanup-pass
 
@@ -87,7 +88,7 @@ The three existing cleanup thresholds (180s / 300s stuck-session reset, 10-minut
   - **Mitigation**: The `0 = Never` option on the new Picker restores the old behavior for that specific path. The existing `sessionTimeout` setting is unchanged and still applies to genuinely-idle sessions.
 - **Risk**: The cwd-merge preprocessor is gated by a hard-coded 60s window. If a user actually wants to open two distinct sessions 30s apart in the same workspace, they collide into one card.
   - **Mitigation**: The window only applies when the SECOND session's session_id is different from any existing session AND they share terminal_id. A user can deliberately open the second session in a different terminal tab to bypass the merge. 60s is short enough that "30s apart" is an unusual case; 5+ minutes is the typical gap.
-- **Risk**: Synthesized subagent `agentId` strings (`auto-cwd-<...>`) are persisted in `SessionSnapshot.subagents[agentId]`. If we later add a `Codable` round-trip for subagents and the prefix is changed, historical sessions would orphan their subagent entries.
+- **Risk**: Merged subagent entries (keyed by child session ID) are persisted in `SessionSnapshot.subagents[agentId]`. If session IDs change format in a future version, historical sessions could orphan their subagent entries.
   - **Mitigation**: The `SubagentState` map is not currently persisted to disk via `SessionPersistence` (only the top-level `SessionSnapshot` is). When it is added, the prefix will be versioned via the existing `SessionPersistence` migration mechanism. No code change needed now.
 - **Risk**: Three new settings increase the cognitive load of the `sessions` Settings section.
   - **Mitigation**: Each Picker has a 1-line description (`_desc` key) explaining when to adjust. All three defaults are the conservative values from the original plan, so the user does not need to touch them unless they want to.
