@@ -982,18 +982,6 @@ final class AppState {
             return
         }
 
-        // CWD-based subagent merge: IDE-family CLIs (Cursor, Trae, CodeBuddy) spawn
-        // parallel agent subprocesses that each get their own `session_id` from the
-        // CLI's API. Their hook payloads don't carry an `agent_id`, so the existing
-        // subagent routing in the reducer never sees them — every parallel agent
-        // ends up as its own notch card. Detect this case and rewrite the event
-        // so it routes into the parent session's `subagents` map instead.
-        //
-        // Heuristic: same source + same cwd + at least one matching terminal id,
-        // AND the parent session was active in the last 60 seconds.
-        let mergedEvent = mergeIntoParentSessionIfMatches(event: event)
-        let event = mergedEvent ?? event
-
         let sessionId = event.sessionId ?? "default"
 
         // Skip Codex APP internal sessions (title generation, etc.) — they have no transcript
@@ -1105,6 +1093,13 @@ final class AppState {
 
         scheduleSave()
         startRotationIfNeeded()
+
+        // Post-hoc subagent merge for Cursor/Trae/CodeBuddy families.
+        // Runs after the event created/updated sessions, so both parent and
+        // child exist in the dict. Matches the Codex pattern in
+        // integrateDiscoveredSessions / applyCodexSubsessionModeToKnownSessions.
+        _ = applyCursorSubagentMerge()
+
         refreshDerivedState()
     }
 
@@ -1150,12 +1145,11 @@ final class AppState {
         }
     }
 
-    // MARK: - CWD-based subagent merge
+    // MARK: - CWD-based subagent merge (post-hoc reconciliation)
 
     /// IDE-family CLIs whose hook payloads do not carry an `agent_id`. Used by
-    /// `mergeIntoParentSessionIfMatches` to gate the merge preprocessor.
-    /// Claude Code's own `agent_id`-based subagent routing is intentionally NOT
-    /// affected by this set — Claude Code uses `agent_id` payloads directly.
+    /// `applyCursorSubagentMerge` to gate the merge. Claude Code's own
+    /// `agent_id`-based subagent routing is intentionally NOT affected.
     private static let cwdCollapseSources: Set<String> = [
         "cursor",
         "cursor-cli",
@@ -1165,67 +1159,95 @@ final class AppState {
         "codybuddycn",
     ]
 
-    /// Maximum elapsed time since the candidate parent's `lastActivity` for it
-    /// to be considered the "current" parent of a new event. 60 seconds is
-    /// short enough to avoid merging genuinely independent sessions opened in
-    /// the same workspace minutes apart, but long enough to absorb parallel
-    /// `cursor-agent` subprocesses spawned by the same user action.
+    /// Maximum gap between parent and child `startTime` for the post-hoc merge
+    /// to consider them part of the same logical session. 60 seconds is short
+    /// enough to avoid merging genuinely independent sessions opened in the
+    /// same workspace minutes apart.
     private static let cwdCollapseWindow: TimeInterval = 60
 
-    /// If the incoming event looks like a parallel-subagent hook from an
-    /// IDE-family CLI (no `agentId`, same source/cwd/terminal as an existing
-    /// active session), rewrite it so the reducer routes the event into the
-    /// parent's `subagents` map. Returns `nil` when no rewrite is needed.
-    private func mergeIntoParentSessionIfMatches(event: HookEvent) -> HookEvent? {
-        guard event.agentId == nil,
-              let explicitId = event.sessionId, !explicitId.isEmpty,
-              let rawSource = event.rawJSON["_source"] as? String,
-              let normalizedSource = SessionSnapshot.normalizedSupportedSource(rawSource),
-              Self.cwdCollapseSources.contains(normalizedSource) else {
-            return nil
+    /// Post-hoc reconciliation for IDE-family subagent merge.
+    /// Runs AFTER `reduceEvent` returns, same pattern as
+    /// `applyCodexSubsessionModeToKnownSessions` for Codex.
+    /// Groups existing sessions by (source, cwd, terminal_id), keeps the
+    /// oldest as parent, moves all others into `parent.subagents`, and
+    /// removes the child sessions.
+    func applyCursorSubagentMerge() -> Bool {
+        let candidates = sessions.map { (sessionId: $0.key, session: $0.value) }
+        var didMutate = false
+
+        // Group by (source, cwd) where source is in the whitelist and cwd is set.
+        var groups: [String: [(String, SessionSnapshot)]] = [:]
+        for candidate in candidates {
+            guard Self.cwdCollapseSources.contains(candidate.session.source),
+                  let cwd = candidate.session.cwd, !cwd.isEmpty else { continue }
+            let key = "\(candidate.session.source)|\(cwd)"
+            groups[key, default: []].append((candidate.sessionId, candidate.session))
         }
 
-        let eventCwd = (event.rawJSON["cwd"] as? String) ?? ""
-        let now = Date()
-        var bestParentId: String?
+        for (_, members) in groups {
+            guard members.count >= 2 else { continue }
+            // Sort by startTime — the earliest becomes the parent.
+            let sorted = members.sorted { $0.1.startTime < $1.1.startTime }
+            let parentId = sorted[0].0
+            let parentStartTime = sorted[0].1.startTime
 
-        for (parentId, parent) in sessions {
-            guard parent.source == normalizedSource else { continue }
-            guard !eventCwd.isEmpty, parent.cwd == eventCwd else { continue }
-            guard now.timeIntervalSince(parent.lastActivity) <= Self.cwdCollapseWindow else { continue }
-            // Skip the event's own session id (same event re-emitted)
-            if parentId == explicitId { continue }
+            for i in 1..<sorted.count {
+                let (childId, child) = sorted[i]
+                // Only merge children created within the time window of the parent.
+                guard child.startTime.timeIntervalSince(parentStartTime) <= Self.cwdCollapseWindow else { continue }
+                // Require at least one matching terminal identifier.
+                guard Self.sessionTerminalIdsMatch(session: child, parent: sorted[0].1) else { continue }
 
-            if Self.terminalIdsMatch(event: event, session: parent) {
-                bestParentId = parentId
-                break  // earliest match wins; sessions dict order is undefined
+                // Build or update the subagent entry in the parent.
+                let agentType = child.currentTool ?? child.toolDescription ?? "Agent"
+                var subagent = sessions[parentId]?.subagents[childId]
+                    ?? SubagentState(agentId: childId, agentType: agentType)
+                subagent.status = child.status == .idle ? .running : child.status
+                subagent.currentTool = child.currentTool
+                subagent.toolDescription = child.toolDescription
+                if child.lastActivity > subagent.lastActivity {
+                    subagent.lastActivity = child.lastActivity
+                }
+                sessions[parentId]?.subagents[childId] = subagent
+
+                // Update parent status to reflect active subagent work.
+                if sessions[parentId]?.status != .waitingApproval,
+                   sessions[parentId]?.status != .waitingQuestion {
+                    sessions[parentId]?.status = .running
+                    sessions[parentId]?.currentTool = "Agent"
+                    sessions[parentId]?.toolDescription = agentType
+                }
+                if child.lastActivity > (sessions[parentId]?.lastActivity ?? .distantPast) {
+                    sessions[parentId]?.lastActivity = child.lastActivity
+                }
+
+                // Remove the standalone child session from the sessions dict.
+                if sessions[childId] != nil {
+                    removeSession(childId)
+                    didMutate = true
+                }
             }
         }
-
-        guard let parentId = bestParentId else { return nil }
-        return event.withRewritten(sessionId: parentId, agentId: "auto-cwd-\(explicitId)")
+        return didMutate
     }
 
-    /// Compare terminal identifiers between an incoming event and a candidate
-    /// parent session. Match if ANY of the identifiers match — different
-    /// terminals expose different env vars and we don't require all of them.
-    private static func terminalIdsMatch(event: HookEvent, session: SessionSnapshot) -> Bool {
-        let ev = event.rawJSON
-        if let a = session.termBundleId as String?,
-           let b = ev["_term_bundle"] as? String,
-           !a.isEmpty, !b.isEmpty, a == b { return true }
-        if let a = session.itermSessionId as String?,
-           let b = ev["_iterm_session"] as? String,
-           !a.isEmpty, !b.isEmpty, a == b { return true }
-        if let a = session.ttyPath as String?,
-           let b = ev["_tty"] as? String,
-           !a.isEmpty, !b.isEmpty, a == b { return true }
-        if let a = session.tmuxPane as String?,
-           let b = ev["_tmux_pane"] as? String,
-           !a.isEmpty, !b.isEmpty, a == b { return true }
-        if let a = session.cmuxSurfaceId as String?,
-           let b = ev["_cmux_surface_id"] as? String,
-           !a.isEmpty, !b.isEmpty, a == b { return true }
+    /// Compare terminal identifiers between two sessions. Match if ANY of the
+    /// identifiers match — different terminals expose different env vars and
+    /// we don't require all of them.
+    private static func sessionTerminalIdsMatch(
+        session a: SessionSnapshot,
+        parent b: SessionSnapshot
+    ) -> Bool {
+        if let av = a.termBundleId, let bv = b.termBundleId,
+           !av.isEmpty, !bv.isEmpty, av == bv { return true }
+        if let av = a.itermSessionId, let bv = b.itermSessionId,
+           !av.isEmpty, !bv.isEmpty, av == bv { return true }
+        if let av = a.ttyPath, let bv = b.ttyPath,
+           !av.isEmpty, !bv.isEmpty, av == bv { return true }
+        if let av = a.tmuxPane, let bv = b.tmuxPane,
+           !av.isEmpty, !bv.isEmpty, av == bv { return true }
+        if let av = a.cmuxSurfaceId, let bv = b.cmuxSurfaceId,
+           !av.isEmpty, !bv.isEmpty, av == bv { return true }
         return false
     }
 
@@ -2922,6 +2944,11 @@ final class AppState {
             didMutate = true
         }
         if applyCodexSubsessionModeToKnownSessions() {
+            didMutate = true
+        }
+        // Post-hoc subagent merge for Cursor/Trae/CodeBuddy families.
+        // Same pattern as the Codex merge above.
+        if applyCursorSubagentMerge() {
             didMutate = true
         }
         if didMutate && activeSessionId == nil {
