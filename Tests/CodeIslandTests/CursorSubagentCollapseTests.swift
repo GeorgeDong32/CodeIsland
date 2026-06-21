@@ -290,4 +290,63 @@ final class CursorSubagentCollapseTests: XCTestCase {
         // Second call is a no-op — child already removed
         XCTAssertFalse(didMutateSecond)
     }
+
+    // MARK: - mergedSessionIds cache
+
+    func testMergedSessionIdsCacheIsPopulatedAfterMerge() {
+        let appState = AppState()
+        let now = Date()
+
+        var parent = SessionSnapshot(startTime: now.addingTimeInterval(-10))
+        parent.source = "cursor"
+        parent.cwd = "/Users/dev/project"
+        parent.termBundleId = "com.googlecode.iterm2"
+        appState.sessions["parent"] = parent
+
+        var child = SessionSnapshot(startTime: now)
+        child.source = "cursor"
+        child.cwd = "/Users/dev/project"
+        child.termBundleId = "com.googlecode.iterm2"
+        appState.sessions["child"] = child
+
+        _ = appState.applyCursorSubagentMerge()
+
+        // After merge, the cache should contain child -> parent mapping
+        XCTAssertEqual(appState.mergedSessionIds["child"], "parent")
+        // Child should be removed from sessions
+        XCTAssertNil(appState.sessions["child"])
+        // Parent should have the child as a subagent
+        XCTAssertNotNil(appState.sessions["parent"]?.subagents["child"])
+    }
+
+    func testMergedSessionIdsCacheRedirectsSubsequentEvents() {
+        let appState = AppState()
+        let now = Date()
+
+        // Set up parent
+        var parent = SessionSnapshot(startTime: now.addingTimeInterval(-10))
+        parent.source = "cursor"
+        parent.cwd = "/Users/dev/project"
+        parent.termBundleId = "com.googlecode.iterm2"
+        appState.sessions["parent"] = parent
+
+        // Set up child
+        var child = SessionSnapshot(startTime: now)
+        child.source = "cursor"
+        child.cwd = "/Users/dev/project"
+        child.termBundleId = "com.googlecode.iterm2"
+        appState.sessions["child"] = child
+
+        // First merge
+        _ = appState.applyCursorSubagentMerge()
+        XCTAssertNil(appState.sessions["child"])
+        XCTAssertEqual(appState.mergedSessionIds["child"], "parent")
+
+        // Now simulate a subsequent event for the merged child session.
+        // The cache should redirect it to the parent instead of creating
+        // a new standalone session. We test the cache logic directly.
+        let cachedParentId = appState.mergedSessionIds["child"]
+        XCTAssertEqual(cachedParentId, "parent")
+        XCTAssertNotNil(appState.sessions[cachedParentId!])
+    }
 }

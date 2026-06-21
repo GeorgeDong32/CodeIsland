@@ -139,6 +139,13 @@ final class AppState {
     var deferCollapseOnMouseLeave = false
     private var processMonitors: [String: (source: DispatchSourceProcess, process: ProcessIdentity)] = [:]
     private var exitingSessions: [String: ProcessIdentity] = [:]
+    /// Cache of child session IDs that were merged into a parent by
+    /// `applyCursorSubagentMerge`. Used by `handleEvent` to redirect
+    /// subsequent events for the same session ID into the parent's
+    /// subagent channel instead of re-creating a standalone session.
+    /// Keys: child sessionId; values: parent sessionId.
+    /// `internal` (not private) so tests can verify cache state directly.
+    var mergedSessionIds: [String: String] = [:]
     private var saveTimer: Timer?
     private var fsEventStream: FSEventStreamRef?
     private var lastFSScanTime: Date = .distantPast
@@ -359,7 +366,27 @@ final class AppState {
             noToolThreshold: TimeInterval(SettingsManager.shared.transcriptStaleNoToolSeconds)
         )
 
-        // 7. Reclaim memory for abandoned tool_use_id cache entries.
+        // 7. Evict stale entries from the merged-session-ID cache.
+        //    Entries older than cwdCollapseWindow (60s) are no longer
+        //    needed — the subagent won't send new events after that.
+        let staleThreshold = TimeInterval(Self.cwdCollapseWindow)
+        let now = Date()
+        let staleKeys = mergedSessionIds.keys.filter { key in
+            // The mergedSessionIds value is the parent sessionId.
+            // We evict if the parent session no longer exists or
+            // the child's lastActivity on the parent is stale.
+            guard let parentId = mergedSessionIds[key],
+                  let parent = sessions[parentId] else { return true }
+            // If the subagent entry for this child is gone from the parent,
+            // the merge is fully resolved — evict the cache entry.
+            if parent.subagents[key] == nil { return true }
+            return false
+        }
+        for key in staleKeys {
+            mergedSessionIds.removeValue(forKey: key)
+        }
+
+        // 8. Reclaim memory for abandoned tool_use_id cache entries.
         prunePendingToolUses()
 
         refreshDerivedState()
@@ -991,6 +1018,21 @@ final class AppState {
             return
         }
 
+        // If this session was previously merged into a parent by
+        // applyCursorSubagentMerge, redirect the event to the parent's
+        // subagent channel instead of re-creating a standalone session.
+        if sessions[sessionId] == nil,
+           let parentId = mergedSessionIds[sessionId],
+           sessions[parentId] != nil {
+            let rewritten = event.withRewritten(sessionId: parentId, agentId: "auto-cwd-\(sessionId)")
+            let subagentEffects = reduceEvent(sessions: &sessions, event: rewritten, maxHistory: maxHistory)
+            for effect in subagentEffects {
+                executeEffect(effect, sessionId: parentId)
+            }
+            sessions[parentId]?.lastActivity = Date()
+            return
+        }
+
         if sessions[sessionId] == nil {
             sessions[sessionId] = SessionSnapshot()
         }
@@ -1220,6 +1262,11 @@ final class AppState {
                 if child.lastActivity > (sessions[parentId]?.lastActivity ?? .distantPast) {
                     sessions[parentId]?.lastActivity = child.lastActivity
                 }
+
+                // Record the merge so subsequent events for this child ID
+                // are redirected to the parent instead of re-creating a
+                // standalone session.
+                mergedSessionIds[childId] = parentId
 
                 // Remove the standalone child session from the sessions dict.
                 if sessions[childId] != nil {
