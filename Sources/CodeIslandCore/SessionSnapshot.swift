@@ -676,9 +676,18 @@ public func reduceEvent(
         }
         effects.append(.enqueueCompletion(sessionId: sessionId))
     case "Stop":
-        // Detect ESC/Ctrl+C interruption
+        // Detect ESC/Ctrl+C interruption. Cursor's hook payload includes a
+        // `stop_reason` field that distinguishes interrupt ("user"/"interrupted")
+        // from natural completion ("end_turn"). For Cursor-family sessions, an
+        // interrupt immediately removes the session instead of lingering up to
+        // `sessionTimeout` minutes (default 30). Other CLIs (Claude Code, Codex,
+        // Gemini, etc.) keep the existing completion-card flow — Claude Code's
+        // Stop payload has no `stop_reason` field at all per its hooks docs.
         let stopReason = event.rawJSON["stop_reason"] as? String ?? ""
-        sessions[sessionId]?.interrupted = (stopReason == "user" || stopReason == "interrupted")
+        let source = sessions[sessionId]?.source ?? ""
+        let isCursorInterrupt = (source == "cursor" || source == "cursor-cli")
+            && (stopReason == "user" || stopReason == "interrupted")
+        sessions[sessionId]?.interrupted = isCursorInterrupt
         sessions[sessionId]?.status = .idle
         sessions[sessionId]?.currentTool = nil
         sessions[sessionId]?.toolDescription = nil
@@ -703,7 +712,16 @@ public func reduceEvent(
                 sessions[sessionId]?.insertRecentMessage(ChatMessage(isUser: true, text: prompt), at: insertAt)
             }
         }
-        effects.append(.enqueueCompletion(sessionId: sessionId))
+        if isCursorInterrupt {
+            // Cursor ESC/Ctrl+C: drop the session right away instead of leaving
+            // an idle card visible for up to `sessionTimeout` minutes. The
+            // captured `lastAssistantMessage` above is discarded with the
+            // session — by design, partial replies on interrupt aren't useful
+            // to surface in the completion card.
+            effects.append(.removeSession(sessionId: sessionId))
+        } else {
+            effects.append(.enqueueCompletion(sessionId: sessionId))
+        }
     case "SessionStart":
         effects.append(.stopMonitor(sessionId: sessionId))
         sessions[sessionId] = SessionSnapshot(startTime: Date())

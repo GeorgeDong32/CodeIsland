@@ -336,7 +336,30 @@ final class AppState {
             }
         }
 
-        // 5. Reclaim memory for abandoned tool_use_id cache entries.
+        // 5. Subagent fast cleanup (configurable).
+        //    Removes `.idle` subagent entries from `SessionSnapshot.subagents` after
+        //    `SettingsManager.subagentCleanupSeconds` (default 30s). Keeps the
+        //    `+N Sub` badge accurate without waiting for the long global session
+        //    timeout. Skipped entirely when the threshold is 0.
+        SessionCleanup.performSubagentFastCleanup(
+            sessions: &sessions,
+            threshold: TimeInterval(SettingsManager.shared.subagentCleanupSeconds)
+        )
+
+        // 6. Transcript-staleness interrupt detection (configurable).
+        //    For sessions whose transcript JSONL has not been written to in N
+        //    seconds AND whose lastActivity is also stale, flip status to .idle
+        //    and mark interrupted = true. This is the Claude Code double-ESC /
+        //    single-ESC fallback (Claude Code does not fire Stop on user
+        //    interrupt; only the transcript mtime tells us the turn ended).
+        //    Skipped entirely when both thresholds are 0.
+        SessionCleanup.performTranscriptStalenessDetection(
+            sessions: &sessions,
+            withToolThreshold: TimeInterval(SettingsManager.shared.transcriptStaleWithToolSeconds),
+            noToolThreshold: TimeInterval(SettingsManager.shared.transcriptStaleNoToolSeconds)
+        )
+
+        // 7. Reclaim memory for abandoned tool_use_id cache entries.
         prunePendingToolUses()
 
         refreshDerivedState()
@@ -959,6 +982,18 @@ final class AppState {
             return
         }
 
+        // CWD-based subagent merge: IDE-family CLIs (Cursor, Trae, CodeBuddy) spawn
+        // parallel agent subprocesses that each get their own `session_id` from the
+        // CLI's API. Their hook payloads don't carry an `agent_id`, so the existing
+        // subagent routing in the reducer never sees them — every parallel agent
+        // ends up as its own notch card. Detect this case and rewrite the event
+        // so it routes into the parent session's `subagents` map instead.
+        //
+        // Heuristic: same source + same cwd + at least one matching terminal id,
+        // AND the parent session was active in the last 60 seconds.
+        let mergedEvent = mergeIntoParentSessionIfMatches(event: event)
+        let event = mergedEvent ?? event
+
         let sessionId = event.sessionId ?? "default"
 
         // Skip Codex APP internal sessions (title generation, etc.) — they have no transcript
@@ -1113,6 +1148,85 @@ final class AppState {
         } else {
             modelReadRetryAt[sessionId] = now.addingTimeInterval(5)
         }
+    }
+
+    // MARK: - CWD-based subagent merge
+
+    /// IDE-family CLIs whose hook payloads do not carry an `agent_id`. Used by
+    /// `mergeIntoParentSessionIfMatches` to gate the merge preprocessor.
+    /// Claude Code's own `agent_id`-based subagent routing is intentionally NOT
+    /// affected by this set — Claude Code uses `agent_id` payloads directly.
+    private static let cwdCollapseSources: Set<String> = [
+        "cursor",
+        "cursor-cli",
+        "trae",
+        "traecn",
+        "codebuddy",
+        "codybuddycn",
+    ]
+
+    /// Maximum elapsed time since the candidate parent's `lastActivity` for it
+    /// to be considered the "current" parent of a new event. 60 seconds is
+    /// short enough to avoid merging genuinely independent sessions opened in
+    /// the same workspace minutes apart, but long enough to absorb parallel
+    /// `cursor-agent` subprocesses spawned by the same user action.
+    private static let cwdCollapseWindow: TimeInterval = 60
+
+    /// If the incoming event looks like a parallel-subagent hook from an
+    /// IDE-family CLI (no `agentId`, same source/cwd/terminal as an existing
+    /// active session), rewrite it so the reducer routes the event into the
+    /// parent's `subagents` map. Returns `nil` when no rewrite is needed.
+    private func mergeIntoParentSessionIfMatches(event: HookEvent) -> HookEvent? {
+        guard event.agentId == nil,
+              let explicitId = event.sessionId, !explicitId.isEmpty,
+              let rawSource = event.rawJSON["_source"] as? String,
+              let normalizedSource = SessionSnapshot.normalizedSupportedSource(rawSource),
+              Self.cwdCollapseSources.contains(normalizedSource) else {
+            return nil
+        }
+
+        let eventCwd = (event.rawJSON["cwd"] as? String) ?? ""
+        let now = Date()
+        var bestParentId: String?
+
+        for (parentId, parent) in sessions {
+            guard parent.source == normalizedSource else { continue }
+            guard !eventCwd.isEmpty, parent.cwd == eventCwd else { continue }
+            guard now.timeIntervalSince(parent.lastActivity) <= Self.cwdCollapseWindow else { continue }
+            // Skip the event's own session id (same event re-emitted)
+            if parentId == explicitId { continue }
+
+            if Self.terminalIdsMatch(event: event, session: parent) {
+                bestParentId = parentId
+                break  // earliest match wins; sessions dict order is undefined
+            }
+        }
+
+        guard let parentId = bestParentId else { return nil }
+        return event.withRewritten(sessionId: parentId, agentId: "auto-cwd-\(explicitId)")
+    }
+
+    /// Compare terminal identifiers between an incoming event and a candidate
+    /// parent session. Match if ANY of the identifiers match — different
+    /// terminals expose different env vars and we don't require all of them.
+    private static func terminalIdsMatch(event: HookEvent, session: SessionSnapshot) -> Bool {
+        let ev = event.rawJSON
+        if let a = session.termBundleId as String?,
+           let b = ev["_term_bundle"] as? String,
+           !a.isEmpty, !b.isEmpty, a == b { return true }
+        if let a = session.itermSessionId as String?,
+           let b = ev["_iterm_session"] as? String,
+           !a.isEmpty, !b.isEmpty, a == b { return true }
+        if let a = session.ttyPath as String?,
+           let b = ev["_tty"] as? String,
+           !a.isEmpty, !b.isEmpty, a == b { return true }
+        if let a = session.tmuxPane as String?,
+           let b = ev["_tmux_pane"] as? String,
+           !a.isEmpty, !b.isEmpty, a == b { return true }
+        if let a = session.cmuxSurfaceId as String?,
+           let b = ev["_cmux_surface_id"] as? String,
+           !a.isEmpty, !b.isEmpty, a == b { return true }
+        return false
     }
 
     func handlePermissionRequest(_ event: HookEvent, continuation: CheckedContinuation<Data, Never>) {

@@ -348,6 +348,9 @@ private struct BehaviorPage: View {
     @AppStorage(SettingsKey.hapticOnHover) private var hapticOnHover = SettingsDefaults.hapticOnHover
     @AppStorage(SettingsKey.hapticIntensity) private var hapticIntensity = SettingsDefaults.hapticIntensity
     @AppStorage(SettingsKey.sessionTimeout) private var sessionTimeout = SettingsDefaults.sessionTimeout
+    @AppStorage(SettingsKey.subagentCleanupSeconds) private var subagentCleanupSeconds = SettingsDefaults.subagentCleanupSeconds
+    @AppStorage(SettingsKey.transcriptStaleNoToolSeconds) private var transcriptStaleNoToolSeconds = SettingsDefaults.transcriptStaleNoToolSeconds
+    @AppStorage(SettingsKey.transcriptStaleWithToolSeconds) private var transcriptStaleWithToolSeconds = SettingsDefaults.transcriptStaleWithToolSeconds
     @AppStorage(SettingsKey.rotationInterval) private var rotationInterval = SettingsDefaults.rotationInterval
     @AppStorage(SettingsKey.maxToolHistory) private var maxToolHistory = SettingsDefaults.maxToolHistory
     @AppStorage(SettingsKey.autoApproveTools) private var autoApproveSet: Set<String> = .init(rawValue: SettingsDefaults.autoApproveTools) ?? []
@@ -499,6 +502,36 @@ private struct BehaviorPage: View {
                 } label: {
                     Text(l10n["session_cleanup"])
                     Text(l10n["session_cleanup_desc"])
+                }
+                Picker(selection: $subagentCleanupSeconds) {
+                    Text(l10n["no_cleanup"]).tag(0)
+                    Text("15 \(l10n["seconds"])").tag(15)
+                    Text("30 \(l10n["seconds"])").tag(30)
+                    Text("60 \(l10n["seconds"])").tag(60)
+                    Text("120 \(l10n["seconds"])").tag(120)
+                } label: {
+                    Text(l10n["subagent_cleanup"])
+                    Text(l10n["subagent_cleanup_desc"])
+                }
+                Picker(selection: $transcriptStaleNoToolSeconds) {
+                    Text(l10n["no_cleanup"]).tag(0)
+                    Text("30 \(l10n["seconds"])").tag(30)
+                    Text("60 \(l10n["seconds"])").tag(60)
+                    Text("120 \(l10n["seconds"])").tag(120)
+                    Text("300 \(l10n["seconds"])").tag(300)
+                } label: {
+                    Text(l10n["transcript_stale_no_tool"])
+                    Text(l10n["transcript_stale_no_tool_desc"])
+                }
+                Picker(selection: $transcriptStaleWithToolSeconds) {
+                    Text(l10n["no_cleanup"]).tag(0)
+                    Text("60 \(l10n["seconds"])").tag(60)
+                    Text("90 \(l10n["seconds"])").tag(90)
+                    Text("120 \(l10n["seconds"])").tag(120)
+                    Text("300 \(l10n["seconds"])").tag(300)
+                } label: {
+                    Text(l10n["transcript_stale_with_tool"])
+                    Text(l10n["transcript_stale_with_tool_desc"])
                 }
                 Picker(selection: $rotationInterval) {
                     Text(l10n["3_seconds"]).tag(3)
