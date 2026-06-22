@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+### English
+- Cursor ESC / Ctrl+C interrupt now removes the session immediately from the notch panel (was: linger up to 30 minutes until `sessionTimeout`). Only affects `cursor` and `cursor-cli` sources; Claude Code / Codex / Gemini / other CLIs are unaffected.
+- Claude Code double-ESC / single-ESC interrupt fallback: when the transcript JSONL file hasn't been written to for a configurable threshold (default 60s without tool / 90s with tool), the session is flipped to `interrupted` state. This catches the case where Claude Code doesn't fire a `Stop` hook on user interrupt.
+- Subagent merge by working directory for Cursor / Trae / CodeBuddy: parallel agent subprocesses with the same `cwd` and terminal context are merged into a single parent session card with a `+N Sub` badge. Previously each subprocess occupied its own notch slot.
+- Subagent fast cleanup: idle subagent entries are removed from the parent's subagents dictionary after a configurable threshold (default 30s), keeping the `+N Sub` badge accurate.
+- Three new Settings entries in the "Sessions" section: "Subagent Cleanup" (0/15/30/60/120s), "Transcript Stale (no tool)" (0/30/60/120/300s), "Transcript Stale (with tool)" (0/60/90/120/300s). All default to 0=Never, following the existing `sessionTimeout` pattern.
+
+### 中文
+- Cursor ESC / Ctrl+C 打断会话现在立即从灵动岛面板移除（之前要等 `sessionTimeout` 默认 30 分钟）。仅影响 `cursor` 和 `cursor-cli` 源；Claude Code / Codex / Gemini / 其他 CLI 不受影响。
+- Claude Code 双击 ESC / 单击 ESC 打断兜底：当 transcript JSONL 文件在可配置阈值（默认无工具 60 秒 / 有工具 90 秒）内未被写入时，会话翻为 `interrupted` 状态。覆盖 Claude Code 打断时不触发 `Stop` hook 的场景。
+- Cursor / Trae / CodeBuddy 按工作目录合并 subagent：相同 `cwd` 和终端上下文的并行 agent 子进程合并到一个父会话卡片，显示 `+N Sub` 标签。之前每个子进程各占一个灵动岛卡位。
+- Subagent 快速清理：闲置的 subagent 条目在可配置阈值（默认 30 秒）后从父会话的 subagents 字典移除，保持 `+N Sub` 标签准确。
+- 设置面板"会话"区新增 3 个选项："Subagent 清理"（0/15/30/60/120 秒）、"Transcript 静默超时（无工具）"（0/30/60/120/300 秒）、"Transcript 静默超时（有工具）"（0/60/90/120/300 秒）。默认均为 0=不清理，沿用现有 `sessionTimeout` 模式。
+
 ## [v1.2.7] - 2026-06-21
 
 ### English

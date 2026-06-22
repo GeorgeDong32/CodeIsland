@@ -119,6 +119,15 @@ final class L10n: ObservableObject {
         "plugin_session_mode_merge": "Merge into main",
         "plugin_session_mode_hide": "Hide",
 
+        // Sub-second idle thresholds (cleanup phases 6/7)
+        "subagent_cleanup": "Subagent Cleanup",
+        "subagent_cleanup_desc": "Remove idle subagent entries from the parent's card after this many seconds (0 = Never). Lower values keep the +N Sub badge accurate faster.",
+        "transcript_stale_no_tool": "Transcript Stale (no tool)",
+        "transcript_stale_no_tool_desc": "While thinking (no tool running), flip the session to interrupted after the transcript file hasn't been written to for this long (0 = Never). Catches Claude Code ESC / Ctrl+C where the Stop hook does not fire.",
+        "transcript_stale_with_tool": "Transcript Stale (with tool)",
+        "transcript_stale_with_tool_desc": "While a tool is running, flip the session to interrupted after the transcript file hasn't been written to for this long (0 = Never). Higher than the no-tool threshold to avoid false positives during slow tool calls.",
+        "seconds": "Seconds",
+
         // Auto-approve mode
         "auto_approve_mode": "AUTO Button Mode",
         "auto_approve_mode_desc": "Choose how the AUTO button approves permissions. Auto uses Claude's classifier to judge safety. Bypass* only works in sessions launched with --dangerously-skip-permissions.",
@@ -402,6 +411,15 @@ final class L10n: ObservableObject {
         "plugin_session_mode_separate": "独立显示",
         "plugin_session_mode_merge": "合并到主会话",
         "plugin_session_mode_hide": "隐藏",
+
+        // Sub-second idle thresholds (cleanup phases 6/7)
+        "subagent_cleanup": "Subagent 清理",
+        "subagent_cleanup_desc": "子 agent 闲置这么久后从父 session 的卡片里移除（0 = 不清理）。数值越小，+N Sub 标签更新越快。",
+        "transcript_stale_no_tool": "思考中 transcript 静默超时",
+        "transcript_stale_no_tool_desc": "无工具运行时，transcript 文件这么久没写入就翻成中断（0 = 不清理）。主要用于 Claude Code 双击 ESC / Ctrl+C 停止但 Stop hook 没触发的场景。",
+        "transcript_stale_with_tool": "执行工具中 transcript 静默超时",
+        "transcript_stale_with_tool_desc": "工具运行中，transcript 文件这么久没写入就翻成中断（0 = 不清理）。比无工具阈值大，避免误判慢工具。",
+        "seconds": "秒",
 
         // Auto-approve mode
         "auto_approve_mode": "AUTO 按钮模式",
@@ -687,6 +705,15 @@ final class L10n: ObservableObject {
         "plugin_session_mode_merge": "メインセッションに統合",
         "plugin_session_mode_hide": "非表示",
 
+        // Sub-second idle thresholds (cleanup phases 6/7) — English fallback acceptable
+        "subagent_cleanup": "Subagent Cleanup",
+        "subagent_cleanup_desc": "Remove idle subagent entries from the parent's card after this many seconds (0 = Never). Lower values keep the +N Sub badge accurate faster.",
+        "transcript_stale_no_tool": "Transcript Stale (no tool)",
+        "transcript_stale_no_tool_desc": "While thinking (no tool running), flip the session to interrupted after the transcript file hasn't been written to for this long (0 = Never). Catches Claude Code ESC / Ctrl+C where the Stop hook does not fire.",
+        "transcript_stale_with_tool": "Transcript Stale (with tool)",
+        "transcript_stale_with_tool_desc": "While a tool is running, flip the session to interrupted after the transcript file hasn't been written to for this long (0 = Never). Higher than the no-tool threshold to avoid false positives during slow tool calls.",
+        "seconds": "秒",
+
         // Auto-approve mode
         "auto_approve_mode": "AUTOボタンモード",
         "auto_approve_mode_desc": "AUTOボタンで権限を承認する際の動作を選択します。オートは Claude の分類器で安全性を判断します。バイパス*は --dangerously-skip-permissions で起動したセッションのみ有効です。",
@@ -971,6 +998,15 @@ final class L10n: ObservableObject {
         "plugin_session_mode_merge": "메인 세션으로 병합",
         "plugin_session_mode_hide": "숨김",
 
+        // Sub-second idle thresholds (cleanup phases 6/7) — English fallback acceptable
+        "subagent_cleanup": "Subagent Cleanup",
+        "subagent_cleanup_desc": "Remove idle subagent entries from the parent's card after this many seconds (0 = Never). Lower values keep the +N Sub badge accurate faster.",
+        "transcript_stale_no_tool": "Transcript Stale (no tool)",
+        "transcript_stale_no_tool_desc": "While thinking (no tool running), flip the session to interrupted after the transcript file hasn't been written to for this long (0 = Never). Catches Claude Code ESC / Ctrl+C where the Stop hook does not fire.",
+        "transcript_stale_with_tool": "Transcript Stale (with tool)",
+        "transcript_stale_with_tool_desc": "While a tool is running, flip the session to interrupted after the transcript file hasn't been written to for this long (0 = Never). Higher than the no-tool threshold to avoid false positives during slow tool calls.",
+        "seconds": "초",
+
         // Auto-approve mode
         "auto_approve_mode": "AUTO 버튼 모드",
         "auto_approve_mode_desc": "AUTO 버튼으로 권한을 승인하는 방식을 선택합니다. 자동은 Claude 분류기로 안전성을 판단합니다. 바이패스*는 --dangerously-skip-permissions로 시작한 세션에서만 유효합니다.",
@@ -1254,6 +1290,15 @@ final class L10n: ObservableObject {
         "plugin_session_mode_separate": "Ayrı göster",
         "plugin_session_mode_merge": "Ana oturuma birleştir",
         "plugin_session_mode_hide": "Gizle",
+
+        // Sub-second idle thresholds (cleanup phases 6/7) — English fallback acceptable
+        "subagent_cleanup": "Subagent Cleanup",
+        "subagent_cleanup_desc": "Remove idle subagent entries from the parent's card after this many seconds (0 = Never). Lower values keep the +N Sub badge accurate faster.",
+        "transcript_stale_no_tool": "Transcript Stale (no tool)",
+        "transcript_stale_no_tool_desc": "While thinking (no tool running), flip the session to interrupted after the transcript file hasn't been written to for this long (0 = Never). Catches Claude Code ESC / Ctrl+C where the Stop hook does not fire.",
+        "transcript_stale_with_tool": "Transcript Stale (with tool)",
+        "transcript_stale_with_tool_desc": "While a tool is running, flip the session to interrupted after the transcript file hasn't been written to for this long (0 = Never). Higher than the no-tool threshold to avoid false positives during slow tool calls.",
+        "seconds": "Saniye",
 
         // Auto-approve mode
         "auto_approve_mode": "AUTO Düğme Modu",

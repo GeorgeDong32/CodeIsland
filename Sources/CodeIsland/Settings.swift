@@ -78,6 +78,19 @@ enum SettingsKey {
     static let hapticIntensity = "hapticIntensity"      // 1=light, 2=medium, 3=strong
     static let sessionTimeout = "sessionTimeout"
 
+    // Sub-second cleanup thresholds (in seconds). 0 = disabled.
+    // transcriptStaleNoToolSeconds: max transcript mtime silence for a session
+    //   in `.processing` state before it's flipped to `.idle` + `interrupted`
+    //   (Claude Code double-ESC / single-ESC fallback — Stop hook does not fire
+    //   on user interrupt).
+    static let transcriptStaleNoToolSeconds = "transcriptStaleNoToolSeconds"
+    // transcriptStaleWithToolSeconds: same threshold for sessions in `.running`
+    //   state (a tool call is in progress).
+    static let transcriptStaleWithToolSeconds = "transcriptStaleWithToolSeconds"
+    // subagentCleanupSeconds: max idle time for a SubagentState entry before
+    //   it's removed from its parent's `subagents` map.
+    static let subagentCleanupSeconds = "subagentCleanupSeconds"
+
     // Display
     static let maxPanelHeight = "maxPanelHeight"
     static let maxVisibleSessions = "maxVisibleSessions"
@@ -151,6 +164,12 @@ struct SettingsDefaults {
     static let hapticIntensity = 1          // 1=light
     static let sessionTimeout = 30
 
+    // Idle sub-agent cleanup (seconds). 0 = disabled.
+    static let subagentCleanupSeconds = 30
+    // Transcript staleness thresholds (seconds). 0 = disabled.
+    static let transcriptStaleNoToolSeconds = 60
+    static let transcriptStaleWithToolSeconds = 90
+
     static let maxPanelHeight = 560
     static let maxVisibleSessions = 5
     static let contentFontSize = 11
@@ -210,6 +229,9 @@ class SettingsManager {
             SettingsKey.hapticOnHover: SettingsDefaults.hapticOnHover,
             SettingsKey.hapticIntensity: SettingsDefaults.hapticIntensity,
             SettingsKey.sessionTimeout: SettingsDefaults.sessionTimeout,
+            SettingsKey.subagentCleanupSeconds: SettingsDefaults.subagentCleanupSeconds,
+            SettingsKey.transcriptStaleNoToolSeconds: SettingsDefaults.transcriptStaleNoToolSeconds,
+            SettingsKey.transcriptStaleWithToolSeconds: SettingsDefaults.transcriptStaleWithToolSeconds,
             SettingsKey.maxPanelHeight: SettingsDefaults.maxPanelHeight,
             SettingsKey.maxVisibleSessions: SettingsDefaults.maxVisibleSessions,
             SettingsKey.contentFontSize: SettingsDefaults.contentFontSize,
@@ -298,6 +320,21 @@ class SettingsManager {
     var sessionTimeout: Int {
         get { defaults.integer(forKey: SettingsKey.sessionTimeout) }
         set { defaults.set(newValue, forKey: SettingsKey.sessionTimeout) }
+    }
+
+    var subagentCleanupSeconds: Int {
+        get { defaults.integer(forKey: SettingsKey.subagentCleanupSeconds) }
+        set { defaults.set(newValue, forKey: SettingsKey.subagentCleanupSeconds) }
+    }
+
+    var transcriptStaleNoToolSeconds: Int {
+        get { defaults.integer(forKey: SettingsKey.transcriptStaleNoToolSeconds) }
+        set { defaults.set(newValue, forKey: SettingsKey.transcriptStaleNoToolSeconds) }
+    }
+
+    var transcriptStaleWithToolSeconds: Int {
+        get { defaults.integer(forKey: SettingsKey.transcriptStaleWithToolSeconds) }
+        set { defaults.set(newValue, forKey: SettingsKey.transcriptStaleWithToolSeconds) }
     }
 
     var maxPanelHeight: Int {

@@ -194,6 +194,53 @@ public struct HookEvent {
         self.rawJSON = json
     }
 
+    /// Public non-failable initializer for constructing sibling events.
+    /// Used by `withRewritten(sessionId:agentId:)` to build a copy of an
+    /// existing event with rewritten session/agent identifiers while
+    /// preserving every other field. The failable `init?(from:)` is kept
+    /// for JSON-decoded events (where `eventName` may be absent).
+    public init(
+        eventName: String,
+        sessionId: String?,
+        toolName: String?,
+        toolUseId: String?,
+        agentId: String?,
+        toolInput: [String: Any]?,
+        rawJSON: [String: Any]
+    ) {
+        self.eventName = eventName
+        self.sessionId = sessionId
+        self.toolName = toolName
+        self.toolUseId = toolUseId
+        self.agentId = agentId
+        self.toolInput = toolInput
+        self.rawJSON = rawJSON
+    }
+
+    /// Construct a sibling event with `sessionId` and `agentId` rewritten
+    /// while keeping every other field intact. Used by the cwd-based subagent
+    /// merge in `AppState.mergeIntoParentSessionIfMatches` to route a parallel
+    /// subagent's hook events into an existing parent session.
+    public func withRewritten(sessionId newSessionId: String, agentId newAgentId: String?) -> HookEvent {
+        var newJSON = self.rawJSON
+        newJSON["session_id"] = newSessionId
+        newJSON["sessionId"] = newSessionId
+        if let newAgentId {
+            newJSON["agent_id"] = newAgentId
+        } else {
+            newJSON.removeValue(forKey: "agent_id")
+        }
+        return HookEvent(
+            eventName: self.eventName,
+            sessionId: newSessionId,
+            toolName: self.toolName,
+            toolUseId: self.toolUseId,
+            agentId: newAgentId,
+            toolInput: self.toolInput,
+            rawJSON: newJSON
+        )
+    }
+
     public var toolDescription: String? {
         if let input = toolInput {
             switch toolName {

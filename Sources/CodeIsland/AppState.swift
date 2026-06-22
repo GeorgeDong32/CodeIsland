@@ -139,6 +139,13 @@ final class AppState {
     var deferCollapseOnMouseLeave = false
     private var processMonitors: [String: (source: DispatchSourceProcess, process: ProcessIdentity)] = [:]
     private var exitingSessions: [String: ProcessIdentity] = [:]
+    /// Cache of child session IDs that were merged into a parent by
+    /// `applyCursorSubagentMerge`. Used by `handleEvent` to redirect
+    /// subsequent events for the same session ID into the parent's
+    /// subagent channel instead of re-creating a standalone session.
+    /// Keys: child sessionId; values: parent sessionId.
+    /// `internal` (not private) so tests can verify cache state directly.
+    var mergedSessionIds: [String: String] = [:]
     private var saveTimer: Timer?
     private var fsEventStream: FSEventStreamRef?
     private var lastFSScanTime: Date = .distantPast
@@ -336,7 +343,48 @@ final class AppState {
             }
         }
 
-        // 5. Reclaim memory for abandoned tool_use_id cache entries.
+        // 5. Subagent fast cleanup (configurable).
+        //    Removes `.idle` subagent entries from `SessionSnapshot.subagents` after
+        //    `SettingsManager.subagentCleanupSeconds` (default 30s). Keeps the
+        //    `+N Sub` badge accurate without waiting for the long global session
+        //    timeout. Skipped entirely when the threshold is 0.
+        SessionCleanup.performSubagentFastCleanup(
+            sessions: &sessions,
+            threshold: TimeInterval(SettingsManager.shared.subagentCleanupSeconds)
+        )
+
+        // 6. Transcript-staleness interrupt detection (configurable).
+        //    For sessions whose transcript JSONL has not been written to in N
+        //    seconds AND whose lastActivity is also stale, flip status to .idle
+        //    and mark interrupted = true. This is the Claude Code double-ESC /
+        //    single-ESC fallback (Claude Code does not fire Stop on user
+        //    interrupt; only the transcript mtime tells us the turn ended).
+        //    Skipped entirely when both thresholds are 0.
+        SessionCleanup.performTranscriptStalenessDetection(
+            sessions: &sessions,
+            withToolThreshold: TimeInterval(SettingsManager.shared.transcriptStaleWithToolSeconds),
+            noToolThreshold: TimeInterval(SettingsManager.shared.transcriptStaleNoToolSeconds)
+        )
+
+        // 7. Evict stale entries from the merged-session-ID cache.
+        //    We evict if the parent session no longer exists or
+        //    the subagent entry for this child is gone from the parent.
+        let staleKeys = mergedSessionIds.keys.filter { key in
+            // The mergedSessionIds value is the parent sessionId.
+            // We evict if the parent session no longer exists or
+            // the child's lastActivity on the parent is stale.
+            guard let parentId = mergedSessionIds[key],
+                  let parent = sessions[parentId] else { return true }
+            // If the subagent entry for this child is gone from the parent,
+            // the merge is fully resolved — evict the cache entry.
+            if parent.subagents[key] == nil { return true }
+            return false
+        }
+        for key in staleKeys {
+            mergedSessionIds.removeValue(forKey: key)
+        }
+
+        // 8. Reclaim memory for abandoned tool_use_id cache entries.
         prunePendingToolUses()
 
         refreshDerivedState()
@@ -968,6 +1016,21 @@ final class AppState {
             return
         }
 
+        // If this session was previously merged into a parent by
+        // applyCursorSubagentMerge, redirect the event to the parent's
+        // subagent channel instead of re-creating a standalone session.
+        if sessions[sessionId] == nil,
+           let parentId = mergedSessionIds[sessionId],
+           sessions[parentId] != nil {
+            let rewritten = event.withRewritten(sessionId: parentId, agentId: "auto-cwd-\(sessionId)")
+            let subagentEffects = reduceEvent(sessions: &sessions, event: rewritten, maxHistory: maxHistory)
+            for effect in subagentEffects {
+                executeEffect(effect, sessionId: parentId)
+            }
+            sessions[parentId]?.lastActivity = Date()
+            return
+        }
+
         if sessions[sessionId] == nil {
             sessions[sessionId] = SessionSnapshot()
         }
@@ -1070,6 +1133,13 @@ final class AppState {
 
         scheduleSave()
         startRotationIfNeeded()
+
+        // Post-hoc subagent merge for Cursor/Trae/CodeBuddy families.
+        // Runs after the event created/updated sessions, so both parent and
+        // child exist in the dict. Matches the Codex pattern in
+        // integrateDiscoveredSessions / applyCodexSubsessionModeToKnownSessions.
+        _ = applyCursorSubagentMerge()
+
         refreshDerivedState()
     }
 
@@ -1113,6 +1183,95 @@ final class AppState {
         } else {
             modelReadRetryAt[sessionId] = now.addingTimeInterval(5)
         }
+    }
+
+    // MARK: - CWD-based subagent merge (post-hoc reconciliation)
+
+    /// IDE-family CLIs whose hook payloads do not carry an `agent_id`. Used by
+    /// `applyCursorSubagentMerge` to gate the merge. Claude Code's own
+    /// `agent_id`-based subagent routing is intentionally NOT affected.
+    private static let cwdCollapseSources: Set<String> = [
+        "cursor",
+        "cursor-cli",
+        "trae",
+        "traecn",
+        "codebuddy",
+        "codybuddycn",
+    ]
+
+    /// Maximum gap between parent and child `startTime` for the post-hoc merge
+    /// to consider them part of the same logical session. 60 seconds is short
+    /// enough to avoid merging genuinely independent sessions opened in the
+    /// same workspace minutes apart.
+    private static let cwdCollapseWindow: TimeInterval = 60
+
+    /// Post-hoc reconciliation for IDE-family subagent merge.
+    /// Runs AFTER `reduceEvent` returns, same pattern as
+    /// `applyCodexSubsessionModeToKnownSessions` for Codex.
+    /// Groups existing sessions by (source, cwd), keeps the
+    /// oldest as parent, moves all others into `parent.subagents`, and
+    /// removes the child sessions.
+    func applyCursorSubagentMerge() -> Bool {
+        let candidates = sessions.map { (sessionId: $0.key, session: $0.value) }
+        var didMutate = false
+
+        // Group by (source, cwd) where source is in the whitelist and cwd is set.
+        var groups: [String: [(String, SessionSnapshot)]] = [:]
+        for candidate in candidates {
+            guard Self.cwdCollapseSources.contains(candidate.session.source),
+                  let cwd = candidate.session.cwd, !cwd.isEmpty else { continue }
+            let key = "\(candidate.session.source)|\(cwd)"
+            groups[key, default: []].append((candidate.sessionId, candidate.session))
+        }
+
+        for (_, members) in groups {
+            guard members.count >= 2 else { continue }
+            // Sort by startTime — the earliest becomes the parent.
+            let sorted = members.sorted { $0.1.startTime < $1.1.startTime }
+            let parentId = sorted[0].0
+            let parentStartTime = sorted[0].1.startTime
+
+            for i in 1..<sorted.count {
+                let (childId, child) = sorted[i]
+                // Only merge children created within the time window of the parent.
+                guard child.startTime.timeIntervalSince(parentStartTime) <= Self.cwdCollapseWindow else { continue }
+
+                // Build or update the subagent entry in the parent.
+                let agentType = child.currentTool ?? child.toolDescription ?? "Agent"
+                var subagent = sessions[parentId]?.subagents[childId]
+                    ?? SubagentState(agentId: childId, agentType: agentType)
+                subagent.status = child.status == .idle ? .running : child.status
+                subagent.currentTool = child.currentTool
+                subagent.toolDescription = child.toolDescription
+                if child.lastActivity > subagent.lastActivity {
+                    subagent.lastActivity = child.lastActivity
+                }
+                sessions[parentId]?.subagents[childId] = subagent
+
+                // Update parent status to reflect active subagent work.
+                if sessions[parentId]?.status != .waitingApproval,
+                   sessions[parentId]?.status != .waitingQuestion {
+                    sessions[parentId]?.status = .running
+                    sessions[parentId]?.currentTool = "Agent"
+                    sessions[parentId]?.toolDescription = agentType
+                }
+                if child.lastActivity > (sessions[parentId]?.lastActivity ?? .distantPast) {
+                    sessions[parentId]?.lastActivity = child.lastActivity
+                }
+
+                // Record the merge so subsequent events for this child ID
+                // are redirected to the parent instead of re-creating a
+                // standalone session.
+                mergedSessionIds[childId] = parentId
+
+                // Remove the standalone child session from the sessions dict.
+                if sessions[childId] != nil {
+                    removeSession(childId)
+                    didMutate = true
+                }
+            }
+        }
+        return didMutate
     }
 
     func handlePermissionRequest(_ event: HookEvent, continuation: CheckedContinuation<Data, Never>) {
@@ -2808,6 +2967,11 @@ final class AppState {
             didMutate = true
         }
         if applyCodexSubsessionModeToKnownSessions() {
+            didMutate = true
+        }
+        // Post-hoc subagent merge for Cursor/Trae/CodeBuddy families.
+        // Same pattern as the Codex merge above.
+        if applyCursorSubagentMerge() {
             didMutate = true
         }
         if didMutate && activeSessionId == nil {
