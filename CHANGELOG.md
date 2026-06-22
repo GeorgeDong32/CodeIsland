@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [v1.2.8] - 2026-06-22
 
 ### English
 - Cursor ESC / Ctrl+C interrupt now removes the session immediately from the notch panel (was: linger up to 30 minutes until `sessionTimeout`). Only affects `cursor` and `cursor-cli` sources; Claude Code / Codex / Gemini / other CLIs are unaffected.
