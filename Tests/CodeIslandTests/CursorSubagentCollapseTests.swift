@@ -3,7 +3,7 @@ import XCTest
 import CodeIslandCore
 
 /// Verifies `AppState.applyCursorSubagentMerge()` — the post-hoc reconciler
-/// that groups Cursor/Trae/CodeBuddy sessions by (source, cwd, terminal_id)
+/// that groups Cursor/Trae/CodeBuddy sessions by (source, cwd)
 /// and merges child sessions into the parent's `subagents` dictionary.
 @MainActor
 final class CursorSubagentCollapseTests: XCTestCase {
@@ -96,7 +96,7 @@ final class CursorSubagentCollapseTests: XCTestCase {
         XCTAssertNotNil(appState.sessions["child"])
     }
 
-    func testPostHocMergeRequiresTerminalIdMatch() {
+    func testPostHocMergeMergesEvenWithDifferentTerminalId() {
         let appState = AppState()
         let now = Date()
 
@@ -106,7 +106,7 @@ final class CursorSubagentCollapseTests: XCTestCase {
         parent.termBundleId = "com.googlecode.iterm2"
         appState.sessions["parent"] = parent
 
-        // Same cwd but different terminal — no match
+        // Different terminal — still merges (source+cwd is sufficient)
         var child = SessionSnapshot(startTime: now)
         child.source = "cursor"
         child.cwd = "/Users/dev/project"
@@ -115,9 +115,9 @@ final class CursorSubagentCollapseTests: XCTestCase {
 
         let didMutate = appState.applyCursorSubagentMerge()
 
-        XCTAssertFalse(didMutate)
-        XCTAssertNotNil(appState.sessions["parent"])
-        XCTAssertNotNil(appState.sessions["child"])
+        XCTAssertTrue(didMutate)
+        XCTAssertNil(appState.sessions["child"])
+        XCTAssertNotNil(appState.sessions["parent"]?.subagents["child"])
     }
 
     func testPostHocMergeKeepsChildStatusInSubagentState() {
@@ -348,5 +348,97 @@ final class CursorSubagentCollapseTests: XCTestCase {
         let cachedParentId = appState.mergedSessionIds["child"]
         XCTAssertEqual(cachedParentId, "parent")
         XCTAssertNotNil(appState.sessions[cachedParentId!])
+    }
+
+    // MARK: - Full handleEvent flow
+
+    func testHandleEventMergesThreeCursorSubagents() {
+        let appState = AppState()
+        let cwd = "/tmp/test-cursor-merge"
+
+        // Create parent session via SessionStart event
+        let parentStart = HookEvent(
+            eventName: "SessionStart",
+            sessionId: "main-1",
+            toolName: nil,
+            toolUseId: nil,
+            agentId: nil,
+            toolInput: nil,
+            rawJSON: [
+                "_source": "cursor",
+                "cwd": cwd,
+                "_term_bundle": "com.googlecode.iterm2",
+                "_tty": "/dev/ttys000",
+            ]
+        )
+        appState.handleEvent(parentStart)
+        XCTAssertNotNil(appState.sessions["main-1"])
+        XCTAssertEqual(appState.sessions["main-1"]?.source, "cursor")
+        XCTAssertEqual(appState.sessions["main-1"]?.cwd, cwd)
+
+        // Send 3 subagent SessionStart events
+        for i in 1...3 {
+            let subStart = HookEvent(
+                eventName: "SessionStart",
+                sessionId: "sub-\(i)",
+                toolName: nil,
+                toolUseId: nil,
+                agentId: nil,
+                toolInput: nil,
+                rawJSON: [
+                    "_source": "cursor",
+                    "cwd": cwd,
+                    "_term_bundle": "com.googlecode.iterm2",
+                    "_tty": "/dev/ttys000",
+                ]
+            )
+            appState.handleEvent(subStart)
+            // After each, child should be merged into parent
+            XCTAssertNil(appState.sessions["sub-\(i)"], "sub-\(i) should be removed after merge")
+            XCTAssertNotNil(appState.sessions["main-1"]?.subagents["sub-\(i)"], "sub-\(i) should be in parent's subagents")
+            XCTAssertEqual(appState.mergedSessionIds["sub-\(i)"], "main-1")
+        }
+
+        // Only parent remains
+        XCTAssertEqual(appState.sessions.count, 1)
+        XCTAssertEqual(appState.sessions["main-1"]?.subagents.count, 3)
+    }
+
+    func testHandleEventRedirectsSubsequentEventsForMergedChildren() {
+        let appState = AppState()
+        let cwd = "/tmp/test-cursor-merge"
+
+        // Create parent
+        let parentStart = HookEvent(
+            eventName: "SessionStart",
+            sessionId: "main-1",
+            toolName: nil, toolUseId: nil, agentId: nil, toolInput: nil,
+            rawJSON: ["_source": "cursor", "cwd": cwd, "_term_bundle": "com.googlecode.iterm2"]
+        )
+        appState.handleEvent(parentStart)
+
+        // Sub-1 SessionStart — merges into parent
+        let sub1Start = HookEvent(
+            eventName: "SessionStart",
+            sessionId: "sub-1",
+            toolName: nil, toolUseId: nil, agentId: nil, toolInput: nil,
+            rawJSON: ["_source": "cursor", "cwd": cwd, "_term_bundle": "com.googlecode.iterm2"]
+        )
+        appState.handleEvent(sub1Start)
+        XCTAssertNil(appState.sessions["sub-1"])
+        XCTAssertEqual(appState.mergedSessionIds["sub-1"], "main-1")
+
+        // Sub-1 UserPromptSubmit — should be redirected to parent via cache
+        let sub1Prompt = HookEvent(
+            eventName: "UserPromptSubmit",
+            sessionId: "sub-1",
+            toolName: nil, toolUseId: nil, agentId: nil, toolInput: nil,
+            rawJSON: ["_source": "cursor", "cwd": cwd, "prompt": "Hello"]
+        )
+        appState.handleEvent(sub1Prompt)
+        // Session should NOT be re-created
+        XCTAssertNil(appState.sessions["sub-1"], "sub-1 should NOT be re-created")
+        // Parent should have the prompt recorded
+        // (exact behavior depends on reduceEvent's UserPromptSubmit handler)
     }
 }

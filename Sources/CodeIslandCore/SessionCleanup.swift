@@ -5,8 +5,8 @@ import Foundation
 /// (which is `@MainActor` and `@Observable`).
 public enum SessionCleanup {
 
-    /// Cleanup phase 5: remove stale `.idle` subagent entries. `threshold == 0`
-    /// disables the phase entirely.
+    /// Cleanup phase 5: remove stale non-running subagent entries.
+    /// `threshold == 0` disables the phase entirely.
     public static func performSubagentFastCleanup(
         sessions: inout [String: SessionSnapshot],
         threshold: TimeInterval
@@ -15,7 +15,10 @@ public enum SessionCleanup {
         var subagentMutations: [(String, [String])] = []
         for (sessionId, session) in sessions {
             var staleAgentIds: [String] = []
-            for (agentId, sub) in session.subagents where sub.status == .idle {
+            for (agentId, sub) in session.subagents where sub.status != .running {
+                // Remove if lastActivity exceeds threshold, regardless of status.
+                // All subagent statuses (.processing, .idle, .waiting*) can
+                // be cleaned up after enough idle time.
                 if -sub.lastActivity.timeIntervalSinceNow > threshold {
                     staleAgentIds.append(agentId)
                 }

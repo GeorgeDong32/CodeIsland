@@ -2,7 +2,7 @@ import XCTest
 @testable import CodeIslandCore
 
 /// Verifies `AppState.performSubagentFastCleanup` — the pure helper extracted
-/// from `cleanupIdleSessions` for testability. Removes `.idle` subagent
+/// from `cleanupIdleSessions` for testability. Removes non-running subagent
 /// entries whose `lastActivity` is older than the threshold. `threshold == 0`
 /// disables the phase entirely.
 final class SubagentFastCleanupTests: XCTestCase {
@@ -51,7 +51,7 @@ final class SubagentFastCleanupTests: XCTestCase {
         XCTAssertNotNil(sessions["s1"]?.subagents["running"], "running subagent should not be removed")
     }
 
-    func testSubagentProcessingIsNotRemoved() {
+    func testSubagentProcessingIsRemovedWhenStale() {
         var session = SessionSnapshot()
         session.source = "cursor"
         var processingSub = SubagentState(agentId: "p", agentType: "default")
@@ -62,7 +62,7 @@ final class SubagentFastCleanupTests: XCTestCase {
 
         SessionCleanup.performSubagentFastCleanup(sessions: &sessions, threshold: 30)
 
-        XCTAssertNotNil(sessions["s1"]?.subagents["p"], "processing subagent should not be removed")
+        XCTAssertNil(sessions["s1"]?.subagents["p"], "stale processing subagent should be removed")
     }
 
     // MARK: - Disabled by threshold 0

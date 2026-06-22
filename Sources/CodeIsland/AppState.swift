@@ -367,10 +367,8 @@ final class AppState {
         )
 
         // 7. Evict stale entries from the merged-session-ID cache.
-        //    Entries older than cwdCollapseWindow (60s) are no longer
-        //    needed — the subagent won't send new events after that.
-        let staleThreshold = TimeInterval(Self.cwdCollapseWindow)
-        let now = Date()
+        //    We evict if the parent session no longer exists or
+        //    the subagent entry for this child is gone from the parent.
         let staleKeys = mergedSessionIds.keys.filter { key in
             // The mergedSessionIds value is the parent sessionId.
             // We evict if the parent session no longer exists or
@@ -1210,7 +1208,7 @@ final class AppState {
     /// Post-hoc reconciliation for IDE-family subagent merge.
     /// Runs AFTER `reduceEvent` returns, same pattern as
     /// `applyCodexSubsessionModeToKnownSessions` for Codex.
-    /// Groups existing sessions by (source, cwd, terminal_id), keeps the
+    /// Groups existing sessions by (source, cwd), keeps the
     /// oldest as parent, moves all others into `parent.subagents`, and
     /// removes the child sessions.
     func applyCursorSubagentMerge() -> Bool {
@@ -1237,8 +1235,6 @@ final class AppState {
                 let (childId, child) = sorted[i]
                 // Only merge children created within the time window of the parent.
                 guard child.startTime.timeIntervalSince(parentStartTime) <= Self.cwdCollapseWindow else { continue }
-                // Require at least one matching terminal identifier.
-                guard Self.sessionTerminalIdsMatch(session: child, parent: sorted[0].1) else { continue }
 
                 // Build or update the subagent entry in the parent.
                 let agentType = child.currentTool ?? child.toolDescription ?? "Agent"
@@ -1276,26 +1272,6 @@ final class AppState {
             }
         }
         return didMutate
-    }
-
-    /// Compare terminal identifiers between two sessions. Match if ANY of the
-    /// identifiers match — different terminals expose different env vars and
-    /// we don't require all of them.
-    private static func sessionTerminalIdsMatch(
-        session a: SessionSnapshot,
-        parent b: SessionSnapshot
-    ) -> Bool {
-        if let av = a.termBundleId, let bv = b.termBundleId,
-           !av.isEmpty, !bv.isEmpty, av == bv { return true }
-        if let av = a.itermSessionId, let bv = b.itermSessionId,
-           !av.isEmpty, !bv.isEmpty, av == bv { return true }
-        if let av = a.ttyPath, let bv = b.ttyPath,
-           !av.isEmpty, !bv.isEmpty, av == bv { return true }
-        if let av = a.tmuxPane, let bv = b.tmuxPane,
-           !av.isEmpty, !bv.isEmpty, av == bv { return true }
-        if let av = a.cmuxSurfaceId, let bv = b.cmuxSurfaceId,
-           !av.isEmpty, !bv.isEmpty, av == bv { return true }
-        return false
     }
 
     func handlePermissionRequest(_ event: HookEvent, continuation: CheckedContinuation<Data, Never>) {
