@@ -224,6 +224,17 @@ public final class JSONLTailer: @unchecked Sendable {
         // Trailing fragment must also stay under cap. If still too large after
         // scanning, discard the tail and rewind so we don't retain unbounded
         // bytes waiting for a newline that never arrives. See MEM-006.
+        //
+        // Note on reachable truncation paths: the prefix-overflow branch
+        // (above) trims `combined` to `maxPendingFragmentBytes` (M), so the
+        // trailing fragment after `scanLines` is bounded by M as well. The
+        // `trailing.count > M` branch is therefore only reachable in the
+        // no-prefix-overflow case (M < combined.count <= M+maxDeltaBytes).
+        // The offset accounting reflects both paths:
+        //   - line 229 advances offset for the discarded tail bytes
+        //   - line 239 below advances offset for the consumed complete lines
+        // Both must use the ORIGINAL `scan.trailingFragment.count` here so
+        // the discarded tail is counted exactly once.
         var trailing = scan.trailingFragment
         if trailing.count > maxPendingFragmentBytes {
             watch.offset += off_t(trailing.count - maxPendingFragmentBytes)
