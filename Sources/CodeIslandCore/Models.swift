@@ -219,8 +219,9 @@ public struct HookEvent {
 
     /// Construct a sibling event with `sessionId` and `agentId` rewritten
     /// while keeping every other field intact. Used by the cwd-based subagent
-    /// merge in `AppState.mergeIntoParentSessionIfMatches` to route a parallel
-    /// subagent's hook events into an existing parent session.
+    /// merge in `AppState.applyCursorSubagentMerge` (via the
+    /// `mergedSessionIds` redirect in `AppState.handleEvent`) to route a
+    /// parallel subagent's hook events into an existing parent session.
     public func withRewritten(sessionId newSessionId: String, agentId newAgentId: String?) -> HookEvent {
         var newJSON = self.rawJSON
         newJSON["session_id"] = newSessionId

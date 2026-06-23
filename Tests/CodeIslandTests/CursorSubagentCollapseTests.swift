@@ -441,4 +441,54 @@ final class CursorSubagentCollapseTests: XCTestCase {
         // Parent should have the prompt recorded
         // (exact behavior depends on reduceEvent's UserPromptSubmit handler)
     }
+
+    // MARK: - Channel key alignment (issue A)
+
+    /// Regression: the `mergedSessionIds` redirect path must use the raw child
+    /// sessionId as the rewritten `agentId` so the event lands on the same
+    /// `subagents[childId]` entry that `applyCursorSubagentMerge` populated.
+    /// Previously the redirect used `"auto-cwd-\(childId)"`, which created a
+    /// parallel `auto-cwd-<childId>` entry and let the cleanup eviction miss it.
+    func testHandleEventRedirectUpdatesExistingSubagentKey() {
+        let appState = AppState()
+        let cwd = "/tmp/test-cursor-merge-key"
+
+        // Parent
+        appState.handleEvent(HookEvent(
+            eventName: "SessionStart",
+            sessionId: "main-1",
+            toolName: nil, toolUseId: nil, agentId: nil, toolInput: nil,
+            rawJSON: ["_source": "cursor", "cwd": cwd, "_term_bundle": "com.googlecode.iterm2"]
+        ))
+
+        // Sub-1 → merged into parent
+        appState.handleEvent(HookEvent(
+            eventName: "SessionStart",
+            sessionId: "sub-1",
+            toolName: nil, toolUseId: nil, agentId: nil, toolInput: nil,
+            rawJSON: ["_source": "cursor", "cwd": cwd, "_term_bundle": "com.googlecode.iterm2"]
+        ))
+
+        // After merge the parent has exactly one subagent entry keyed by "sub-1".
+        XCTAssertEqual(appState.sessions["main-1"]?.subagents.count, 1,
+                       "after merge the parent should have exactly one subagent")
+        XCTAssertNotNil(appState.sessions["main-1"]?.subagents["sub-1"],
+                        "subagent should be stored under the raw childId key")
+
+        // Sub-1 emits a follow-up event — should redirect, not re-create.
+        appState.handleEvent(HookEvent(
+            eventName: "UserPromptSubmit",
+            sessionId: "sub-1",
+            toolName: nil, toolUseId: nil, agentId: nil, toolInput: nil,
+            rawJSON: ["_source": "cursor", "cwd": cwd, "prompt": "Hello"]
+        ))
+
+        // Still no separate sub-1 session; still exactly one subagent entry.
+        XCTAssertNil(appState.sessions["sub-1"],
+                     "redirected event must not re-create the standalone session")
+        XCTAssertEqual(appState.sessions["main-1"]?.subagents.count, 1,
+                       "redirect must update the existing subagent, not add a parallel auto-cwd-* entry")
+        XCTAssertNotNil(appState.sessions["main-1"]?.subagents["sub-1"],
+                        "the existing sub-1 subagent must survive the redirect")
+    }
 }

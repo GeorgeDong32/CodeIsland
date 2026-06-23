@@ -350,7 +350,8 @@ final class AppState {
         //    timeout. Skipped entirely when the threshold is 0.
         SessionCleanup.performSubagentFastCleanup(
             sessions: &sessions,
-            threshold: TimeInterval(SettingsManager.shared.subagentCleanupSeconds)
+            threshold: TimeInterval(SettingsManager.shared.subagentCleanupSeconds),
+            mergedSessionIds: mergedSessionIds
         )
 
         // 6. Transcript-staleness interrupt detection (configurable).
@@ -1022,7 +1023,12 @@ final class AppState {
         if sessions[sessionId] == nil,
            let parentId = mergedSessionIds[sessionId],
            sessions[parentId] != nil {
-            let rewritten = event.withRewritten(sessionId: parentId, agentId: "auto-cwd-\(sessionId)")
+            // Use the raw child sessionId as the agentId so the rewritten event
+            // lands on the same `subagents[childId]` entry that
+            // `applyCursorSubagentMerge` populated, instead of creating a
+            // parallel `auto-cwd-<childId>` entry that the cleanup eviction
+            // would not find.
+            let rewritten = event.withRewritten(sessionId: parentId, agentId: sessionId)
             let subagentEffects = reduceEvent(sessions: &sessions, event: rewritten, maxHistory: maxHistory)
             for effect in subagentEffects {
                 executeEffect(effect, sessionId: parentId)
@@ -1263,6 +1269,16 @@ final class AppState {
                 // are redirected to the parent instead of re-creating a
                 // standalone session.
                 mergedSessionIds[childId] = parentId
+
+                // Defensively drain the child's permission/question queues
+                // before `removeSession`. `removeSession` itself also calls
+                // these drains, but doing them here first guarantees that
+                // the continuations are resumed before the merge moves on,
+                // regardless of any future change to `removeSession`'s
+                // contract. The queue is empty by the time the duplicate
+                // drain runs, so the second pass is a cheap no-op.
+                drainPermissions(forSession: childId, reason: "subagentMerge")
+                drainQuestions(forSession: childId, reason: "subagentMerge")
 
                 // Remove the standalone child session from the sessions dict.
                 if sessions[childId] != nil {
@@ -2225,7 +2241,7 @@ final class AppState {
                 let victim = questionQueue.remove(at: index)
                 log.notice("⚠️ question drain reason=capPerSession(\(perSessionCap)) session=\(sessionId, privacy: .public)")
                 let response: Data = victim.isFromPermission
-                    ? Data(#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#.utf8)
+                    ? Self.permissionDenyResponse()
                     : Self.notificationResponse()
                 victim.continuation.resume(returning: response)
             }
@@ -2234,7 +2250,7 @@ final class AppState {
             let victim = questionQueue.removeFirst()
             log.notice("⚠️ question drain reason=capGlobal(\(globalCap)) session=\(victim.event.sessionId ?? "default", privacy: .public)")
             let response: Data = victim.isFromPermission
-                ? Data(#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#.utf8)
+                ? Self.permissionDenyResponse()
                 : Self.notificationResponse()
             victim.continuation.resume(returning: response)
         }
@@ -2266,9 +2282,13 @@ final class AppState {
             guard item.event.sessionId == sessionId else { return false }
             if item.isFromPermission {
                 log.notice("⚠️ permission deny reason=drainQuestions(\(reason, privacy: .public)) session=\(sessionId, privacy: .public) tool=AskUserQuestion")
-                let denyData = Data(
-                    #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#.utf8)
-                item.continuation.resume(returning: denyData)
+                // Use the same deny payload as `enforceQuestionQueueCaps` and
+                // `drainPermissions` so all three drain paths emit identical
+                // bytes for an `isFromPermission` item. (The Codex-aware
+                // variant is `denyResponseData(for:)`; we intentionally use
+                // `permissionDenyResponse` here for parity with the queue
+                // caps and the permission drain.)
+                item.continuation.resume(returning: Self.permissionDenyResponse())
             } else {
                 item.continuation.resume(returning: Self.notificationResponse())
             }
