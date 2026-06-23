@@ -131,6 +131,55 @@ final class SubagentFastCleanupTests: XCTestCase {
                      "auto-cwd-prefixed synthesized subagent should also be cleaned up")
     }
 
+    // MARK: - mergedSessionIds skip (issue H)
+
+    /// Regression: when an `agentId` is still listed in `mergedSessionIds`,
+    /// the corresponding subagent entry MUST be preserved by fast cleanup,
+    /// even if the subagent has been idle past the threshold. Removing the
+    /// entry would orphan the redirect path and re-open the create-merge
+    /// loop that `b84693b` was written to fix.
+    func testMergedSubagentIsSkipped() {
+        var session = SessionSnapshot()
+        session.source = "cursor"
+        var mergedSub = SubagentState(agentId: "sub-1", agentType: "default")
+        mergedSub.status = .processing
+        mergedSub.lastActivity = Date(timeIntervalSinceNow: -120)
+        var unrelatedSub = SubagentState(agentId: "unrelated", agentType: "default")
+        unrelatedSub.status = .processing
+        unrelatedSub.lastActivity = Date(timeIntervalSinceNow: -120)
+        session.subagents["sub-1"] = mergedSub
+        session.subagents["unrelated"] = unrelatedSub
+        var sessions = ["s1": session]
+
+        // sub-1 is still in mergedSessionIds; the other is not.
+        SessionCleanup.performSubagentFastCleanup(
+            sessions: &sessions,
+            threshold: 30,
+            mergedSessionIds: ["sub-1": "s1"]
+        )
+
+        XCTAssertNotNil(sessions["s1"]?.subagents["sub-1"],
+                       "merged subagent must NOT be cleaned up while redirect is active")
+        XCTAssertNil(sessions["s1"]?.subagents["unrelated"],
+                     "non-merged subagent past threshold MUST still be cleaned up")
+    }
+
+    /// Default empty `mergedSessionIds` preserves the original fast-cleanup
+    /// contract: stale non-running subagents are removed.
+    func testEmptyMergedSessionIdsPreservesExistingBehavior() {
+        var session = SessionSnapshot()
+        var stale = SubagentState(agentId: "stale", agentType: "default")
+        stale.status = .idle
+        stale.lastActivity = Date(timeIntervalSinceNow: -120)
+        session.subagents["stale"] = stale
+        var sessions = ["s1": session]
+
+        SessionCleanup.performSubagentFastCleanup(sessions: &sessions, threshold: 30)
+
+        XCTAssertNil(sessions["s1"]?.subagents["stale"],
+                     "stale subagent must be removed when mergedSessionIds is empty")
+    }
+
     func testMixedSubagentsPerSession() {
         var session = SessionSnapshot()
         var idleStale = SubagentState(agentId: "a", agentType: "default")

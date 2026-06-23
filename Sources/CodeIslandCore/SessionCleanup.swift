@@ -7,15 +7,23 @@ public enum SessionCleanup {
 
     /// Cleanup phase 5: remove stale non-running subagent entries.
     /// `threshold == 0` disables the phase entirely.
+    /// `mergedSessionIds` (when non-empty) lists subagent agentIds that are
+    /// still being actively redirected by `AppState.handleEvent`; those entries
+    /// MUST be preserved so the redirect path can keep landing on the same
+    /// subagent channel key. Skipping them here closes the create-merge loop
+    /// that would otherwise re-open when the parent-side entry is removed
+    /// before the redirect cache is evicted.
     public static func performSubagentFastCleanup(
         sessions: inout [String: SessionSnapshot],
-        threshold: TimeInterval
+        threshold: TimeInterval,
+        mergedSessionIds: [String: String] = [:]
     ) {
         guard threshold > 0 else { return }
         var subagentMutations: [(String, [String])] = []
         for (sessionId, session) in sessions {
             var staleAgentIds: [String] = []
-            for (agentId, sub) in session.subagents where sub.status != .running {
+            for (agentId, sub) in session.subagents
+                where sub.status != .running && mergedSessionIds[agentId] == nil {
                 // Remove if lastActivity exceeds threshold, regardless of status.
                 // All subagent statuses (.processing, .idle, .waiting*) can
                 // be cleaned up after enough idle time.
