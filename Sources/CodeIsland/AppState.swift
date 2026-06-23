@@ -348,7 +348,11 @@ final class AppState {
         //    `SettingsManager.subagentCleanupSeconds` (default 30s). Keeps the
         //    `+N Sub` badge accurate without waiting for the long global session
         //    timeout. Skipped entirely when the threshold is 0.
-        SessionCleanup.performSubagentFastCleanup(
+        //    A redirect entry that has been silent for 10× the threshold is
+        //    also dropped and the matching `mergedSessionIds` cache key is
+        //    evicted in phase 7, so an abandoned merge can no longer pin the
+        //    parent session.
+        let evictedMergedIds = SessionCleanup.performSubagentFastCleanup(
             sessions: &sessions,
             threshold: TimeInterval(SettingsManager.shared.subagentCleanupSeconds),
             mergedSessionIds: mergedSessionIds
@@ -368,18 +372,24 @@ final class AppState {
         )
 
         // 7. Evict stale entries from the merged-session-ID cache.
-        //    We evict if the parent session no longer exists or
-        //    the subagent entry for this child is gone from the parent.
-        let staleKeys = mergedSessionIds.keys.filter { key in
+        //    We evict if the parent session no longer exists, the subagent
+        //    entry for this child is gone from the parent, or phase 5 just
+        //    reported the redirect as too long stale.
+        var staleKeys = Set(evictedMergedIds)
+        for key in mergedSessionIds.keys where !staleKeys.contains(key) {
             // The mergedSessionIds value is the parent sessionId.
             // We evict if the parent session no longer exists or
             // the child's lastActivity on the parent is stale.
             guard let parentId = mergedSessionIds[key],
-                  let parent = sessions[parentId] else { return true }
+                  let parent = sessions[parentId] else {
+                staleKeys.insert(key)
+                continue
+            }
             // If the subagent entry for this child is gone from the parent,
             // the merge is fully resolved — evict the cache entry.
-            if parent.subagents[key] == nil { return true }
-            return false
+            if parent.subagents[key] == nil {
+                staleKeys.insert(key)
+            }
         }
         for key in staleKeys {
             mergedSessionIds.removeValue(forKey: key)
@@ -1246,7 +1256,13 @@ final class AppState {
                 let agentType = child.currentTool ?? child.toolDescription ?? "Agent"
                 var subagent = sessions[parentId]?.subagents[childId]
                     ?? SubagentState(agentId: childId, agentType: agentType)
-                subagent.status = child.status == .idle ? .running : child.status
+                // Preserve the child's actual status (including .idle) so the
+                // fast-cleanup phase can later evict a truly-idle subagent
+                // entry. Previously this code forced .idle to .running, which
+                // pinned every merged child forever and inflated the parent's
+                // subagent dictionary for the lifetime of the parent session
+                // — a major contributor to the v1.2.8 idle-memory regression.
+                subagent.status = child.status
                 subagent.currentTool = child.currentTool
                 subagent.toolDescription = child.toolDescription
                 if child.lastActivity > subagent.lastActivity {
@@ -2852,12 +2868,12 @@ final class AppState {
         }
         if let lastUser = info.recentMessages.last(where: { $0.isUser }),
            session.lastUserPrompt != lastUser.text {
-            session.lastUserPrompt = lastUser.text
+            session.lastUserPrompt = SessionSnapshot.truncatedForDisplay(lastUser.text)
             mutated = true
         }
         if let lastAssistant = info.recentMessages.last(where: { !$0.isUser }),
            session.lastAssistantMessage != lastAssistant.text {
-            session.lastAssistantMessage = lastAssistant.text
+            session.lastAssistantMessage = SessionSnapshot.truncatedForDisplay(lastAssistant.text)
             mutated = true
         }
         if mutated {
@@ -2974,10 +2990,10 @@ final class AppState {
             }
             session.providerSessionId = SessionTitleStore.supports(provider: info.source) ? info.sessionId : nil
             if let last = info.recentMessages.last(where: { $0.isUser }) {
-                session.lastUserPrompt = last.text
+                session.lastUserPrompt = SessionSnapshot.truncatedForDisplay(last.text)
             }
             if let last = info.recentMessages.last(where: { !$0.isUser }) {
-                session.lastAssistantMessage = last.text
+                session.lastAssistantMessage = SessionSnapshot.truncatedForDisplay(last.text)
             }
             session.transcriptPath = info.transcriptPath
             sessions[info.sessionId] = session
@@ -3146,8 +3162,8 @@ final class AppState {
                     child.model = child.model ?? model
                     if !messages.isEmpty {
                         child.recentMessages = messages
-                        child.lastUserPrompt = messages.last(where: \.isUser)?.text
-                        child.lastAssistantMessage = messages.last(where: { !$0.isUser })?.text
+                        child.lastUserPrompt = messages.last(where: \.isUser).map { SessionSnapshot.truncatedForDisplay($0.text) }
+                        child.lastAssistantMessage = messages.last(where: { !$0.isUser }).map { SessionSnapshot.truncatedForDisplay($0.text) }
                     }
                 }
 

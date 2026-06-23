@@ -9,26 +9,44 @@ public enum SessionCleanup {
     /// `threshold == 0` disables the phase entirely.
     /// `mergedSessionIds` (when non-empty) lists subagent agentIds that are
     /// still being actively redirected by `AppState.handleEvent`; those entries
-    /// MUST be preserved so the redirect path can keep landing on the same
-    /// subagent channel key. Skipping them here closes the create-merge loop
-    /// that would otherwise re-open when the parent-side entry is removed
-    /// before the redirect cache is evicted.
+    /// are preserved as long as the underlying subagent is still active, so
+    /// the redirect path can keep landing on the same subagent channel key.
+    /// However, a subagent that has been silent for much longer than
+    /// `staleRedirectMultiplier * threshold` is presumed to be abandoned and
+    /// is returned in `evictedMergedIds` so the caller can drop the
+    /// `mergedSessionIds` cache entry too. Without this escape hatch, a
+    /// truly-idle merged child would pin its parent's `subagents` dictionary
+    /// (and the entire retained session) forever — a major contributor to
+    /// the v1.2.8 idle-memory regression.
+    /// - Returns: the agentIds whose `mergedSessionIds` cache entry should
+    ///   also be evicted. Empty when no merge redirects were stale.
+    @discardableResult
     public static func performSubagentFastCleanup(
         sessions: inout [String: SessionSnapshot],
         threshold: TimeInterval,
-        mergedSessionIds: [String: String] = [:]
-    ) {
-        guard threshold > 0 else { return }
+        mergedSessionIds: [String: String] = [:],
+        staleRedirectMultiplier: Double = 10
+    ) -> [String] {
+        guard threshold > 0 else { return [] }
+        let staleRedirectThreshold = threshold * staleRedirectMultiplier
+        var evictedMergedIds: [String] = []
         var subagentMutations: [(String, [String])] = []
         for (sessionId, session) in sessions {
             var staleAgentIds: [String] = []
             for (agentId, sub) in session.subagents
-                where sub.status != .running && mergedSessionIds[agentId] == nil {
-                // Remove if lastActivity exceeds threshold, regardless of status.
-                // All subagent statuses (.processing, .idle, .waiting*) can
-                // be cleaned up after enough idle time.
-                if -sub.lastActivity.timeIntervalSinceNow > threshold {
+                where sub.status != .running {
+                let silentFor = -sub.lastActivity.timeIntervalSinceNow
+                guard silentFor > threshold else { continue }
+                if mergedSessionIds[agentId] == nil {
+                    // Non-redirected: drop on first sight of staleness.
                     staleAgentIds.append(agentId)
+                } else if silentFor > staleRedirectThreshold {
+                    // Redirected: only drop when the redirect has been stale
+                    // for many threshold cycles. After this drop the caller
+                    // also evicts the mergedSessionIds entry so a subsequent
+                    // event for this child is treated as a fresh session.
+                    staleAgentIds.append(agentId)
+                    evictedMergedIds.append(agentId)
                 }
             }
             if !staleAgentIds.isEmpty {
@@ -40,6 +58,7 @@ public enum SessionCleanup {
                 sessions[sessionId]?.subagents.removeValue(forKey: agentId)
             }
         }
+        return evictedMergedIds
     }
 
     /// Cleanup phase 6: transcript-staleness interrupt detection (Claude Code

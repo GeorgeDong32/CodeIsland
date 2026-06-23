@@ -184,6 +184,29 @@ public struct SessionSnapshot: Sendable {
         subagents.values.filter { $0.status != .idle }.count
     }
 
+    /// Hard cap on `lastUserPrompt` / `lastAssistantMessage` per session.
+    /// These fields are display-only summaries kept on the snapshot for
+    /// re-rendering after a panel re-attach; the full text lives on disk in
+    /// the transcript JSONL. Capping the in-memory copy prevents a single
+    /// very long assistant reply (or a session that the user leaves open
+    /// while the assistant streams) from pinning tens to hundreds of KB per
+    /// session — a major contributor to the v1.2.8 idle-memory regression.
+    public static let maxDisplayStringBytes = 8 * 1024
+
+    /// Truncate a free-form display string to the per-session byte cap. The
+    /// full text remains available from the transcript on disk.
+    public static func truncatedForDisplay(_ text: String) -> String {
+        guard text.utf8.count > maxDisplayStringBytes else { return text }
+        let suffix = "…[truncated, see transcript]"
+        let cap = max(0, maxDisplayStringBytes - suffix.utf8.count)
+        var trimmed = text
+        // Walk down to a valid UTF-8 prefix under the cap.
+        while trimmed.utf8.count > cap, !trimmed.isEmpty {
+            trimmed.removeLast()
+        }
+        return trimmed + suffix
+    }
+
     public mutating func addRecentMessage(_ msg: ChatMessage, maxCount: Int = 3) {
         recentMessages.append(msg)
         if recentMessages.count > maxCount {
@@ -581,7 +604,7 @@ public func reduceEvent(
             ?? event.rawJSON["input"] as? String
             ?? event.rawJSON["content"] as? String
         if let prompt {
-            sessions[sessionId]?.lastUserPrompt = prompt
+            sessions[sessionId]?.lastUserPrompt = SessionSnapshot.truncatedForDisplay(prompt)
             if sessions[sessionId]?.recentMessages.last?.isUser == true {
                 sessions[sessionId]?.recentMessages.removeLast()
             }
@@ -639,7 +662,7 @@ public func reduceEvent(
             includeNested: true
         )
         if let text = responseText, !text.isEmpty {
-            sessions[sessionId]?.lastAssistantMessage = text
+            sessions[sessionId]?.lastAssistantMessage = SessionSnapshot.truncatedForDisplay(text)
             sessions[sessionId]?.addRecentMessage(ChatMessage(isUser: false, text: text))
         }
         if let source = sessions[sessionId]?.source,
@@ -662,7 +685,7 @@ public func reduceEvent(
             includeNested: true
         )
         if let msg = assistantMsg {
-            sessions[sessionId]?.lastAssistantMessage = msg
+            sessions[sessionId]?.lastAssistantMessage = SessionSnapshot.truncatedForDisplay(msg)
             sessions[sessionId]?.addRecentMessage(ChatMessage(isUser: false, text: msg))
         } else if sessions[sessionId]?.lastAssistantMessage == nil,
                   sessions[sessionId]?.recentMessages.last?.isUser == true {
@@ -697,7 +720,7 @@ public func reduceEvent(
             includeNested: true
         )
         if let msg = assistantMsg {
-            sessions[sessionId]?.lastAssistantMessage = msg
+            sessions[sessionId]?.lastAssistantMessage = SessionSnapshot.truncatedForDisplay(msg)
             sessions[sessionId]?.addRecentMessage(ChatMessage(isUser: false, text: msg))
         } else if sessions[sessionId]?.lastAssistantMessage == nil,
                   sessions[sessionId]?.recentMessages.last?.isUser == true {
@@ -707,9 +730,10 @@ public func reduceEvent(
         // Try to capture user prompt from Stop event if not already set
         if sessions[sessionId]?.lastUserPrompt == nil {
             if let prompt = event.rawJSON["last_user_message"] as? String {
-                sessions[sessionId]?.lastUserPrompt = prompt
+                let capped = SessionSnapshot.truncatedForDisplay(prompt)
+                sessions[sessionId]?.lastUserPrompt = capped
                 let insertAt = max(0, (sessions[sessionId]?.recentMessages.count ?? 1) - 1)
-                sessions[sessionId]?.insertRecentMessage(ChatMessage(isUser: true, text: prompt), at: insertAt)
+                sessions[sessionId]?.insertRecentMessage(ChatMessage(isUser: true, text: capped), at: insertAt)
             }
         }
         if isCursorInterrupt {

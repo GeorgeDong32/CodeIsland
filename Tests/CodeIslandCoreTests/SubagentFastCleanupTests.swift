@@ -180,6 +180,56 @@ final class SubagentFastCleanupTests: XCTestCase {
                      "stale subagent must be removed when mergedSessionIds is empty")
     }
 
+    /// A redirect that has been silent for many threshold cycles is presumed
+    /// abandoned: drop both the subagent entry and report the agentId so the
+    /// caller can evict the corresponding `mergedSessionIds` cache entry.
+    /// Without this, an abandoned merge pins the parent session forever and
+    /// is the primary driver of the v1.2.8 idle-memory regression.
+    func testAbandonedRedirectIsEvictedWithMergedId() {
+        var session = SessionSnapshot()
+        session.source = "cursor"
+        var staleRedirect = SubagentState(agentId: "sub-1", agentType: "default")
+        staleRedirect.status = .processing
+        // 600s with threshold=30 and default 10x multiplier (300s) — way past.
+        staleRedirect.lastActivity = Date(timeIntervalSinceNow: -600)
+        session.subagents["sub-1"] = staleRedirect
+        var sessions = ["s1": session]
+
+        let evicted = SessionCleanup.performSubagentFastCleanup(
+            sessions: &sessions,
+            threshold: 30,
+            mergedSessionIds: ["sub-1": "s1"]
+        )
+
+        XCTAssertTrue(evicted.contains("sub-1"),
+                      "stale redirect MUST be reported for mergedSessionIds eviction")
+        XCTAssertNil(sessions["s1"]?.subagents["sub-1"],
+                     "stale redirected subagent MUST be removed past the redirect TTL")
+    }
+
+    /// A redirect that is past the regular threshold but still inside the
+    /// 10x redirect window MUST be preserved (still possibly active).
+    func testFreshRedirectIsPreserved() {
+        var session = SessionSnapshot()
+        session.source = "cursor"
+        var sub = SubagentState(agentId: "sub-1", agentType: "default")
+        sub.status = .processing
+        // Past 30s threshold but within 10x = 300s window.
+        sub.lastActivity = Date(timeIntervalSinceNow: -60)
+        session.subagents["sub-1"] = sub
+        var sessions = ["s1": session]
+
+        let evicted = SessionCleanup.performSubagentFastCleanup(
+            sessions: &sessions,
+            threshold: 30,
+            mergedSessionIds: ["sub-1": "s1"]
+        )
+
+        XCTAssertTrue(evicted.isEmpty, "redirect inside the TTL window MUST NOT be evicted")
+        XCTAssertNotNil(sessions["s1"]?.subagents["sub-1"],
+                        "redirect inside the TTL window MUST be preserved")
+    }
+
     func testMixedSubagentsPerSession() {
         var session = SessionSnapshot()
         var idleStale = SubagentState(agentId: "a", agentType: "default")
