@@ -59,4 +59,29 @@ final class SessionSnapshotTests: XCTestCase {
         let exact = String(repeating: "x", count: SessionSnapshot.maxDisplayStringBytes)
         XCTAssertEqual(SessionSnapshot.truncatedForDisplay(exact), exact)
     }
+
+    // MARK: - addRecentMessage text cap
+
+    /// `addRecentMessage` MUST truncate the text of each `ChatMessage` it
+    /// appends, so a single very long assistant reply (or user prompt)
+    /// cannot pin `maxCount * uncapped` bytes per retained session. This is
+    /// the second line of defense after the direct `lastUserPrompt` /
+    /// `lastAssistantMessage` cap applied in the reducer.
+    func testAddRecentMessageTruncatesText() {
+        var snapshot = SessionSnapshot()
+        let longText = String(repeating: "z", count: SessionSnapshot.maxDisplayStringBytes * 3)
+        snapshot.addRecentMessage(ChatMessage(isUser: false, text: longText))
+        XCTAssertEqual(snapshot.recentMessages.count, 1)
+        let stored = snapshot.recentMessages[0].text
+        XCTAssertLessThanOrEqual(stored.utf8.count, SessionSnapshot.maxDisplayStringBytes)
+        XCTAssertTrue(stored.hasSuffix("…[truncated, see transcript]"))
+    }
+
+    func testInsertRecentMessageTruncatesText() {
+        var snapshot = SessionSnapshot()
+        let longText = String(repeating: "q", count: SessionSnapshot.maxDisplayStringBytes * 3)
+        snapshot.insertRecentMessage(ChatMessage(isUser: true, text: longText), at: 0)
+        XCTAssertEqual(snapshot.recentMessages.count, 1)
+        XCTAssertLessThanOrEqual(snapshot.recentMessages[0].text.utf8.count, SessionSnapshot.maxDisplayStringBytes)
+    }
 }

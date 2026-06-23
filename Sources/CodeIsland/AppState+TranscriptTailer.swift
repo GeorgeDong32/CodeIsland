@@ -25,16 +25,20 @@ extension AppState {
         var mutated = false
 
         if let prompt = delta.lastUserPrompt, session.lastUserPrompt != prompt {
-            session.lastUserPrompt = prompt
-            if session.recentMessages.last(where: { $0.isUser })?.text != prompt {
-                session.addRecentMessage(ChatMessage(isUser: true, text: prompt))
+            // Cap at the same per-field byte limit used elsewhere so a long
+            // tailer delta cannot blow past the display budget.
+            let capped = SessionSnapshot.truncatedForDisplay(prompt)
+            session.lastUserPrompt = capped
+            if session.recentMessages.last(where: { $0.isUser })?.text != capped {
+                session.addRecentMessage(ChatMessage(isUser: true, text: capped))
             }
             mutated = true
         }
         if let reply = delta.lastAssistantMessage, session.lastAssistantMessage != reply {
-            session.lastAssistantMessage = reply
-            if session.recentMessages.last(where: { !$0.isUser })?.text != reply {
-                session.addRecentMessage(ChatMessage(isUser: false, text: reply))
+            let capped = SessionSnapshot.truncatedForDisplay(reply)
+            session.lastAssistantMessage = capped
+            if session.recentMessages.last(where: { !$0.isUser })?.text != capped {
+                session.addRecentMessage(ChatMessage(isUser: false, text: capped))
             }
             mutated = true
         }

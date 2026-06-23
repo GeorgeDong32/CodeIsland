@@ -3067,7 +3067,11 @@ final class AppState {
             let agentType = metadata.agentType ?? metadata.agentNickname ?? "Agent"
             var subagent = sessions[parentKey]?.subagents[providerSessionId]
                 ?? SubagentState(agentId: providerSessionId, agentType: agentType)
-            subagent.status = candidate.session.status == .idle ? .running : candidate.session.status
+            // Preserve the candidate's actual status (including .idle) so the
+            // fast-cleanup phase can later evict a truly-idle Codex
+            // subsession entry. Mirrors the same fix applied in
+            // applyCursorSubagentMerge.
+            subagent.status = candidate.session.status
             subagent.currentTool = candidate.session.currentTool
             subagent.toolDescription = candidate.session.toolDescription ?? metadata.agentNickname
             if candidate.session.lastActivity > subagent.lastActivity {

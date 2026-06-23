@@ -208,14 +208,20 @@ public struct SessionSnapshot: Sendable {
     }
 
     public mutating func addRecentMessage(_ msg: ChatMessage, maxCount: Int = 3) {
-        recentMessages.append(msg)
+        // Cap the per-message text size at insertion time so a single very
+        // long assistant reply (or a long user prompt) can't pin
+        // `maxCount` × uncapped text per retained session. The full
+        // transcript remains available on disk.
+        let capped = ChatMessage(isUser: msg.isUser, text: SessionSnapshot.truncatedForDisplay(msg.text))
+        recentMessages.append(capped)
         if recentMessages.count > maxCount {
             recentMessages.removeFirst(recentMessages.count - maxCount)
         }
     }
 
     public mutating func insertRecentMessage(_ msg: ChatMessage, at index: Int, maxCount: Int = 3) {
-        recentMessages.insert(msg, at: index)
+        let capped = ChatMessage(isUser: msg.isUser, text: SessionSnapshot.truncatedForDisplay(msg.text))
+        recentMessages.insert(capped, at: index)
         if recentMessages.count > maxCount {
             recentMessages.removeFirst(recentMessages.count - maxCount)
         }

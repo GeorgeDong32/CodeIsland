@@ -137,7 +137,7 @@ extension AppState {
             snapshot.cwd = cwd
         }
         if let preview = thread["preview"]?.asString, !preview.isEmpty {
-            snapshot.lastUserPrompt = preview
+            snapshot.lastUserPrompt = SessionSnapshot.truncatedForDisplay(preview)
         }
         if let name = thread["name"]?.asString, !name.isEmpty {
             snapshot.sessionTitle = name
