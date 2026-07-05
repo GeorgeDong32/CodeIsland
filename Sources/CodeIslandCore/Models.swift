@@ -138,7 +138,14 @@ public enum CLIProcessResolver {
     public static func inferSource(ancestry: [AncestryEntry]) -> String? {
         // Try `-cli` variants first so `cursor-agent` doesn't get mis-attributed
         // to the desktop `cursor` source (see issue #134).
-        let all = SessionSnapshot.supportedSources
+        //
+        // Exclude desktop-IDE *host* sources entirely: their GUI host/helper
+        // processes appear in the ancestry of any CLI run from the IDE's
+        // integrated terminal and would be greedily matched by the loose
+        // `/<source>` substring rule, mis-attributing e.g. Claude Code run in
+        // Cursor's terminal to "cursor". Desktop IDEs always report themselves
+        // via `--source`, so they never need ancestry inference. (#220)
+        let all = SessionSnapshot.supportedSources.subtracting(SessionSnapshot.ideHostSources)
         let cliFirst = all.filter { $0.hasSuffix("-cli") }.sorted()
             + all.filter { !$0.hasSuffix("-cli") }.sorted()
         for entry in ancestry {

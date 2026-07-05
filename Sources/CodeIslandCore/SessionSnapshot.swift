@@ -32,6 +32,7 @@ public struct SessionSnapshot: Sendable {
         "qwen",
         "kimi",
         "cline",
+        "pi",
     ]
 
     public static let ideCompletionSources: Set<String> = [
@@ -40,6 +41,28 @@ public struct SessionSnapshot: Sendable {
         "traecn",
         "codebuddy",
         "codybuddycn",
+    ]
+
+    /// Desktop-IDE *host* sources. Their GUI host/helper processes (e.g.
+    /// "Cursor Helper", "Trae Helper", the IDE's own `.../MacOS/<App>` binary)
+    /// appear in the process ancestry of ANY CLI agent launched from that IDE's
+    /// integrated terminal, and would be greedily matched by the loose
+    /// `/<source>` substring rule in `CLIProcessResolver.sourceMatchesExecutablePath`.
+    /// These must never be recovered via ancestry inference: a desktop IDE always
+    /// reports itself explicitly through `--source`, or is detected via its
+    /// dedicated `-cli` variant (`cursor-cli`, `qoder-cli`, `traecli`). Excluding
+    /// them keeps e.g. Claude Code run inside Cursor's terminal — whose `claude`
+    /// process is a source-less Node binary — from being mis-attributed to
+    /// "cursor". (#220)
+    public static let ideHostSources: Set<String> = [
+        "cursor",
+        "trae",
+        "traecn",
+        "qoder",
+        "codebuddy",
+        "codybuddycn",
+        "stepfun",
+        "antigravity",
     ]
 
     public var status: AgentStatus = .idle
@@ -130,6 +153,9 @@ public struct SessionSnapshot: Sendable {
             "trae_cn": "traecn",
             "trae cn": "traecn",
             "traecli": "traecli",
+            "omp": "pi",
+            "oh-my-pi": "pi",
+            "oh my pi": "pi",
         ]
         let canonical = aliases[normalized] ?? normalized
         let dynamicSupportedSources = supportedSources.union(loadCustomSources())
@@ -336,6 +362,8 @@ public struct SessionSnapshot: Sendable {
         case "hermes": return "Hermes"
         case "qwen": return "Qwen Code"
         case "kimi": return "Kimi Code CLI"
+        case "pi": return "Pi"
+        case "cline": return "Cline"
         default:
             if let customName = Self.loadCustomSourceNames()[source] {
                 return customName
@@ -789,6 +817,15 @@ public func reduceEvent(
         if let workspace = event.rawJSON["_cmux_workspace_id"] as? String, !workspace.isEmpty {
             sessions[sessionId]?.cmuxWorkspaceId = workspace
         }
+        if let zellijPane = event.rawJSON["_zellij_pane_id"] as? String, !zellijPane.isEmpty {
+            sessions[sessionId]?.zellijPaneId = zellijPane
+        }
+        if let zellijSession = event.rawJSON["_zellij_session_name"] as? String, !zellijSession.isEmpty {
+            sessions[sessionId]?.zellijSessionName = zellijSession
+        }
+        if let env = event.rawJSON["_env"] as? [String: String] {
+            applyEnvMetadata(into: &sessions, sessionId: sessionId, env: env)
+        }
         if let remoteHostId = event.rawJSON["_remote_host_id"] as? String, !remoteHostId.isEmpty {
             sessions[sessionId]?.remoteHostId = remoteHostId
         }
@@ -853,6 +890,57 @@ public func reduceEvent(
 
 // MARK: - Private Helpers
 
+private func applyEnvMetadata(into sessions: inout [String: SessionSnapshot], sessionId: String, env: [String: String]) {
+    if sessions[sessionId]?.termApp == nil,
+       let app = env["TERM_PROGRAM"], !app.isEmpty {
+        sessions[sessionId]?.termApp = app
+    }
+    if sessions[sessionId]?.termBundleId == nil,
+       let bundle = env["__CFBundleIdentifier"], !bundle.isEmpty {
+        sessions[sessionId]?.termBundleId = bundle
+    }
+    if sessions[sessionId]?.itermSessionId == nil,
+       let ses = env["ITERM_SESSION_ID"], !ses.isEmpty {
+        if let colonIdx = ses.firstIndex(of: ":") {
+            sessions[sessionId]?.itermSessionId = String(ses[ses.index(after: colonIdx)...])
+        } else {
+            sessions[sessionId]?.itermSessionId = ses
+        }
+    }
+    if sessions[sessionId]?.kittyWindowId == nil,
+       let kitty = env["KITTY_WINDOW_ID"], !kitty.isEmpty {
+        sessions[sessionId]?.kittyWindowId = kitty
+    }
+    if sessions[sessionId]?.tmuxEnv == nil,
+       let tmux = env["TMUX"], !tmux.isEmpty {
+        sessions[sessionId]?.tmuxEnv = tmux
+    }
+    if sessions[sessionId]?.tmuxPane == nil,
+       let pane = env["TMUX_PANE"], !pane.isEmpty {
+        sessions[sessionId]?.tmuxPane = pane
+    }
+    if sessions[sessionId]?.cmuxSurfaceId == nil,
+       let surface = env["CMUX_SURFACE_ID"], !surface.isEmpty {
+        sessions[sessionId]?.cmuxSurfaceId = surface
+    }
+    if sessions[sessionId]?.cmuxWorkspaceId == nil,
+       let workspace = env["CMUX_WORKSPACE_ID"], !workspace.isEmpty {
+        sessions[sessionId]?.cmuxWorkspaceId = workspace
+    }
+    if sessions[sessionId]?.zellijPaneId == nil,
+       let pane = env["ZELLIJ_PANE_ID"], !pane.isEmpty {
+        sessions[sessionId]?.zellijPaneId = pane
+    }
+    if sessions[sessionId]?.zellijSessionName == nil,
+       let name = env["ZELLIJ_SESSION_NAME"], !name.isEmpty {
+        sessions[sessionId]?.zellijSessionName = name
+    }
+    if sessions[sessionId]?.weztermPaneId == nil,
+       let pane = env["WEZTERM_PANE"], !pane.isEmpty {
+        sessions[sessionId]?.weztermPaneId = pane
+    }
+}
+
 public func extractMetadata(into sessions: inout [String: SessionSnapshot], sessionId: String, event: HookEvent) {
     if let cwd = event.rawJSON["cwd"] as? String, !cwd.isEmpty {
         sessions[sessionId]?.cwd = cwd
@@ -912,37 +1000,9 @@ public func extractMetadata(into sessions: inout [String: SessionSnapshot], sess
     if let bundle = event.rawJSON["_term_bundle"] as? String, !bundle.isEmpty {
         sessions[sessionId]?.termBundleId = bundle
     }
-    // Fallback: extract terminal info from _env sub-object (OpenCode plugin format)
+    // Fallback: extract terminal/multiplexer info from _env sub-object (direct plugin format)
     if let env = event.rawJSON["_env"] as? [String: String] {
-        if sessions[sessionId]?.termApp == nil,
-           let app = env["TERM_PROGRAM"], !app.isEmpty {
-            sessions[sessionId]?.termApp = app
-        }
-        if sessions[sessionId]?.termBundleId == nil,
-           let bundle = env["__CFBundleIdentifier"], !bundle.isEmpty {
-            sessions[sessionId]?.termBundleId = bundle
-        }
-        if sessions[sessionId]?.itermSessionId == nil,
-           let ses = env["ITERM_SESSION_ID"], !ses.isEmpty {
-            // Extract GUID after "w0t0p0:" prefix
-            if let colonIdx = ses.firstIndex(of: ":") {
-                sessions[sessionId]?.itermSessionId = String(ses[ses.index(after: colonIdx)...])
-            } else {
-                sessions[sessionId]?.itermSessionId = ses
-            }
-        }
-        if sessions[sessionId]?.kittyWindowId == nil,
-           let kitty = env["KITTY_WINDOW_ID"], !kitty.isEmpty {
-            sessions[sessionId]?.kittyWindowId = kitty
-        }
-        if sessions[sessionId]?.weztermPaneId == nil,
-           let wezPane = env["WEZTERM_PANE"], !wezPane.isEmpty {
-            sessions[sessionId]?.weztermPaneId = wezPane
-        }
-        if sessions[sessionId]?.tmuxPane == nil,
-           let pane = env["TMUX_PANE"], !pane.isEmpty {
-            sessions[sessionId]?.tmuxPane = pane
-        }
+        applyEnvMetadata(into: &sessions, sessionId: sessionId, env: env)
     }
     if let ppid = event.rawJSON["_ppid"] as? Int, ppid > 0 {
         sessions[sessionId]?.cliPid = pid_t(ppid)
