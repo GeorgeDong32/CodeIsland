@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [v1.2.9] - 2026-07-05
 
 ### English
 - Integrate Pi / Oh My Pi (OMP) coding agent support from upstream (#111, #197, #222, #228, #220): auto-install TypeScript extensions to `~/.pi/agent/extensions` and `~/.omp/agent/extensions`, Pi session event flow with terminal env metadata for jump-back, pixel Pi mascot in settings, and IDE-host ancestry guard to avoid mis-attributing Pi sessions to Cursor.
