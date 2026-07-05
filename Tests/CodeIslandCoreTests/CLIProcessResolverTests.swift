@@ -93,11 +93,11 @@ final class CLIProcessResolverTests: XCTestCase {
     /// session to the desktop `cursor` source — it should return nil so the
     /// bridge falls back to the default "claude".
     func testInferSourceIgnoresCursorIDEHostForSourcelessClaude() {
-        let ancestry: [(pid: Int32, executablePath: String?)] = [
+        let ancestry: [CLIProcessResolver.AncestryEntry] = [
             // `claude` is really a Node script; argv0 is node, not .../claude.
-            (4321, "/opt/homebrew/bin/node"),
-            (4000, "/Applications/Cursor.app/Contents/Frameworks/Cursor Helper.app/Contents/MacOS/Cursor Helper"),
-            (3000, "/Applications/Cursor.app/Contents/MacOS/Cursor"),
+            (4321, "/opt/homebrew/bin/node", nil),
+            (4000, "/Applications/Cursor.app/Contents/Frameworks/Cursor Helper.app/Contents/MacOS/Cursor Helper", nil),
+            (3000, "/Applications/Cursor.app/Contents/MacOS/Cursor", nil),
         ]
         XCTAssertNil(
             CLIProcessResolver.inferSource(ancestry: ancestry),
@@ -110,9 +110,9 @@ final class CLIProcessResolverTests: XCTestCase {
     /// inferSource must still recover "opencode" (the original reason this
     /// inference exists). The #220 fix must not regress this.
     func testInferSourceStillRecoversOpenCodeFromAncestry() {
-        let ancestry: [(pid: Int32, executablePath: String?)] = [
-            (1234, "/bin/sh"),
-            (5678, "/Users/u/.opencode/bin/opencode"),
+        let ancestry: [CLIProcessResolver.AncestryEntry] = [
+            (1234, "/bin/sh", nil),
+            (5678, "/Users/u/.opencode/bin/opencode", nil),
         ]
         XCTAssertEqual(
             CLIProcessResolver.inferSource(ancestry: ancestry),
@@ -124,8 +124,8 @@ final class CLIProcessResolverTests: XCTestCase {
     /// Cursor's CLI agent (`cursor-agent`) is a real CLI and must still be
     /// recovered as `cursor-cli` — only the desktop IDE *host* is excluded.
     func testInferSourceStillRecoversCursorCliAgent() {
-        let ancestry: [(pid: Int32, executablePath: String?)] = [
-            (5000, "/Users/u/.local/share/cursor-agent/versions/1.0/cursor-agent"),
+        let ancestry: [CLIProcessResolver.AncestryEntry] = [
+            (5000, "/Users/u/.local/share/cursor-agent/versions/1.0/cursor-agent", nil),
         ]
         XCTAssertEqual(
             CLIProcessResolver.inferSource(ancestry: ancestry),
