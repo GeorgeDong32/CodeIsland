@@ -391,6 +391,8 @@ private struct BehaviorPage: View {
     @AppStorage(SettingsKey.rotationInterval) private var rotationInterval = SettingsDefaults.rotationInterval
     @AppStorage(SettingsKey.maxToolHistory) private var maxToolHistory = SettingsDefaults.maxToolHistory
     @AppStorage(SettingsKey.autoApproveTools) private var autoApproveRaw: String = SettingsDefaults.autoApproveTools
+    @AppStorage(SettingsKey.autoApproveMode) private var autoApproveMode: String = SettingsDefaults.autoApproveMode
+    @AppStorage(SettingsKey.planAutoAcceptMode) private var planAutoAcceptMode: String = SettingsDefaults.planAutoAcceptMode
     @AppStorage(SettingsKey.excludedHookCwdSubstrings) private var excludedHookCwdSubstrings: String = SettingsDefaults.excludedHookCwdSubstrings
     @AppStorage(SettingsKey.claudeConfigDir) private var claudeConfigDir: String = SettingsDefaults.claudeConfigDir
     @AppStorage(SettingsKey.webhookEnabled) private var webhookEnabled: Bool = SettingsDefaults.webhookEnabled
@@ -404,17 +406,6 @@ private struct BehaviorPage: View {
                 guard pluginSessionMode != newMode else { return }
                 pluginSessionMode = newMode
                 appState?.applyCurrentPluginSessionMode()
-            }
-        )
-    }
-
-    private func autoApproveBinding(for name: String) -> Binding<Bool> {
-        Binding(
-            get: { autoApproveRaw.split(separator: ",").contains(Substring(name)) },
-            set: { isOn in
-                var set = Set(autoApproveRaw.split(separator: ",").map(String.init))
-                if isOn { set.insert(name) } else { set.remove(name) }
-                autoApproveRaw = set.sorted().joined(separator: ",")
             }
         )
     }
@@ -484,22 +475,11 @@ private struct BehaviorPage: View {
                 }
             }
 
-            Section(l10n["auto_approve_tools"]) {
-                Text(l10n["auto_approve_tools_desc"])
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ForEach(SettingsManager.allAutoApproveTools, id: \.name) { tool in
-                    Toggle(isOn: autoApproveBinding(for: tool.name)) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(tool.name)
-                                .font(.system(size: 12, design: .monospaced))
-                            Text(l10n["auto_approve_\(tool.name)"])
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
+            AutoApproveSettingsSections(
+                autoApproveMode: $autoApproveMode,
+                planAutoAcceptMode: $planAutoAcceptMode,
+                autoApproveRaw: $autoApproveRaw
+            )
 
             Section(l10n["claude_config_dir_title"]) {
                 Text(l10n["claude_config_dir_desc"])

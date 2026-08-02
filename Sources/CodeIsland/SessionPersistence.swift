@@ -35,6 +35,8 @@ struct PersistedSession: Codable {
     let transcriptPath: String?
     /// Closed subagent ids; kept across relaunch so merge cannot revive them.
     let closedSubagentIds: [String]?
+    /// Peak observed permission mode for AUTO smart default.
+    let observedPermissionMode: String?
 }
 
 enum SessionPersistence {
@@ -72,7 +74,8 @@ enum SessionPersistence {
                 startTime: s.startTime,
                 lastActivity: s.lastActivity,
                 transcriptPath: s.transcriptPath,
-                closedSubagentIds: s.closedSubagentIds.isEmpty ? nil : Array(s.closedSubagentIds).sorted()
+                closedSubagentIds: s.closedSubagentIds.isEmpty ? nil : Array(s.closedSubagentIds).sorted(),
+                observedPermissionMode: s.observedPermissionMode
             )
         }
         do {

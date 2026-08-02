@@ -233,4 +233,61 @@ final class NotchHoverInteractionTests: XCTestCase {
         XCTAssertEqual(NotchWidthMetrics.effectiveNotchWidth(notchW: 200, collapsedWidthScale: 10, hasNotch: false), 100)
         XCTAssertEqual(NotchWidthMetrics.effectiveNotchWidth(notchW: 200, collapsedWidthScale: 900, hasNotch: false), 300)
     }
+
+    // MARK: - AUTO APPROVE banner removal / entry points (fork patch)
+
+    private static let notchPanelSource: String = {
+        let candidates = [
+            "Sources/CodeIsland/NotchPanelView.swift",
+            "Sources/CodeIsland/NotchPanelView+Plan.swift",
+        ]
+        var combined = ""
+        for path in candidates {
+            if let contents = try? String(contentsOfFile: path, encoding: .utf8) {
+                combined += contents
+            }
+        }
+        if combined.isEmpty {
+            let bundlePath = Bundle(for: NotchPanelViewTests.self).bundlePath
+            let fallbacks = [
+                bundlePath + "/../../../../Sources/CodeIsland/NotchPanelView.swift",
+                bundlePath + "/../../../../Sources/CodeIsland/NotchPanelView+Plan.swift",
+            ]
+            for path in fallbacks {
+                if let contents = try? String(contentsOfFile: path, encoding: .utf8) {
+                    combined += contents
+                }
+            }
+        }
+        return combined
+    }()
+
+    func testApprovalCardDoesNotRenderAutoApproveBannerInBypassMode() {
+        XCTAssertFalse(Self.notchPanelSource.isEmpty, "Could not locate NotchPanelView sources")
+        XCTAssertFalse(
+            Self.notchPanelSource.contains("\"AUTO APPROVE\""),
+            "Must not contain the hardcoded AUTO APPROVE banner literal"
+        )
+    }
+
+    func testApprovalCardDoesNotRenderAutoApproveBannerInAutoMode() {
+        XCTAssertFalse(Self.notchPanelSource.isEmpty)
+        XCTAssertFalse(Self.notchPanelSource.contains("⏵⏵ AUTO APPROVE"))
+    }
+
+    func testOrangeAutoApproveButtonIsPreservedAsEntryPoint() {
+        XCTAssertFalse(Self.notchPanelSource.isEmpty)
+        XCTAssertTrue(
+            Self.notchPanelSource.contains("L10n.shared[\"auto_approve\"]"),
+            "Must expose the orange AUTO PixelButton"
+        )
+    }
+
+    func testSessionCardTapToDeactivateAutoApproveIsPreserved() {
+        XCTAssertFalse(Self.notchPanelSource.isEmpty)
+        XCTAssertTrue(
+            Self.notchPanelSource.contains("appState.toggleAutoApprove(sessionId: sessionId)"),
+            "Must keep toggleAutoApprove call site for SessionCard deactivation"
+        )
+    }
 }

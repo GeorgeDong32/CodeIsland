@@ -3,7 +3,7 @@ import ServiceManagement
 
 enum AppVersion {
     /// Update this each release. Used as fallback when Info.plist is unavailable (debug builds).
-    static let fallback = "1.0.24"
+    static let fallback = "1.0.31"
 
     static var current: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? fallback
@@ -14,6 +14,30 @@ enum NotchHeightMode: String, CaseIterable {
     case matchNotch = "matchNotch"
     case matchMenuBar = "matchMenuBar"
     case custom = "custom"
+}
+
+/// Strategy used when user presses the AUTO (auto-approve) button.
+enum AutoApproveMode: String, CaseIterable, Identifiable {
+    case auto = "auto"
+    case addRules = "addRules"
+    case bypassPermissions = "bypass"
+
+    var id: String { rawValue }
+
+    var setModeValue: String? {
+        switch self {
+        case .auto: return "auto"
+        case .addRules: return nil
+        case .bypassPermissions: return "bypassPermissions"
+        }
+    }
+}
+
+/// Plan card auto-accept mode — only auto or acceptEdits.
+enum PlanAutoAcceptMode: String, CaseIterable, Identifiable {
+    case auto = "auto"
+    case acceptEdits = "acceptEdits"
+    var id: String { rawValue }
 }
 
 enum SettingsKey {
@@ -38,6 +62,11 @@ enum SettingsKey {
     static let hapticOnHover = "hapticOnHover"
     static let hapticIntensity = "hapticIntensity"      // 1=light, 2=medium, 3=strong
     static let sessionTimeout = "sessionTimeout"
+
+    // Sub-second cleanup thresholds (in seconds). 0 = disabled.
+    static let transcriptStaleNoToolSeconds = "transcriptStaleNoToolSeconds"
+    static let transcriptStaleWithToolSeconds = "transcriptStaleWithToolSeconds"
+    static let subagentCleanupSeconds = "subagentCleanupSeconds"
 
     // Display
     static let maxPanelHeight = "maxPanelHeight"
@@ -116,6 +145,12 @@ enum SettingsKey {
     // Auto-approve tools (comma-separated tool names)
     static let autoApproveTools = "autoApproveTools"
 
+    // Auto-approve mode strategy (auto / addRules / bypass)
+    static let autoApproveMode = "autoApproveMode"
+
+    // Plan card auto-accept mode (auto / acceptEdits)
+    static let planAutoAcceptMode = "planAutoAcceptMode"
+
     // Hook cwd exclusion (comma-separated substrings; cwd containing any drops the event)
     static let excludedHookCwdSubstrings = "excludedHookCwdSubstrings"
 
@@ -144,6 +179,10 @@ struct SettingsDefaults {
     static let hapticOnHover = false
     static let hapticIntensity = 1          // 1=light
     static let sessionTimeout = 30
+    // 0 = Never (opt-in). Matches sessionTimeout's disable pattern.
+    static let subagentCleanupSeconds = 0
+    static let transcriptStaleNoToolSeconds = 0
+    static let transcriptStaleWithToolSeconds = 0
 
     static let maxPanelHeight = 560
     static let maxVisibleSessions = 5
@@ -197,6 +236,10 @@ struct SettingsDefaults {
     // EnterPlanMode etc.) which hid those calls from the panel.
     static let autoApproveTools = ""
 
+    static let autoApproveMode = AutoApproveMode.auto.rawValue
+
+    static let planAutoAcceptMode = PlanAutoAcceptMode.auto.rawValue
+
     static let excludedHookCwdSubstrings = ""
 
     static let claudeConfigDir = ""
@@ -228,6 +271,9 @@ class SettingsManager {
             SettingsKey.hapticOnHover: SettingsDefaults.hapticOnHover,
             SettingsKey.hapticIntensity: SettingsDefaults.hapticIntensity,
             SettingsKey.sessionTimeout: SettingsDefaults.sessionTimeout,
+            SettingsKey.subagentCleanupSeconds: SettingsDefaults.subagentCleanupSeconds,
+            SettingsKey.transcriptStaleNoToolSeconds: SettingsDefaults.transcriptStaleNoToolSeconds,
+            SettingsKey.transcriptStaleWithToolSeconds: SettingsDefaults.transcriptStaleWithToolSeconds,
             SettingsKey.maxPanelHeight: SettingsDefaults.maxPanelHeight,
             SettingsKey.maxVisibleSessions: SettingsDefaults.maxVisibleSessions,
             SettingsKey.contentFontSize: SettingsDefaults.contentFontSize,
@@ -264,6 +310,8 @@ class SettingsManager {
             SettingsKey.appleCompanionHeartbeatSeconds: SettingsDefaults.appleCompanionHeartbeatSeconds,
             SettingsKey.defaultSource: SettingsDefaults.defaultSource,
             SettingsKey.autoApproveTools: SettingsDefaults.autoApproveTools,
+            SettingsKey.autoApproveMode: SettingsDefaults.autoApproveMode,
+            SettingsKey.planAutoAcceptMode: SettingsDefaults.planAutoAcceptMode,
             SettingsKey.excludedHookCwdSubstrings: SettingsDefaults.excludedHookCwdSubstrings,
             SettingsKey.claudeConfigDir: SettingsDefaults.claudeConfigDir,
             SettingsKey.webhookEnabled: SettingsDefaults.webhookEnabled,
@@ -339,6 +387,21 @@ class SettingsManager {
         set { defaults.set(newValue, forKey: SettingsKey.sessionTimeout) }
     }
 
+    var subagentCleanupSeconds: Int {
+        get { defaults.integer(forKey: SettingsKey.subagentCleanupSeconds) }
+        set { defaults.set(newValue, forKey: SettingsKey.subagentCleanupSeconds) }
+    }
+
+    var transcriptStaleNoToolSeconds: Int {
+        get { defaults.integer(forKey: SettingsKey.transcriptStaleNoToolSeconds) }
+        set { defaults.set(newValue, forKey: SettingsKey.transcriptStaleNoToolSeconds) }
+    }
+
+    var transcriptStaleWithToolSeconds: Int {
+        get { defaults.integer(forKey: SettingsKey.transcriptStaleWithToolSeconds) }
+        set { defaults.set(newValue, forKey: SettingsKey.transcriptStaleWithToolSeconds) }
+    }
+
     var maxPanelHeight: Int {
         get { defaults.integer(forKey: SettingsKey.maxPanelHeight) }
         set { defaults.set(newValue, forKey: SettingsKey.maxPanelHeight) }
@@ -404,11 +467,27 @@ class SettingsManager {
     var autoApproveTools: Set<String> {
         get {
             let raw = defaults.string(forKey: SettingsKey.autoApproveTools) ?? SettingsDefaults.autoApproveTools
-            return Set(raw.split(separator: ",").map(String.init))
+            return Set(raw.split(separator: ",").map(String.init).filter { !$0.isEmpty })
         }
         set {
             defaults.set(newValue.sorted().joined(separator: ","), forKey: SettingsKey.autoApproveTools)
         }
+    }
+
+    var autoApproveMode: AutoApproveMode {
+        get {
+            let raw = defaults.string(forKey: SettingsKey.autoApproveMode) ?? SettingsDefaults.autoApproveMode
+            return AutoApproveMode(rawValue: raw) ?? .addRules
+        }
+        set { defaults.set(newValue.rawValue, forKey: SettingsKey.autoApproveMode) }
+    }
+
+    var planAutoAcceptMode: PlanAutoAcceptMode {
+        get {
+            let raw = defaults.string(forKey: SettingsKey.planAutoAcceptMode) ?? SettingsDefaults.planAutoAcceptMode
+            return PlanAutoAcceptMode(rawValue: raw) ?? .auto
+        }
+        set { defaults.set(newValue.rawValue, forKey: SettingsKey.planAutoAcceptMode) }
     }
 
     /// Comma-separated list of substrings; any hook event whose `cwd` contains

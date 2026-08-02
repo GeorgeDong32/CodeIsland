@@ -1,0 +1,255 @@
+import XCTest
+@testable import CodeIslandCore
+
+/// Verifies `AppState.performSubagentFastCleanup` — the pure helper extracted
+/// from `cleanupIdleSessions` for testability. Removes non-running subagent
+/// entries whose `lastActivity` is older than the threshold. `threshold == 0`
+/// disables the phase entirely.
+final class SubagentFastCleanupTests: XCTestCase {
+
+    // MARK: - Basic behavior
+
+    func testSubagentIdleOver30sIsRemoved() {
+        var session = SessionSnapshot()
+        session.source = "cursor"
+        var oldSub = SubagentState(agentId: "old", agentType: "default")
+        oldSub.status = .idle
+        oldSub.lastActivity = Date(timeIntervalSinceNow: -60)
+        session.subagents["old"] = oldSub
+        var sessions = ["s1": session]
+
+        SessionCleanup.performSubagentFastCleanup(sessions: &sessions, threshold: 30)
+
+        XCTAssertNil(sessions["s1"]?.subagents["old"], "stale idle subagent should be removed")
+    }
+
+    func testSubagentIdleUnder30sIsKept() {
+        var session = SessionSnapshot()
+        session.source = "cursor"
+        var freshSub = SubagentState(agentId: "fresh", agentType: "default")
+        freshSub.status = .idle
+        freshSub.lastActivity = Date(timeIntervalSinceNow: -10)
+        session.subagents["fresh"] = freshSub
+        var sessions = ["s1": session]
+
+        SessionCleanup.performSubagentFastCleanup(sessions: &sessions, threshold: 30)
+
+        XCTAssertNotNil(sessions["s1"]?.subagents["fresh"], "fresh idle subagent should be kept")
+    }
+
+    func testSubagentRunningIsNotRemoved() {
+        var session = SessionSnapshot()
+        session.source = "cursor"
+        var runningSub = SubagentState(agentId: "running", agentType: "default")
+        runningSub.status = .running
+        runningSub.lastActivity = Date(timeIntervalSinceNow: -120)
+        session.subagents["running"] = runningSub
+        var sessions = ["s1": session]
+
+        SessionCleanup.performSubagentFastCleanup(sessions: &sessions, threshold: 30)
+
+        XCTAssertNotNil(sessions["s1"]?.subagents["running"], "running subagent should not be removed")
+    }
+
+    func testSubagentProcessingIsRemovedWhenStale() {
+        var session = SessionSnapshot()
+        session.source = "cursor"
+        var processingSub = SubagentState(agentId: "p", agentType: "default")
+        processingSub.status = .processing
+        processingSub.lastActivity = Date(timeIntervalSinceNow: -120)
+        session.subagents["p"] = processingSub
+        var sessions = ["s1": session]
+
+        SessionCleanup.performSubagentFastCleanup(sessions: &sessions, threshold: 30)
+
+        XCTAssertNil(sessions["s1"]?.subagents["p"], "stale processing subagent should be removed")
+    }
+
+    // MARK: - Disabled by threshold 0
+
+    func testThresholdZeroIsDisabled() {
+        var session = SessionSnapshot()
+        var ancientSub = SubagentState(agentId: "ancient", agentType: "default")
+        ancientSub.status = .idle
+        ancientSub.lastActivity = Date(timeIntervalSinceNow: -3600)  // 1 hour
+        session.subagents["ancient"] = ancientSub
+        var sessions = ["s1": session]
+
+        SessionCleanup.performSubagentFastCleanup(sessions: &sessions, threshold: 0)
+
+        XCTAssertNotNil(sessions["s1"]?.subagents["ancient"], "threshold 0 should be no-op")
+    }
+
+    func testThresholdNegativeIsDisabled() {
+        var session = SessionSnapshot()
+        var staleSub = SubagentState(agentId: "s", agentType: "default")
+        staleSub.status = .idle
+        staleSub.lastActivity = Date(timeIntervalSinceNow: -3600)
+        session.subagents["s"] = staleSub
+        var sessions = ["s1": session]
+
+        SessionCleanup.performSubagentFastCleanup(sessions: &sessions, threshold: -1)
+
+        XCTAssertNotNil(sessions["s1"]?.subagents["s"], "negative threshold should be no-op")
+    }
+
+    // MARK: - Multi-session
+
+    func testMultipleSessionsCleanupOnlyStaleOnes() {
+        var s1 = SessionSnapshot()
+        var stale = SubagentState(agentId: "stale", agentType: "default")
+        stale.status = .idle
+        stale.lastActivity = Date(timeIntervalSinceNow: -90)
+        s1.subagents["stale"] = stale
+
+        var s2 = SessionSnapshot()
+        var fresh = SubagentState(agentId: "fresh", agentType: "default")
+        fresh.status = .idle
+        fresh.lastActivity = Date(timeIntervalSinceNow: -5)
+        s2.subagents["fresh"] = fresh
+
+        var sessions = ["s1": s1, "s2": s2]
+
+        SessionCleanup.performSubagentFastCleanup(sessions: &sessions, threshold: 30)
+
+        XCTAssertNil(sessions["s1"]?.subagents["stale"], "s1 stale should be removed")
+        XCTAssertNotNil(sessions["s2"]?.subagents["fresh"], "s2 fresh should be preserved")
+    }
+
+    func testAutoCwdPrefixDoesNotInterfere() {
+        var session = SessionSnapshot()
+        session.source = "cursor"
+        var autoCwd = SubagentState(agentId: "auto-cwd-cursor-ppid-1234", agentType: "default")
+        autoCwd.status = .idle
+        autoCwd.lastActivity = Date(timeIntervalSinceNow: -120)
+        session.subagents["auto-cwd-cursor-ppid-1234"] = autoCwd
+        var sessions = ["s1": session]
+
+        SessionCleanup.performSubagentFastCleanup(sessions: &sessions, threshold: 30)
+
+        XCTAssertNil(sessions["s1"]?.subagents["auto-cwd-cursor-ppid-1234"],
+                     "auto-cwd-prefixed synthesized subagent should also be cleaned up")
+    }
+
+    // MARK: - mergedSessionIds skip (issue H)
+
+    /// Regression: when an `agentId` is still listed in `mergedSessionIds`,
+    /// the corresponding subagent entry MUST be preserved by fast cleanup,
+    /// even if the subagent has been idle past the threshold. Removing the
+    /// entry would orphan the redirect path and re-open the create-merge
+    /// loop that `b84693b` was written to fix.
+    func testMergedSubagentIsSkipped() {
+        var session = SessionSnapshot()
+        session.source = "cursor"
+        var mergedSub = SubagentState(agentId: "sub-1", agentType: "default")
+        mergedSub.status = .processing
+        mergedSub.lastActivity = Date(timeIntervalSinceNow: -120)
+        var unrelatedSub = SubagentState(agentId: "unrelated", agentType: "default")
+        unrelatedSub.status = .processing
+        unrelatedSub.lastActivity = Date(timeIntervalSinceNow: -120)
+        session.subagents["sub-1"] = mergedSub
+        session.subagents["unrelated"] = unrelatedSub
+        var sessions = ["s1": session]
+
+        // sub-1 is still in mergedSessionIds; the other is not.
+        SessionCleanup.performSubagentFastCleanup(
+            sessions: &sessions,
+            threshold: 30,
+            mergedSessionIds: ["sub-1": "s1"]
+        )
+
+        XCTAssertNotNil(sessions["s1"]?.subagents["sub-1"],
+                       "merged subagent must NOT be cleaned up while redirect is active")
+        XCTAssertNil(sessions["s1"]?.subagents["unrelated"],
+                     "non-merged subagent past threshold MUST still be cleaned up")
+    }
+
+    /// Default empty `mergedSessionIds` preserves the original fast-cleanup
+    /// contract: stale non-running subagents are removed.
+    func testEmptyMergedSessionIdsPreservesExistingBehavior() {
+        var session = SessionSnapshot()
+        var stale = SubagentState(agentId: "stale", agentType: "default")
+        stale.status = .idle
+        stale.lastActivity = Date(timeIntervalSinceNow: -120)
+        session.subagents["stale"] = stale
+        var sessions = ["s1": session]
+
+        SessionCleanup.performSubagentFastCleanup(sessions: &sessions, threshold: 30)
+
+        XCTAssertNil(sessions["s1"]?.subagents["stale"],
+                     "stale subagent must be removed when mergedSessionIds is empty")
+    }
+
+    /// A redirect that has been silent for many threshold cycles is presumed
+    /// abandoned: drop both the subagent entry and report the agentId so the
+    /// caller can evict the corresponding `mergedSessionIds` cache entry.
+    /// Without this, an abandoned merge pins the parent session forever and
+    /// is the primary driver of the v1.2.8 idle-memory regression.
+    func testAbandonedRedirectIsEvictedWithMergedId() {
+        var session = SessionSnapshot()
+        session.source = "cursor"
+        var staleRedirect = SubagentState(agentId: "sub-1", agentType: "default")
+        staleRedirect.status = .processing
+        // 600s with threshold=30 and default 10x multiplier (300s) — way past.
+        staleRedirect.lastActivity = Date(timeIntervalSinceNow: -600)
+        session.subagents["sub-1"] = staleRedirect
+        var sessions = ["s1": session]
+
+        let evicted = SessionCleanup.performSubagentFastCleanup(
+            sessions: &sessions,
+            threshold: 30,
+            mergedSessionIds: ["sub-1": "s1"]
+        )
+
+        XCTAssertTrue(evicted.contains("sub-1"),
+                      "stale redirect MUST be reported for mergedSessionIds eviction")
+        XCTAssertNil(sessions["s1"]?.subagents["sub-1"],
+                     "stale redirected subagent MUST be removed past the redirect TTL")
+    }
+
+    /// A redirect that is past the regular threshold but still inside the
+    /// 10x redirect window MUST be preserved (still possibly active).
+    func testFreshRedirectIsPreserved() {
+        var session = SessionSnapshot()
+        session.source = "cursor"
+        var sub = SubagentState(agentId: "sub-1", agentType: "default")
+        sub.status = .processing
+        // Past 30s threshold but within 10x = 300s window.
+        sub.lastActivity = Date(timeIntervalSinceNow: -60)
+        session.subagents["sub-1"] = sub
+        var sessions = ["s1": session]
+
+        let evicted = SessionCleanup.performSubagentFastCleanup(
+            sessions: &sessions,
+            threshold: 30,
+            mergedSessionIds: ["sub-1": "s1"]
+        )
+
+        XCTAssertTrue(evicted.isEmpty, "redirect inside the TTL window MUST NOT be evicted")
+        XCTAssertNotNil(sessions["s1"]?.subagents["sub-1"],
+                        "redirect inside the TTL window MUST be preserved")
+    }
+
+    func testMixedSubagentsPerSession() {
+        var session = SessionSnapshot()
+        var idleStale = SubagentState(agentId: "a", agentType: "default")
+        idleStale.status = .idle
+        idleStale.lastActivity = Date(timeIntervalSinceNow: -120)
+        var idleFresh = SubagentState(agentId: "b", agentType: "default")
+        idleFresh.status = .idle
+        idleFresh.lastActivity = Date(timeIntervalSinceNow: -5)
+        var runningStale = SubagentState(agentId: "c", agentType: "default")
+        runningStale.status = .running
+        runningStale.lastActivity = Date(timeIntervalSinceNow: -120)
+        session.subagents["a"] = idleStale
+        session.subagents["b"] = idleFresh
+        session.subagents["c"] = runningStale
+        var sessions = ["s1": session]
+
+        SessionCleanup.performSubagentFastCleanup(sessions: &sessions, threshold: 30)
+
+        XCTAssertNil(sessions["s1"]?.subagents["a"])
+        XCTAssertNotNil(sessions["s1"]?.subagents["b"])
+        XCTAssertNotNil(sessions["s1"]?.subagents["c"])
+    }
+}

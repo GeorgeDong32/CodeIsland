@@ -81,6 +81,10 @@ public struct SessionSnapshot: Sendable {
     public var cwd: String?
     public var model: String?
     public var permissionMode: String?
+    /// Most permissive permission_mode ever observed for this session.
+    /// Escalate-only: bypassPermissions (3) > auto (2) > acceptEdits (1).
+    /// Used by the AUTO button to restore the user's prior intent.
+    public var observedPermissionMode: String?
     public var toolHistory: [ToolHistoryEntry] = []
     public var totalToolCallCount: Int = 0
     public var subagents: [String: SubagentState] = [:]
@@ -268,6 +272,19 @@ public struct SessionSnapshot: Sendable {
 
     public var activeSubagentCount: Int {
         subagents.values.filter { $0.status != .idle }.count
+    }
+
+    /// Rank map for permission modes — higher rank wins in escalate-only merge.
+    private static let permissionModeRank: [String: Int] = [
+        "bypassPermissions": 3, "auto": 2, "acceptEdits": 1
+    ]
+
+    /// Merge an observed permission_mode into the session's peak history.
+    /// Escalates only: bypassPermissions (3) > auto (2) > acceptEdits (1) > unknown (0).
+    public mutating func mergeObservedPermissionMode(_ mode: String) {
+        let newRank = Self.permissionModeRank[mode] ?? 0
+        let existingRank = Self.permissionModeRank[observedPermissionMode ?? ""] ?? 0
+        if newRank > existingRank { observedPermissionMode = mode }
     }
 
     public mutating func addRecentMessage(_ msg: ChatMessage, maxCount: Int = 3) {
@@ -1051,7 +1068,10 @@ public func reduceEvent(
         if let pane = event.rawJSON["_tmux_pane"] as? String, !pane.isEmpty { sessions[sessionId]?.tmuxPane = pane }
         if let tmuxTty = event.rawJSON["_tmux_client_tty"] as? String, !tmuxTty.isEmpty { sessions[sessionId]?.tmuxClientTty = tmuxTty }
         if let tmux = event.rawJSON["_tmux"] as? String, !tmux.isEmpty { sessions[sessionId]?.tmuxEnv = tmux }
-        if let mode = event.rawJSON["permission_mode"] as? String { sessions[sessionId]?.permissionMode = mode }
+        if let mode = event.rawJSON["permission_mode"] as? String {
+            sessions[sessionId]?.permissionMode = mode
+            sessions[sessionId]?.mergeObservedPermissionMode(mode)
+        }
         if let roots = event.rawJSON["workspace_roots"] as? [String], let first = roots.first, !first.isEmpty {
             sessions[sessionId]?.cwd = first
         }
@@ -1298,6 +1318,7 @@ public func extractMetadata(into sessions: inout [String: SessionSnapshot], sess
     }
     if let mode = event.rawJSON["permission_mode"] as? String {
         sessions[sessionId]?.permissionMode = mode
+        sessions[sessionId]?.mergeObservedPermissionMode(mode)
     }
     // Hooks frequently include the absolute transcript path — capture it so the tailer
     // can attach to live appends without needing a filesystem scan to rediscover it.
