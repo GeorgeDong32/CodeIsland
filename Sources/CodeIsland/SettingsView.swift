@@ -368,15 +368,6 @@ private struct BehaviorPage: View {
         )
     }
 
-    private func autoApproveBinding(for name: String) -> Binding<Bool> {
-        Binding(
-            get: { autoApproveSet.contains(name) },
-            set: { isOn in
-                if isOn { autoApproveSet.insert(name) } else { autoApproveSet.remove(name) }
-            }
-        )
-    }
-
     var body: some View {
         Form {
             Section(l10n["display_section"]) {
@@ -435,62 +426,11 @@ private struct BehaviorPage: View {
                 }
             }
 
-            Section(l10n["auto_approve_mode"]) {
-                Text(l10n["auto_approve_mode_desc"])
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Picker(selection: $autoApproveMode) {
-                    ForEach(AutoApproveMode.allCases) { mode in
-                        Text(l10n["auto_approve_mode_\(mode.rawValue)"])
-                            .tag(mode.rawValue)
-                    }
-                } label: {
-                    EmptyView()
-                }
-                .pickerStyle(.segmented)
-            }
-
-            // Plan card auto-accept mode — user picks between auto (recommended) and acceptEdits
-            Section(l10n["plan_auto_accept_mode"]) {
-                Text(l10n["plan_auto_accept_mode_desc"])
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Picker(selection: $planAutoAcceptMode) {
-                    ForEach(PlanAutoAcceptMode.allCases) { mode in
-                        Text(l10n["plan_auto_accept_mode_\(mode.rawValue)"])
-                            .tag(mode.rawValue)
-                    }
-                } label: {
-                    EmptyView()
-                }
-                .pickerStyle(.segmented)
-            }
-
-            Section(l10n["auto_approve_tools"]) {
-                Text(l10n["auto_approve_tools_desc"])
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ForEach(SettingsManager.allAutoApproveTools, id: \.name) { tool in
-                    Toggle(isOn: Binding(
-                        get: { autoApproveSet.contains(tool.name) },
-                        set: { isOn in
-                            if isOn {
-                                autoApproveSet.insert(tool.name)
-                            } else {
-                                autoApproveSet.remove(tool.name)
-                            }
-                        }
-                    )) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(tool.name)
-                                .font(.system(size: 12, design: .monospaced))
-                            Text(l10n["auto_approve_\(tool.name)"])
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
+            AutoApproveSettingsSections(
+                autoApproveMode: $autoApproveMode,
+                planAutoAcceptMode: $planAutoAcceptMode,
+                autoApproveSet: $autoApproveSet
+            )
 
             Section(l10n["sessions"]) {
                 Picker(selection: $sessionTimeout) {

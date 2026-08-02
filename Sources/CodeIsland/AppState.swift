@@ -164,7 +164,7 @@ final class AppState {
     }
     private var modelReadRetryAt: [String: Date] = [:]
 
-    private var dismissedPermissionSessionIds: Set<String> = []
+    var dismissedPermissionSessionIds: Set<String> = []
     private var dismissedQuestionSessionIds: Set<String> = []
     private func nextVisiblePermissionIndex() -> Int? {
         permissionQueue.firstIndex { request in
@@ -630,14 +630,7 @@ final class AppState {
     /// from a background context. See MEM-003 / MEM-004.
     @MainActor
     func removeSession(_ sessionId: String) {
-        // Reset auto-approve state for this session
-        if autoApproveSessionId == sessionId {
-            autoApproveSessionId = nil
-            autoApproveModeSnapshot = nil  // Clear snapshot when active session exits
-        }
-        if pendingAutoCleanup?.sessionId == sessionId {
-            pendingAutoCleanup = nil  // Clear pending cleanup when session exits
-        }
+        clearAutoApproveState(forRemovedSession: sessionId)
 
         // Resume ALL pending continuations for this session
         drainPermissions(forSession: sessionId, reason: "removeSession")
@@ -1106,26 +1099,7 @@ final class AppState {
             executeEffect(effect, sessionId: sessionId)
         }
 
-        // Sync auto-approve state with hook-reported permission mode.
-        let autoModes: Set<String> = ["auto", "acceptEdits", "bypassPermissions"]
-        if let mode = sessions[sessionId]?.permissionMode {
-            if autoModes.contains(mode) {
-                // CLI is in an auto mode — activate if not already active
-                if autoApproveSessionId != sessionId {
-                    autoApproveSessionId = sessionId
-                    autoApproveModeSnapshot = {
-                        switch mode {
-                        case "bypassPermissions": return .bypassPermissions
-                        case "acceptEdits": return .addRules
-                        default: return .auto
-                        }
-                    }()
-                }
-            } else if autoApproveSessionId == sessionId {
-                // CLI left auto mode — deactivate to stay in sync
-                deactivateAutoApprove(sessionId: sessionId)
-            }
-        }
+        syncAutoApproveWithPermissionMode(sessionId: sessionId)
 
         if let provider = sessions[sessionId]?.source,
            sessions[sessionId]?.isRemote != true,
@@ -1364,12 +1338,7 @@ final class AppState {
         let sessionId = pending.event.sessionId ?? "default"
         dismissedPermissionSessionIds.remove(sessionId)
 
-        // Check if this session has pending AUTO cleanup
-        let needsCleanup = pendingAutoCleanup?.sessionId == sessionId
-        let cleanupMode = pendingAutoCleanup?.mode
-        if needsCleanup {
-            pendingAutoCleanup = nil
-        }
+        let cleanupMode = consumePendingAutoCleanup(for: sessionId)
 
         let responseData: Data
         if always, CodexPermissionRules.isCodexEvent(pending.event) {
@@ -1384,41 +1353,18 @@ final class AppState {
                 "behavior": "allow",
                 "destination": "session",
             ]]
-            if needsCleanup {
-                // Reset mode to default
-                permissions.append([
-                    "type": "setMode", "mode": "default", "destination": "session",
-                ])
-                // Only send removeRules for modes that actually added rules (not auto)
-                // Skip current tool to preserve user's "Always allow" choice
-                if let mode = cleanupMode, mode != .auto {
-                    let rulesToRemove = Self.autoApproveToolNames.filter { $0 != toolName }
-                    if !rulesToRemove.isEmpty {
-                        permissions.append([
-                            "type": "removeRules",
-                            "rules": rulesToRemove.map { ["toolName": $0, "ruleContent": "*"] },
-                            "behavior": "allow",
-                            "destination": "session",
-                        ])
-                    }
-                }
+            if let cleanupMode {
+                // Always-allow already added the tool rule; only append setMode/removeRules.
+                permissions.append(contentsOf: Self.autoCleanupPermissionEntries(
+                    mode: cleanupMode,
+                    preserveToolName: toolName
+                ))
             }
             responseData = Self.permissionAllowResponse(updatedPermissions: permissions)
-        } else if needsCleanup {
-            // Clean up AUTO session: reset mode, optionally remove rules
-            var cleanupPermissions: [[String: Any]] = [
-                ["type": "setMode", "mode": "default", "destination": "session"],
-            ]
-            // Only send removeRules for modes that actually added rules (not auto)
-            if let mode = cleanupMode, mode != .auto {
-                cleanupPermissions.append([
-                    "type": "removeRules",
-                    "rules": Self.autoApproveToolNames.map { ["toolName": $0, "ruleContent": "*"] },
-                    "behavior": "allow",
-                    "destination": "session",
-                ])
-            }
-            responseData = Self.permissionAllowResponse(updatedPermissions: cleanupPermissions)
+        } else if let cleanupMode {
+            responseData = Self.permissionAllowResponse(
+                updatedPermissions: Self.autoCleanupPermissionEntries(mode: cleanupMode)
+            )
         } else {
             responseData = Self.allowResponseData(for: pending.event)
         }
@@ -1507,168 +1453,6 @@ final class AppState {
         refreshDerivedState()
     }
 
-    // MARK: - Plan Approval (ExitPlanMode)
-
-    /// Extract setMode suggestion from ExitPlanMode permission_suggestions
-    func suggestedModeForPendingPlan() -> String? {
-        guard let pending = permissionQueue.first,
-              pending.event.toolName == "ExitPlanMode",
-              let suggestions = pending.event.rawJSON["permission_suggestions"] as? [[String: Any]] else {
-            return nil
-        }
-        for suggestion in suggestions {
-            if suggestion["type"] as? String == "setMode",
-               let mode = suggestion["mode"] as? String {
-                return mode
-            }
-        }
-        return nil
-    }
-
-    /// Resolve the setMode value for the Plan card's auto-accept OptionRow.
-    /// Priority:
-    /// 1. permission_suggestions (preserves Claude Code's explicit hint)
-    /// 2. SettingsManager.shared.planAutoAcceptMode.rawValue ("auto" or "acceptEdits")
-    /// 3. "acceptEdits" as the final safety net (handled by the caller)
-    func smartModeForPendingPlan() -> String? {
-        if let suggested = suggestedModeForPendingPlan() { return suggested }
-        return SettingsManager.shared.planAutoAcceptMode.rawValue
-    }
-
-    /// Approve ExitPlanMode with optional permission mode change
-    func approvePlanWithMode(_ mode: String?) {
-        guard !permissionQueue.isEmpty else { return }
-        let pending = permissionQueue.removeFirst()
-        let sessionId = pending.event.sessionId ?? "default"
-        dismissedPermissionSessionIds.remove(sessionId)
-
-        let responseData: Data
-        if let mode {
-            responseData = Self.permissionAllowResponse(updatedPermissions: [[
-                "type": "setMode",
-                "mode": mode,
-                "destination": "session",
-            ]])
-        } else {
-            responseData = Self.simpleAllowResponse
-        }
-
-        pending.continuation.resume(returning: responseData)
-        sessions[sessionId]?.status = .running
-        sessions[sessionId]?.currentTool = nil
-        sessions[sessionId]?.toolDescription = nil
-
-        showNextPending()
-        refreshDerivedState()
-    }
-
-    /// Deny permission with optional feedback message
-    func denyPermissionWithFeedback(_ feedback: String?) {
-        guard !permissionQueue.isEmpty else { return }
-        let pending = permissionQueue.removeFirst()
-        let sessionId = pending.event.sessionId ?? "default"
-        dismissedPermissionSessionIds.remove(sessionId)
-
-        let responseData: Data
-        if let feedback, !feedback.isEmpty {
-            responseData = Self.denyResponseData(for: pending.event, message: feedback)
-        } else {
-            responseData = Self.denyResponseData(for: pending.event)
-        }
-        pending.continuation.resume(returning: responseData)
-        sessions[sessionId]?.status = .idle
-        sessions[sessionId]?.currentTool = nil
-        sessions[sessionId]?.toolDescription = nil
-
-        if activeSessionId == sessionId {
-            activeSessionId = mostActiveSessionId()
-        }
-
-        showNextPending()
-        refreshDerivedState()
-    }
-
-    // MARK: - Auto Approve
-
-    /// Whether auto-approve is active for the given session
-    func isAutoApproveActive(for sessionId: String) -> Bool {
-        autoApproveSessionId == sessionId
-    }
-
-    /// Deactivate auto-approve for a session. Called when Claude Code
-    /// sends PermissionRequest despite a setMode mode being active,
-    /// indicating the session's permission mode changed away from the
-    /// hook-controlled mode (e.g., user toggled mode in CLI).
-    /// Note: No refreshDerivedState() needed — @Observable auto-detects
-    /// autoApproveSessionId changes, and derived state doesn't depend on it.
-    func deactivateAutoApprove(sessionId: String) {
-        guard autoApproveSessionId == sessionId else { return }
-        // Transfer mode snapshot to pending cleanup (不会被其他 session 覆盖)
-        if let mode = autoApproveModeSnapshot {
-            pendingAutoCleanup = PendingAutoCleanup(sessionId: sessionId, mode: mode)
-        }
-        autoApproveSessionId = nil
-        autoApproveModeSnapshot = nil
-    }
-
-    /// Toggle auto-approve for a session. Only one session at a time.
-    func toggleAutoApprove(sessionId: String) {
-        if autoApproveSessionId == sessionId {
-            // Deactivate — transfer snapshot to pending cleanup
-            if let mode = autoApproveModeSnapshot {
-                pendingAutoCleanup = PendingAutoCleanup(sessionId: sessionId, mode: mode)
-            }
-            autoApproveSessionId = nil
-            autoApproveModeSnapshot = nil
-        } else {
-            // Log if another session was in bypass (cannot revoke remotely)
-            if let previousId = autoApproveSessionId, previousId != sessionId {
-                log.info("Switching auto-approve from \(previousId) to \(sessionId). Previous session remains in CLI bypass mode.")
-            }
-            // Activate (deactivates previous session if any)
-            autoApproveSessionId = sessionId
-            // Save the mode at activation time for cleanup decision
-            autoApproveModeSnapshot = SettingsManager.shared.autoApproveMode
-            // Only clear pending cleanup if same session reactivates
-            if pendingAutoCleanup?.sessionId == sessionId {
-                pendingAutoCleanup = nil
-            }
-            // Flush all pending permissions for this session
-            flushPendingPermissionsForAutoApprove(sessionId: sessionId)
-        }
-    }
-
-    /// Auto-approve all pending queued permissions for a session.
-    /// Uses the configured AUTO mode for Claude Code, simple allow for other CLIs.
-    ///
-    /// All modes keep AUTO active after flushing. AUTO is deactivated when:
-    /// - HookServer receives a PermissionRequest (uncovered tool or mode exit)
-    /// - User taps the ⏵⏵ indicator to manually toggle off
-    private func flushPendingPermissionsForAutoApprove(sessionId: String) {
-        let isClaudeCode = sessions[sessionId]?.isClaude == true
-
-        var didFlush = false
-        while let idx = permissionQueue.firstIndex(where: { $0.event.sessionId == sessionId }) {
-            let pending = permissionQueue.remove(at: idx)
-            let data: Data
-            if isClaudeCode {
-                data = autoApproveInitialResponse(for: sessionId)
-            } else {
-                data = Self.allowResponseData(for: pending.event)
-            }
-            pending.continuation.resume(returning: data)
-            didFlush = true
-        }
-        if didFlush {
-            sessions[sessionId]?.status = .running
-            showNextPending()
-            refreshDerivedState()
-        }
-
-        // addRules mode now keeps AUTO active (same as setMode modes).
-        // When an uncovered tool triggers PermissionRequest, HookServer deactivates AUTO.
-    }
-
     /// Simple allow response for auto-approved permissions (no setMode)
     static let simpleAllowResponse = Data(
         #"{"continue":true,"suppressOutput":true,"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#.utf8
@@ -1696,21 +1480,6 @@ final class AppState {
     static let ackResponse = Data(#"{"continue":true,"suppressOutput":true}"#.utf8)
 
     // MARK: - Hook Response Helpers
-
-    /// All built-in tool names for addRules-based auto-approve.
-    /// Only covers known internal tools; MCP tools (mcp__server__tool) require manual approval.
-    private static let autoApproveToolNames = [
-        // File & editing tools
-        "Bash", "Edit", "MultiEdit", "Write", "Read", "Glob", "Grep",
-        // Notebook & search
-        "NotebookEdit", "WebSearch", "WebFetch",
-        // Agent & skill
-        "Agent", "Skill",
-        // Task management
-        "TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskOutput", "TaskStop",
-        // Todo & plan
-        "TodoRead", "TodoWrite", "EnterPlanMode", "ExitPlanMode",
-    ]
 
     /// Build a hook response with correct top-level fields.
     /// Pass `omitSuppressOutput: true` for Codex CLI targets, whose
@@ -1778,83 +1547,6 @@ final class AppState {
             "hookSpecificOutput": hookOutput,
         ]
         return (try? JSONSerialization.data(withJSONObject: obj)) ?? Self.simpleAllowResponse
-    }
-
-    /// Generate the initial AUTO response based on the selected mode.
-    ///
-    /// - auto: Claude Code's native Auto Mode. Only sends `setMode auto`.
-    ///   Classifier judges each tool call; safe actions proceed, risky ones block/prompt.
-    ///   No addRules needed — classifier handles all decisions.
-    ///
-    /// - addRules: Switches to `acceptEdits` mode and sends tool-name whitelist rules.
-    ///   Built-in tools matching rules are auto-approved; others trigger PermissionRequest.
-    ///   AUTO stays active until an uncovered tool triggers deactivation or user toggles off.
-    ///
-    /// - bypassPermissions: Sets session to `bypassPermissions` mode and sends tool whitelist rules.
-    ///   Whitelisted built-in tools auto-approved; uncovered tools trigger PermissionRequest.
-    ///   Only effective with `--dangerously-skip-permissions` launch flag.
-    ///
-    /// - Parameter sessionId: If provided, uses the session's `observedPermissionMode` history
-    ///   to select the mode (bypass → .bypassPermissions, auto → .auto) before falling back
-    ///   to the global `autoApproveMode` setting.
-
-    /// Resolve the effective AutoApproveMode for a session's AUTO button.
-    /// Priority: observed bypass → observed auto → global setting.
-    /// Never returns .addRules when the session has an observed auto or bypass history.
-    private func effectiveAutoApproveMode(for sessionId: String?) -> AutoApproveMode {
-        guard let sid = sessionId,
-              let observed = sessions[sid]?.observedPermissionMode else {
-            return SettingsManager.shared.autoApproveMode
-        }
-        switch observed {
-        case "bypassPermissions": return .bypassPermissions
-        case "auto": return .auto
-        default: return SettingsManager.shared.autoApproveMode
-        }
-    }
-
-    @MainActor
-    func autoApproveInitialResponse(for sessionId: String? = nil) -> Data {
-        let mode = effectiveAutoApproveMode(for: sessionId)
-        switch mode {
-        case .auto:
-            // Native Auto Mode — classifier handles everything, no whitelist needed
-            return Self.permissionAllowResponse(updatedPermissions: [
-                ["type": "setMode", "mode": "auto", "destination": "session"],
-            ])
-        case .addRules:
-            return Self.permissionAllowResponse(updatedPermissions: [
-                // Switch to acceptEdits so the CLI shows the correct mode
-                [
-                    "type": "setMode",
-                    "mode": "acceptEdits",
-                    "destination": "session",
-                ],
-                // Send tool whitelist rules for session-level auto-approve
-                [
-                    "type": "addRules",
-                    "rules": Self.autoApproveToolNames.map { ["toolName": $0, "ruleContent": "*"] },
-                    "behavior": "allow",
-                    "destination": "session",
-                ],
-            ])
-        case .bypassPermissions:
-            // Bypass mode — send setMode + whitelist (only works with --dangerously-skip-permissions)
-            return Self.permissionAllowResponse(updatedPermissions: [
-                [
-                    "type": "setMode",
-                    "mode": "bypassPermissions",
-                    "destination": "session",
-                ],
-                // Add tool whitelist rules so covered tools are auto-approved
-                [
-                    "type": "addRules",
-                    "rules": Self.autoApproveToolNames.map { ["toolName": $0, "ruleContent": "*"] },
-                    "behavior": "allow",
-                    "destination": "session",
-                ],
-            ])
-        }
     }
 
     func dismissPermissionPrompt() {
@@ -2351,7 +2043,7 @@ final class AppState {
     }
 
     /// Find the most recently active non-idle session
-    private func mostActiveSessionId() -> String? {
+    func mostActiveSessionId() -> String? {
         // Pick the most urgent session: highest status priority, then most recent activity
         sessions.max { a, b in
             let pa = statusPriority(a.value.status)
