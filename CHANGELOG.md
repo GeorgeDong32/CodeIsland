@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased] — fork overlay on upstream v1.0.31
+
+### English
+- Rebase fork onto upstream v1.0.31 and keep Auto/Plan as a transplantable patch layer (`AppState+AutoApprove`, `AppState+Plan`, `NotchPanelView+Plan`, `SettingsAutoApproveSections`)
+- Claude Code Auto Mode button (auto / addRules / bypass) with per-session smart default and permission-mode badge sync
+- ExitPlanMode plan preview card with Auto Accept / Manual / Request Changes
+- Plan Auto-Accept Mode setting (default `auto`); `autoApproveTools` default stays empty (upstream)
+- Optional SessionCleanup: subagent fast cleanup + transcript-staleness interrupt detection (defaults 0 = off)
+- Adopt upstream Cursor Task folding (#262); drop local cwd-based subagent merge
+
+### 中文
+- 以 upstream v1.0.31 为新主干，Auto/Plan 收成可移植补丁层
+- 保留 Claude Code Auto Mode（auto / addRules / bypass）、会话级 smart default 与权限徽章同步
+- 保留 ExitPlanMode 计划预览卡（自动接受 / 手动 / 请求更改）与 Plan Auto-Accept 设置
+- `autoApproveTools` 默认跟上游为空；可选 SessionCleanup（subagent 清理 / transcript 静默打断，默认关闭）
+- 采用上游 Cursor Task 折叠（#262），放弃本地按 cwd 合并
+
 ## [v1.0.31] - 2026-07-23
 
 ### English
