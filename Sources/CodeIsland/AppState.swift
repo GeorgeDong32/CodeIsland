@@ -188,6 +188,19 @@ final class AppState {
     @ObservationIgnored
     var closedCodexAppThreads: [String: Date] = [:]
 
+    // Session-scoped auto-approve state: only one session at a time
+    var autoApproveSessionId: String?
+
+    /// The AUTO mode that was active when AUTO was enabled.
+    var autoApproveModeSnapshot: AutoApproveMode?
+
+    /// Pending AUTO cleanup: session that needs addRules cleanup on next permission allow.
+    struct PendingAutoCleanup {
+        let sessionId: String
+        let mode: AutoApproveMode
+    }
+    var pendingAutoCleanup: PendingAutoCleanup?
+
     /// Computed: first item in permission queue (backward compat for UI reads)
     var pendingPermission: PermissionRequest? { permissionQueue.first }
     /// Computed: first item in question queue
@@ -292,7 +305,7 @@ final class AppState {
     }
     private var modelReadRetryAt: [String: Date] = [:]
 
-    private var dismissedPermissionSessionIds: Set<String> = []
+    var dismissedPermissionSessionIds: Set<String> = []
     private func nextVisiblePermissionIndex() -> Int? {
         permissionQueue.firstIndex { request in
             let sid = request.event.sessionId ?? "default"
@@ -765,6 +778,9 @@ final class AppState {
     /// Every removal path (cleanup timer, process exit, reducer effect) goes through here
     /// so leaked continuations / connections are impossible.
     func removeSession(_ sessionId: String) {
+        clearAutoApproveState(forRemovedSession: sessionId)
+
+
         // Resume ALL pending continuations for this session
         drainPermissions(forSession: sessionId, reason: "removeSession")
         drainQuestions(forSession: sessionId, reason: "removeSession")
@@ -1436,6 +1452,8 @@ final class AppState {
             attachTranscriptTailerIfNeeded(sessionId: sessionId)
         }
 
+        syncAutoApproveWithPermissionMode(sessionId: sessionId)
+
         // Handle the "else if activeSessionId == sessionId → mostActive" edge case
         // (reducer can't check activeSessionId since it's AppState-local)
         if sessions[sessionId]?.status == .idle && activeSessionId == sessionId {
@@ -1639,6 +1657,7 @@ final class AppState {
         let pending = permissionQueue.remove(at: index)
         let sessionId = pending.event.sessionId ?? "default"
         dismissedPermissionSessionIds.remove(sessionId)
+        let cleanupMode = consumePendingAutoCleanup(for: sessionId)
         let responseData: Data
         if always, CodexPermissionRules.isCodexEvent(pending.event) {
             _ = CodexPermissionRules().persistAlwaysAllowRule(for: pending.event)
@@ -1658,24 +1677,25 @@ final class AppState {
             if !toolName.hasPrefix("mcp__") {
                 rule["ruleContent"] = "*"
             }
-            let obj: [String: Any] = [
-                "hookSpecificOutput": [
-                    "hookEventName": "PermissionRequest",
-                    "decision": [
-                        "behavior": "allow",
-                        "updatedPermissions": [[
-                            "type": "addRules",
-                            "rules": [rule],
-                            "behavior": "allow",
-                            "destination": "session"
-                        ]]
-                    ] as [String: Any]
-                ] as [String: Any]
-            ]
-            responseData = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
+            var permissions: [[String: Any]] = [[
+                "type": "addRules",
+                "rules": [rule],
+                "behavior": "allow",
+                "destination": "session"
+            ]]
+            if let cleanupMode {
+                permissions.append(contentsOf: Self.autoCleanupPermissionEntries(
+                    mode: cleanupMode,
+                    preserveToolName: toolName
+                ))
+            }
+            responseData = Self.permissionAllowResponse(updatedPermissions: permissions)
+        } else if let cleanupMode {
+            responseData = Self.permissionAllowResponse(
+                updatedPermissions: Self.autoCleanupPermissionEntries(mode: cleanupMode)
+            )
         } else {
-            let response = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
-            responseData = Data(response.utf8)
+            responseData = Self.allowResponseData(for: pending.event)
         }
         pending.continuation.resume(returning: responseData)
         resolveMergedSubagentAfterUI(
@@ -2442,7 +2462,7 @@ final class AppState {
     }
 
     /// Find the most recently active non-idle session
-    private func mostActiveSessionId() -> String? {
+    func mostActiveSessionId() -> String? {
         // Pick the most urgent session: highest status priority, then most recent activity
         sessions.max { a, b in
             let pa = statusPriority(a.value.status)
@@ -2805,6 +2825,7 @@ final class AppState {
             snapshot.weztermPaneId = p.weztermPaneId
             snapshot.lastActivity = p.lastActivity
             snapshot.transcriptPath = p.transcriptPath
+            snapshot.observedPermissionMode = p.observedPermissionMode
             if let closed = p.closedSubagentIds, !closed.isEmpty {
                 snapshot.restoreClosedSubagentIds(closed)
             }

@@ -393,6 +393,8 @@ private struct BehaviorPage: View {
     @AppStorage(SettingsKey.maxToolHistory) private var maxToolHistory = SettingsDefaults.maxToolHistory
     @AppStorage(SettingsKey.autoApproveTools) private var autoApproveRaw: String = SettingsDefaults.autoApproveTools
     @AppStorage(SettingsKey.autoApproveSources) private var autoApproveSources: String = SettingsDefaults.autoApproveSources
+    @AppStorage(SettingsKey.autoApproveMode) private var autoApproveMode: String = SettingsDefaults.autoApproveMode
+    @AppStorage(SettingsKey.planAutoAcceptMode) private var planAutoAcceptMode: String = SettingsDefaults.planAutoAcceptMode
     @AppStorage(SettingsKey.excludedHookCwdSubstrings) private var excludedHookCwdSubstrings: String = SettingsDefaults.excludedHookCwdSubstrings
     @AppStorage(SettingsKey.claudeConfigDir) private var claudeConfigDir: String = SettingsDefaults.claudeConfigDir
     @AppStorage(SettingsKey.webhookEnabled) private var webhookEnabled: Bool = SettingsDefaults.webhookEnabled
@@ -406,17 +408,6 @@ private struct BehaviorPage: View {
                 guard pluginSessionMode != newMode else { return }
                 pluginSessionMode = newMode
                 appState?.applyCurrentPluginSessionMode()
-            }
-        )
-    }
-
-    private func autoApproveBinding(for name: String) -> Binding<Bool> {
-        Binding(
-            get: { autoApproveRaw.split(separator: ",").contains(Substring(name)) },
-            set: { isOn in
-                var set = Set(autoApproveRaw.split(separator: ",").map(String.init))
-                if isOn { set.insert(name) } else { set.remove(name) }
-                autoApproveRaw = set.sorted().joined(separator: ",")
             }
         )
     }
@@ -492,36 +483,12 @@ private struct BehaviorPage: View {
                 }
             }
 
-            Section(l10n["auto_approve_tools"]) {
-                Text(l10n["auto_approve_tools_desc"])
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ForEach(SettingsManager.allAutoApproveTools, id: \.name) { tool in
-                    Toggle(isOn: autoApproveBinding(for: tool.name)) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(tool.name)
-                                .font(.system(size: 12, design: .monospaced))
-                            Text(l10n["auto_approve_\(tool.name)"])
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                Divider()
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(l10n["auto_approve_sources"])
-                        .font(.system(size: 12, weight: .medium))
-                    Text(l10n["auto_approve_sources_desc"])
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    TextField(
-                        l10n["auto_approve_sources_placeholder"],
-                        text: $autoApproveSources
-                    )
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12, design: .monospaced))
-                }
-            }
+            AutoApproveSettingsSections(
+                autoApproveMode: $autoApproveMode,
+                planAutoAcceptMode: $planAutoAcceptMode,
+                autoApproveRaw: $autoApproveRaw,
+                autoApproveSources: $autoApproveSources
+            )
 
             Section(l10n["claude_config_dir_title"]) {
                 Text(l10n["claude_config_dir_desc"])
@@ -1782,8 +1749,12 @@ private struct AboutPage: View {
                     aboutLink("Issues", icon: "ladybug", url: "https://github.com/wxtsky/CodeIsland/issues")
                 }
 
-                // In-app update section
-                updateSection
+                // In-app update section (fork overlay: hidden unless Sparkle
+                // is opted in — self-built distributions have no appcast).
+                if UserDefaults.standard.object(forKey: SettingsKey.sparkleAutoUpdateEnabled) as? Bool
+                    ?? SettingsDefaults.sparkleAutoUpdateEnabled {
+                    updateSection
+                }
 
                 Button {
                     DiagnosticsExporter.export()

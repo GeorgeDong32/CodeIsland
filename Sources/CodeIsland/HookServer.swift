@@ -744,8 +744,10 @@ class HookServer {
 
             // Auto-approve safe internal tools without showing UI
             if let toolName = event.toolName, Self.autoApproveTools.contains(toolName) {
-                let response = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
-                sendResponse(connection: connection, data: Data(response.utf8))
+                sendResponse(
+                    connection: connection,
+                    data: AppState.allowResponseData(for: event)
+                )
                 return
             }
 
@@ -775,6 +777,19 @@ class HookServer {
             if Self.shouldDeferPermissionRequestToProvider(event) {
                 sendResponse(connection: connection, data: Data("{}".utf8))
                 return
+            }
+
+            // If auto-approve is active but a PermissionRequest arrived:
+            // Claude Code: deactivate and show card. Other CLIs: silent allow.
+            if appState.isAutoApproveActive(for: sessionId) {
+                if let session = appState.sessions[sessionId], !session.isClaude {
+                    sendResponse(
+                        connection: connection,
+                        data: AppState.allowResponseData(for: event)
+                    )
+                    return
+                }
+                appState.deactivateAutoApprove(sessionId: sessionId)
             }
 
             monitorPeerDisconnect(connection: connection, sessionId: sessionId)

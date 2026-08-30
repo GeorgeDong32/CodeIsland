@@ -213,6 +213,49 @@ final class AppStatePermissionFlowTests: XCTestCase {
         XCTAssertEqual(appState.permissionQueue.count, 0)
     }
 
+    // MARK: - skipPlanAndResume (ExitPlanMode)
+
+    /// Skip resolves the pending ExitPlanMode continuation with a plain allow
+    /// (no setMode), drains it from the queue, and lets the agent continue.
+    /// Unlike `dismissPermissionPrompt`, the request does not stay pending.
+    func testSkipPlanAndResumeResolvesExitPlanModeWithPlainAllow() async throws {
+        let appState = AppState()
+        let event = try makePermissionRequestEvent(
+            sessionId: "s-plan-skip",
+            toolName: "ExitPlanMode",
+            toolInput: ["plan": "step 1\nstep 2"]
+        )
+
+        let responseTask = Task<Data, Never> {
+            await withCheckedContinuation { continuation in
+                appState.handlePermissionRequest(event, continuation: continuation)
+            }
+        }
+        await Task.yield()
+
+        XCTAssertEqual(appState.permissionQueue.count, 1)
+        XCTAssertEqual(appState.sessions["s-plan-skip"]?.status, .waitingApproval)
+
+        appState.skipPlanAndResume()
+
+        let response = await responseTask.value
+        // Plain allow — no updatedPermissions/setMode payload, just behavior.
+        XCTAssertEqual(try extractPermissionBehavior(from: response), "allow")
+        let decision = try extractPermissionDecision(from: response)
+        XCTAssertNil(decision["updatedPermissions"])
+        XCTAssertEqual(appState.permissionQueue.count, 0)
+        XCTAssertEqual(appState.sessions["s-plan-skip"]?.status, .running)
+    }
+
+    /// Skip is a no-op (does not crash / does not touch state) when the queue
+    /// is already empty — guards against double-tap on the button.
+    func testSkipPlanAndResumeIsNoOpWhenQueueEmpty() {
+        let appState = AppState()
+        XCTAssertEqual(appState.permissionQueue.count, 0)
+        appState.skipPlanAndResume() // must not crash
+        XCTAssertEqual(appState.permissionQueue.count, 0)
+    }
+
     func testBuddyApproveCommandResolvesPendingPermission() async throws {
         let appState = AppState()
         let event = try makePermissionRequestEvent(sessionId: "s-buddy-approve", toolName: "Bash")

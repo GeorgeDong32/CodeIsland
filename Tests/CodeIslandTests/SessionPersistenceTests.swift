@@ -68,7 +68,8 @@ final class SessionPersistenceTests: XCTestCase {
             startTime: startTime,
             lastActivity: startTime.addingTimeInterval(30),
             transcriptPath: nil,
-            closedSubagentIds: nil
+            closedSubagentIds: nil,
+            observedPermissionMode: nil
         )
 
         let encoder = JSONEncoder()
@@ -113,7 +114,8 @@ final class SessionPersistenceTests: XCTestCase {
             startTime: startTime,
             lastActivity: startTime,
             transcriptPath: nil,
-            closedSubagentIds: ["2528cb91-6379-48f2-aff8-40f4b804dafa"]
+            closedSubagentIds: ["2528cb91-6379-48f2-aff8-40f4b804dafa"],
+            observedPermissionMode: nil
         )
 
         let encoder = JSONEncoder()
@@ -188,7 +190,8 @@ final class SessionPersistenceTests: XCTestCase {
             startTime: startTime,
             lastActivity: startTime,
             transcriptPath: path,
-            closedSubagentIds: nil
+            closedSubagentIds: nil,
+            observedPermissionMode: nil
         )
 
         let encoder = JSONEncoder()

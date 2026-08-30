@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased] — fork overlay on upstream v1.0.32 (lean)
+
+### English
+- Lean fork overlay on upstream v1.0.32: UI layer only + Sparkle disable. Dropped vs the previous overlay: SessionCleanup (subagent fast cleanup / transcript-staleness), MEM-005/006 memory hardening, the AskUserQuestion-before-whitelist hook reorder, and reply diagnostics logging
+- Claude Code Auto Mode button (auto / addRules / bypass) with per-session smart default and permission-mode badge sync
+- ExitPlanMode plan preview card with Auto Accept / Manual / Request Changes, plus Skip (resolve with plain allow so the CLI unblocks) beside Dismiss
+- QuestionBar header click-to-jump to the session's terminal
+- Sparkle auto-update disabled by default (self-built distributions publish no appcast); flip `sparkleAutoUpdateEnabled` to opt back in
+- Upstream #283 Always-proceed Agents setting is kept and rendered inside the fork's `AutoApproveSettingsSections` component
+
+### 中文
+- 精简版 fork overlay：基于 upstream v1.0.32，只保留 UI 层 + 禁用 Sparkle。相比上一版砍掉：SessionCleanup（subagent 清理 / transcript 静默打断）、MEM-005/006 内存加固、AskUserQuestion 先于白名单的路由调整、回复诊断日志
+- 保留 Claude Code Auto Mode（auto / addRules / bypass）、会话级 smart default 与权限徽章同步
+- 保留 ExitPlanMode 计划预览卡（自动接受 / 手动 / 请求更改），并在 Dismiss 旁加 Skip（plain allow 放行，CLI 不再阻塞）
+- 提问卡标题栏点击跳转到对应终端
+- Sparkle 自动更新默认禁用（自建包无 appcast）；需要时把 `sparkleAutoUpdateEnabled` 打开即可
+- 上游 #283「免确认的 Agent」设置保留，并入 fork 的 `AutoApproveSettingsSections` 组件渲染
+
 ## [v1.0.32] - 2026-08-15
 
 ### English

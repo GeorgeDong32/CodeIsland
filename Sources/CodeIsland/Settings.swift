@@ -4,7 +4,7 @@ import CodeIslandCore
 
 enum AppVersion {
     /// Update this each release. Used as fallback when Info.plist is unavailable (debug builds).
-    static let fallback = "1.0.24"
+    static let fallback = "1.0.31"
 
     static var current: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? fallback
@@ -15,6 +15,30 @@ enum NotchHeightMode: String, CaseIterable {
     case matchNotch = "matchNotch"
     case matchMenuBar = "matchMenuBar"
     case custom = "custom"
+}
+
+/// Strategy used when user presses the AUTO (auto-approve) button.
+enum AutoApproveMode: String, CaseIterable, Identifiable {
+    case auto = "auto"
+    case addRules = "addRules"
+    case bypassPermissions = "bypass"
+
+    var id: String { rawValue }
+
+    var setModeValue: String? {
+        switch self {
+        case .auto: return "auto"
+        case .addRules: return nil
+        case .bypassPermissions: return "bypassPermissions"
+        }
+    }
+}
+
+/// Plan card auto-accept mode — only auto or acceptEdits.
+enum PlanAutoAcceptMode: String, CaseIterable, Identifiable {
+    case auto = "auto"
+    case acceptEdits = "acceptEdits"
+    var id: String { rawValue }
 }
 
 enum SettingsKey {
@@ -40,6 +64,13 @@ enum SettingsKey {
     static let hapticOnHover = "hapticOnHover"
     static let hapticIntensity = "hapticIntensity"      // 1=light, 2=medium, 3=strong
     static let sessionTimeout = "sessionTimeout"
+
+    // Fork overlay: Sparkle auto-update master switch. The fork ships
+    // self-built distributions that do not publish a Sparkle appcast, so the
+    // updater is left dormant by default (no scheduled checks, no About-page
+    // "check for updates" network calls). Flip to true to opt back into the
+    // upstream Sparkle flow. Default false.
+    static let sparkleAutoUpdateEnabled = "sparkleAutoUpdateEnabled"
 
     // Display
     static let maxPanelHeight = "maxPanelHeight"
@@ -123,6 +154,12 @@ enum SettingsKey {
     // Turbo/YOLO/always-proceed mode (#283)
     static let autoApproveSources = "autoApproveSources"
 
+    // Auto-approve mode strategy (auto / addRules / bypass)
+    static let autoApproveMode = "autoApproveMode"
+
+    // Plan card auto-accept mode (auto / acceptEdits)
+    static let planAutoAcceptMode = "planAutoAcceptMode"
+
     // Hook cwd exclusion (comma-separated substrings; cwd containing any drops the event)
     static let excludedHookCwdSubstrings = "excludedHookCwdSubstrings"
 
@@ -152,6 +189,9 @@ struct SettingsDefaults {
     static let hapticOnHover = false
     static let hapticIntensity = 1          // 1=light
     static let sessionTimeout = 30
+
+    // Fork overlay: Sparkle off by default for self-built distributions.
+    static let sparkleAutoUpdateEnabled = false
 
     static let maxPanelHeight = 560
     static let maxVisibleSessions = 5
@@ -206,6 +246,10 @@ struct SettingsDefaults {
     static let autoApproveTools = ""
 
     static let autoApproveSources = ""
+
+    static let autoApproveMode = AutoApproveMode.auto.rawValue
+
+    static let planAutoAcceptMode = PlanAutoAcceptMode.auto.rawValue
 
     static let excludedHookCwdSubstrings = ""
 
@@ -276,6 +320,8 @@ class SettingsManager {
             SettingsKey.defaultSource: SettingsDefaults.defaultSource,
             SettingsKey.autoApproveTools: SettingsDefaults.autoApproveTools,
             SettingsKey.autoApproveSources: SettingsDefaults.autoApproveSources,
+            SettingsKey.autoApproveMode: SettingsDefaults.autoApproveMode,
+            SettingsKey.planAutoAcceptMode: SettingsDefaults.planAutoAcceptMode,
             SettingsKey.excludedHookCwdSubstrings: SettingsDefaults.excludedHookCwdSubstrings,
             SettingsKey.claudeConfigDir: SettingsDefaults.claudeConfigDir,
             SettingsKey.webhookEnabled: SettingsDefaults.webhookEnabled,
@@ -416,7 +462,7 @@ class SettingsManager {
     var autoApproveTools: Set<String> {
         get {
             let raw = defaults.string(forKey: SettingsKey.autoApproveTools) ?? SettingsDefaults.autoApproveTools
-            return Set(raw.split(separator: ",").map(String.init))
+            return Set(raw.split(separator: ",").map(String.init).filter { !$0.isEmpty })
         }
         set {
             defaults.set(newValue.sorted().joined(separator: ","), forKey: SettingsKey.autoApproveTools)
@@ -444,6 +490,22 @@ class SettingsManager {
         set {
             defaults.set(newValue.sorted().joined(separator: ","), forKey: SettingsKey.autoApproveSources)
         }
+    }
+
+    var autoApproveMode: AutoApproveMode {
+        get {
+            let raw = defaults.string(forKey: SettingsKey.autoApproveMode) ?? SettingsDefaults.autoApproveMode
+            return AutoApproveMode(rawValue: raw) ?? .addRules
+        }
+        set { defaults.set(newValue.rawValue, forKey: SettingsKey.autoApproveMode) }
+    }
+
+    var planAutoAcceptMode: PlanAutoAcceptMode {
+        get {
+            let raw = defaults.string(forKey: SettingsKey.planAutoAcceptMode) ?? SettingsDefaults.planAutoAcceptMode
+            return PlanAutoAcceptMode(rawValue: raw) ?? .auto
+        }
+        set { defaults.set(newValue.rawValue, forKey: SettingsKey.planAutoAcceptMode) }
     }
 
     /// Comma-separated list of substrings; any hook event whose `cwd` contains

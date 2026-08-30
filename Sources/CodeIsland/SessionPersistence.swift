@@ -37,6 +37,8 @@ struct PersistedSession: Codable {
     /// still hold a lexicographically sorted list from the pre-cap `Set.sorted()`
     /// encoder — restore keeps all entries (no fake-recency trim).
     let closedSubagentIds: [String]?
+    /// Peak observed permission mode for AUTO smart default.
+    let observedPermissionMode: String?
 }
 
 enum SessionPersistence {
@@ -74,7 +76,8 @@ enum SessionPersistence {
                 startTime: s.startTime,
                 lastActivity: s.lastActivity,
                 transcriptPath: s.transcriptPath,
-                closedSubagentIds: s.closedSubagentIds.isEmpty ? nil : s.closedSubagentIds
+                closedSubagentIds: s.closedSubagentIds.isEmpty ? nil : s.closedSubagentIds,
+                observedPermissionMode: s.observedPermissionMode
             )
         }
         do {

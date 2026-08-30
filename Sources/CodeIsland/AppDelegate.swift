@@ -139,7 +139,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Sparkle runs scheduled checks itself on the cadence declared in
         // Info.plist (SUScheduledCheckInterval). Start the updater once — it
         // no-ops for Homebrew-installed builds (brew owns those upgrades).
-        UpdateChecker.shared.start()
+        // Fork overlay: the switch below is off by default so self-built
+        // distributions don't fire Sparkle checks against a non-existent
+        // appcast. Enable via Settings to restore the upstream flow.
+        if UserDefaults.standard.object(forKey: SettingsKey.sparkleAutoUpdateEnabled) as? Bool
+            ?? SettingsDefaults.sparkleAutoUpdateEnabled {
+            UpdateChecker.shared.start()
+        }
 
         SoundManager.shared.playBoot()
         setupGlobalShortcut()
