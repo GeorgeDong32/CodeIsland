@@ -49,6 +49,8 @@ struct PersistedSession: Codable {
     // against the transcript by the attach-time backfill.
     var recap: SessionRecap? = nil
     var reasoningEffort: String? = nil
+    /// Peak observed permission mode for AUTO smart default.
+    let observedPermissionMode: String?
 }
 
 enum SessionPersistence {
@@ -125,7 +127,8 @@ enum SessionPersistence {
                 closedSubagentIds: s.closedSubagentIds.isEmpty ? nil : s.closedSubagentIds,
                 agentTasks: s.agentTasks.isEmpty ? nil : s.agentTasks,
                 recap: s.recap,
-                reasoningEffort: s.reasoningEffort
+                reasoningEffort: s.reasoningEffort,
+                observedPermissionMode: s.observedPermissionMode
             )
         }
         do {

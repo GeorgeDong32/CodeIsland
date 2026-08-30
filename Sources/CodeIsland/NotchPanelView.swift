@@ -295,6 +295,9 @@ struct NotchPanelView: View {
                                 appState: appState,
                                 queuePosition: appState.questionQueuePosition(forSession: sid),
                                 queueTotal: appState.questionQueue.count,
+                                session: session,
+                                sessionId: sid,
+                                appState: appState,
                                 onAnswer: { appState.answerQuestion($0, expectedSessionId: sid) },
                                 onAnswerMulti: { appState.answerQuestionMulti($0, expectedSessionId: sid) },
                                 onSkip: { appState.skipQuestion(expectedSessionId: sid) }
@@ -320,6 +323,9 @@ struct NotchPanelView: View {
                                 appState: appState,
                                 queuePosition: 1,
                                 queueTotal: 1,
+                                session: session,
+                                sessionId: sid,
+                                appState: appState,
                                 onAnswer: { _ in },
                                 onAnswerMulti: { _ in },
                                 onSkip: { }
@@ -1155,6 +1161,9 @@ private struct ApprovalToolDetailView: View {
                     }
                 }
 
+            case "ExitPlanMode":
+                PlanPreview(toolInput: toolInput)
+
             default:
                 VStack(alignment: .leading, spacing: 2) {
                     if let input = toolInput {
@@ -1254,14 +1263,29 @@ private struct ApprovalBar: View {
                     .onTapGesture { handleCardClick() }
             }
 
-            // Pixel-style buttons — badge the global shortcut when one is enabled
-            HStack(spacing: 6) {
-                PixelButton(label: L10n.shared["deny"], fg: .white.opacity(0.95), bg: Color(red: 0.45, green: 0.12, blue: 0.12), border: Color(red: 0.7, green: 0.25, blue: 0.25), hint: Self.shortcutHint(.deny), action: onDeny)
-                PixelButton(label: L10n.shared["dismiss"], fg: .white.opacity(0.95), bg: Color(red: 0.25, green: 0.25, blue: 0.25), border: Color.white.opacity(0.28), action: onDismiss)
-                PixelButton(label: L10n.shared["allow_once"], fg: .white.opacity(0.95), bg: Color(red: 0.16, green: 0.38, blue: 0.18), border: Color(red: 0.28, green: 0.62, blue: 0.32), hint: Self.shortcutHint(.approve), action: onAllow)
-                PixelButton(label: L10n.shared["always"], fg: .white.opacity(0.95), bg: Color(red: 0.14, green: 0.28, blue: 0.52), border: Color(red: 0.28, green: 0.48, blue: 0.82), hint: Self.shortcutHint(.approveAlways), action: onAlwaysAllow)
+            // Pixel-style buttons — or ExitPlanMode options
+            if tool == "ExitPlanMode" {
+                ExitPlanModeApprovalOptions(
+                    queuePosition: queuePosition,
+                    queueTotal: queueTotal,
+                    appState: appState,
+                    onDismiss: onDismiss
+                )
+            } else {
+                HStack(spacing: 6) {
+                    PixelButton(label: L10n.shared["deny"], fg: .white.opacity(0.95), bg: Color(red: 0.45, green: 0.12, blue: 0.12), border: Color(red: 0.7, green: 0.25, blue: 0.25), hint: Self.shortcutHint(.deny), action: onDeny)
+                    PixelButton(label: L10n.shared["dismiss"], fg: .white.opacity(0.95), bg: Color(red: 0.25, green: 0.25, blue: 0.25), border: Color.white.opacity(0.28), action: onDismiss)
+                    PixelButton(label: L10n.shared["allow_once"], fg: .white.opacity(0.95), bg: Color(red: 0.16, green: 0.38, blue: 0.18), border: Color(red: 0.28, green: 0.62, blue: 0.32), hint: Self.shortcutHint(.approve), action: onAllow)
+                    PixelButton(label: L10n.shared["always"], fg: .white.opacity(0.95), bg: Color(red: 0.14, green: 0.28, blue: 0.52), border: Color(red: 0.28, green: 0.48, blue: 0.82), hint: Self.shortcutHint(.approveAlways), action: onAlwaysAllow)
+                    PixelButton(label: L10n.shared["auto_approve"], fg: .white.opacity(0.95), bg: Color(red: 0.52, green: 0.28, blue: 0.08), border: Color(red: 0.82, green: 0.48, blue: 0.12), action: {
+                        let wasActive = appState.isAutoApproveActive(for: sessionId)
+                        appState.toggleAutoApprove(sessionId: sessionId)
+                        SoundManager.shared.preview(wasActive ? "8bit_complete" : "8bit_start")
+                    })
+                    .help(L10n.shared["bypass_permission_tooltip"])
+                }
+                .padding(.horizontal, 14)
             }
-            .padding(.horizontal, 14)
         }
         .padding(.vertical, 10)
         .offset(x: failureShakeOffset)
@@ -1413,17 +1437,15 @@ private struct QuestionBar: View {
     let appState: AppState
     let queuePosition: Int
     let queueTotal: Int
+    /// Click-to-jump context for the QuestionBar header (mirrors ApprovalBar).
+    let session: SessionSnapshot?
+    let sessionId: String
+    let appState: AppState
     let onAnswer: (String) -> Void
     let onAnswerMulti: ([AskUserQuestionAnswer]) -> Void
     let onSkip: () -> Void
 
     @FocusState private var isFocused: Bool
-
-    // Click-to-jump state, mirroring ApprovalBar
-    @State private var failureShakeOffset: CGFloat = 0
-    @State private var jumpValidationTask: Task<Void, Never>?
-    @State private var jumpRowHovering = false
-    @AppStorage(SettingsKey.autoCollapseAfterSessionJump) private var autoCollapseAfterSessionJump = SettingsDefaults.autoCollapseAfterSessionJump
 
     // Multi-question wizard state, bound to `requestId` (#333)
     @State private var wizard = QuestionWizardState()
@@ -1915,7 +1937,7 @@ private struct MultiSelectRow: View {
 
 // MARK: - Option Row
 
-private struct OptionRow: View {
+struct OptionRow: View {
     let index: Int
     let label: String
     let description: String?
@@ -1972,7 +1994,7 @@ private struct OptionRow: View {
     }
 }
 
-private struct PixelButton: View {
+struct PixelButton: View {
     let label: String
     let fg: Color
     let bg: Color
@@ -2400,6 +2422,7 @@ private struct ThinScrollView<Content: View>: NSViewRepresentable {
 }
 
 private struct SessionIdentityLine: View {
+    let appState: AppState
     let session: SessionSnapshot
     let sessionId: String
     let projectFontSize: CGFloat
@@ -2469,6 +2492,27 @@ private struct SessionIdentityLine: View {
                     .font(.system(size: sessionFontSize, weight: .medium, design: .monospaced))
                     .foregroundStyle(sessionColor.opacity(0.6))
                     .fixedSize()
+            }
+
+            if let config = permissionIndicatorConfig(for: session.permissionMode) {
+                let indicator = Text(config.symbol)
+                    .font(.system(size: sessionFontSize + 2, weight: .bold))
+                    .foregroundStyle(config.color)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .fixedSize()
+
+                if config.togglesAutoApprove {
+                    indicator
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            appState.toggleAutoApprove(sessionId: sessionId)
+                            SoundManager.shared.preview("8bit_complete")
+                        }
+                        .help(L10n.shared["click_to_disable"])
+                } else {
+                    indicator
+                }
             }
         }
     }
@@ -2787,6 +2831,7 @@ private struct SessionCard: View {
                 // Header: project name + optional session label + short ID
                 HStack(alignment: .center, spacing: 8) {
                     SessionIdentityLine(
+                        appState: appState,
                         session: session,
                         sessionId: sessionId,
                         projectFontSize: fontSize + 2,
@@ -2826,6 +2871,19 @@ private struct SessionCard: View {
                     // session itself may hold a friendly Codex activity label.
                     let tool = appState.permissionQueue[idx].event.toolName ?? session.currentTool ?? "Unknown"
                     let input = appState.permissionQueue[idx].event.toolInput
+                    if tool == "ExitPlanMode" {
+                        let planLines: Int = {
+                            guard let plan = input?["plan"] as? String, !plan.isEmpty else { return 0 }
+                            return plan.components(separatedBy: .newlines).count
+                        }()
+                        ExitPlanModeInlineSummary(
+                            planLines: planLines,
+                            queueIndex: idx,
+                            queueTotal: appState.permissionQueue.count,
+                            fontSize: fontSize,
+                            onViewDetails: { appState.surface = .approvalCard(sessionId: sessionId) }
+                        )
+                    } else {
                     HStack(spacing: 8) {
                         Text(String(format: L10n.shared["approval_queue_label"], idx + 1, appState.permissionQueue.count, tool))
                             .font(.system(size: fontSize, weight: .medium, design: .monospaced))
@@ -2901,6 +2959,7 @@ private struct SessionCard: View {
                                     )
                             )
                     }
+                    } // end else (non-ExitPlanMode)
                 }
 
                 // Cursor asked a question in its own UI (#265). There is no hook

@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased] — fork overlay on upstream v1.0.35 (lean)
+
+### English
+- Lean fork overlay, now on upstream v1.0.35: Auto/Plan UI layer + Sparkle disable
+- Claude Code Auto Mode button (auto / addRules / bypass) with per-session smart default and permission-mode badge sync
+- ExitPlanMode plan preview card with Auto Accept / Manual / Request Changes, plus Skip (resolve with plain allow so the CLI unblocks) beside Dismiss
+- QuestionBar header click-to-jump is now provided natively by upstream — the fork copy was dropped in this sync
+- Sparkle auto-update disabled by default (self-built distributions publish no appcast); flip `sparkleAutoUpdateEnabled` to opt back in
+- Upstream #283 Always-proceed Agents setting is kept and rendered inside the fork's `AutoApproveSettingsSections` component
+
+### 中文
+- 精简版 fork overlay：基于 upstream v1.0.35，Auto/Plan UI 层 + 禁用 Sparkle
+- 保留 Claude Code Auto Mode（auto / addRules / bypass）、会话级 smart default 与权限徽章同步
+- 保留 ExitPlanMode 计划预览卡（自动接受 / 手动 / 请求更改），并在 Dismiss 旁加 Skip（plain allow 放行，CLI 不再阻塞）
+- 提问卡标题栏点击跳转已由上游原生提供，本次同步移除了 fork 副本
+- Sparkle 自动更新默认禁用（自建包无 appcast）；需要时把 `sparkleAutoUpdateEnabled` 打开即可
+- 上游 #283「免确认的 Agent」设置保留，并入 fork 的 `AutoApproveSettingsSections` 组件渲染
+
 ## [v1.0.35] - 2026-09-24
 
 ### English
