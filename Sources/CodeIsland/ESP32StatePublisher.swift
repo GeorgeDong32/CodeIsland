@@ -25,6 +25,9 @@ final class ESP32StatePublisher {
     private var keepAliveActivity: NSObjectProtocol?
     private var interactiveRetryTask: Task<Void, Never>?
     private var lastSentDisplay: SentDisplayState?
+    private var externalSnapshotProvider: (() -> RedactedInteractionSnapshot)?
+    private var interactionInputSink: ((InteractionInput) -> Void)?
+    private let interactionAdapter = ESP32LegacyActionAdapter()
 
     private struct SentDisplayState {
         let identity: String
@@ -43,6 +46,48 @@ final class ESP32StatePublisher {
             self?.syncConfig()
             self?.flush(reason: "connected")
         }
+    }
+
+    /// Connect Buddy to the external projection owned by InteractionCenter.
+    /// No local request content or AppState snapshot crosses this boundary.
+    func attachExternalProjection(
+        snapshot: @escaping () -> RedactedInteractionSnapshot,
+        send: @escaping (InteractionInput) -> Void
+    ) {
+        externalSnapshotProvider = snapshot
+        interactionInputSink = send
+    }
+
+    /// Route a Buddy control through the typed action seam. Legacy callbacks
+    /// are retained only while the Center coordinator has not been installed.
+    func handleControlCommand(_ command: BuddyControlCommand) {
+        if let externalSnapshotProvider, let interactionInputSink {
+            switch interactionAdapter.decision(command, snapshot: externalSnapshotProvider()) {
+            case let .action(input): interactionInputSink(input)
+            case .ignored: break
+            }
+            return
+        }
+        appState?.handleBuddyControlCommand(command)
+    }
+
+    /// Focus is navigation, not a permission action. With the external seam
+    /// installed, only a redacted SessionRef is sent to Center; the publisher
+    /// never selects a SessionSnapshot or reads terminal route metadata.
+    func handleFocusRequest(_ mascot: MascotID) {
+        if let externalSnapshotProvider, let interactionInputSink {
+            let sessions = externalSnapshotProvider().sessions.values
+                .filter { $0.session.key.provider.rawValue == mascot.sourceName }
+                .sorted {
+                    if $0.pendingCount != $1.pendingCount { return $0.pendingCount > $1.pendingCount }
+                    return $0.session.key.providerSessionID < $1.session.key.providerSessionID
+                }
+            guard let target = sessions.first else { return }
+            interactionInputSink(.user(.navigate(.session(target.session))))
+            return
+        }
+        guard let appState else { return }
+        ESP32FocusCoordinator.handle(mascot: mascot, appState: appState)
     }
 
     /// Invoke when a knob that changes what the island displays may have
@@ -85,9 +130,13 @@ final class ESP32StatePublisher {
     }
 
     private func flush(reason: String) {
-        guard let appState else { return }
         guard bridge.status == .connected else { return }
         guard bridge.selectedBuddyIdentifier != nil else { return }
+        if let externalSnapshotProvider {
+            flushExternal(snapshot: externalSnapshotProvider(), reason: reason)
+            return
+        }
+        guard let appState else { return }
         let session = appState.esp32DisplaySession()
         let displayIdentity = appState.esp32DisplayIdentity()
         let frame = appState.esp32DisplayFrame(session: session)
@@ -135,6 +184,35 @@ final class ESP32StatePublisher {
         Self.log.debug("push(\(reason)): mascot=\(frame.mascot.sourceName) status=\(frame.status.rawValue) tool=\(frame.toolName ?? "")")
     }
 
+    private func flushExternal(snapshot: RedactedInteractionSnapshot, reason: String) {
+        let projection = ESP32RedactedProjection(snapshot: snapshot)
+        let mascot = MascotID(sourceName: projection.source) ?? .claude
+        let frame = MascotFramePayload(mascot: mascot, status: projection.status)
+        bridge.send(frame)
+        bridge.sendWorkspace(BuddyWorkspacePayload(workspaceName: projection.workspaceLabel))
+        bridge.sendMessagePreview(BuddyMessagePreviewPayload(index: 0, total: 0, isUser: false, text: nil))
+        bridge.sendStats(BuddyStatsPayload(
+            activeSessionCount: snapshot.sessions.count,
+            totalSessionCount: snapshot.sessions.count,
+            toolCallCount: 0,
+            sessionDurationMinutes: 0
+        ))
+        bridge.sendSubagent(BuddySubagentPayload(count: 0))
+        bridge.sendToolHistoryClear()
+
+        let identity = projection.pendingRequestID.map(String.init(describing:))
+            ?? projection.session.map { "session:\($0.key.provider.rawValue):\($0.key.providerSessionID):\($0.generation)" }
+            ?? "idle"
+        if let previous = lastSentDisplay,
+           previous.identity == identity,
+           previous.status != frame.status,
+           frame.status == .idle {
+            bridge.sendEvent(.complete)
+        }
+        lastSentDisplay = SentDisplayState(identity: identity, status: frame.status)
+        Self.log.debug("push(\(reason)): mascot=\(frame.mascot.sourceName) status=\(frame.status.rawValue) pending=\(projection.pendingCount)")
+    }
+
     private func resetEventState() {
         lastSentDisplay = nil
     }
@@ -160,14 +238,25 @@ final class ESP32StatePublisher {
 
     private func scheduleInteractiveRetriesIfNeeded() {
         interactiveRetryTask?.cancel()
-        guard let appState, let deliveryKey = appState.esp32InteractiveDeliveryKey() else { return }
+        let deliveryKey: String?
+        if let externalSnapshotProvider {
+            deliveryKey = ESP32RedactedProjection(snapshot: externalSnapshotProvider()).pendingRequestID.map(String.init(describing:))
+        } else {
+            deliveryKey = appState?.esp32InteractiveDeliveryKey()
+        }
+        guard let deliveryKey else { return }
         interactiveRetryTask = Task { [weak self] in
             let delays: [UInt64] = [600_000_000, 1_800_000_000]
             for delayNs in delays {
                 try? await Task.sleep(nanoseconds: delayNs)
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
-                    guard let self, self.appState?.esp32InteractiveDeliveryKey() == deliveryKey else { return }
+                    guard let self else { return }
+                    if let provider = self.externalSnapshotProvider {
+                        guard ESP32RedactedProjection(snapshot: provider()).pendingRequestID.map(String.init(describing:)) == deliveryKey else { return }
+                    } else {
+                        guard self.appState?.esp32InteractiveDeliveryKey() == deliveryKey else { return }
+                    }
                     self.flush(reason: "interactive-retry")
                 }
             }

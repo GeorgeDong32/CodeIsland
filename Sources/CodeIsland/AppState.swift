@@ -138,6 +138,134 @@ final class AppState {
     @ObservationIgnored
     var displayOnlyWaitAsks: [String: PushContent] = [:]
 
+    // Production interaction runtime.  These references are intentionally
+    // ignored by Observation: UI reads the immutable snapshot exposed by the
+    // router, while AppState remains the owner of upstream SessionSnapshot
+    // facts.  Tests that exercise the legacy compatibility surface leave this
+    // runtime unset and therefore do not create a second production writer.
+    @ObservationIgnored
+    private(set) var interactionCoordinator: InteractionCoordinator?
+    @ObservationIgnored
+    private(set) var interactionHookAdapter: HookInteractionAdapter?
+    @ObservationIgnored
+    private(set) var interactionCodexAdapter: CodexTransportAdapter?
+    @ObservationIgnored
+    private(set) var interactionSessionAdapter: SessionObservationAdapter?
+    @ObservationIgnored
+    private(set) var interactionAutoController: AppStateAutoApproveController?
+    @ObservationIgnored
+    private var interactionSequence: UInt64 = 0
+
+    /// Installs the one production interaction runtime.  Construction is done
+    /// by AppDelegate so there is one store/coordinator/executor for the whole
+    /// process; calling this twice is a programming error and is rejected.
+    func installInteractionRuntime(
+        coordinator: InteractionCoordinator,
+        hookAdapter: HookInteractionAdapter,
+        codexAdapter: CodexTransportAdapter,
+        sessionAdapter: SessionObservationAdapter,
+        autoController: AppStateAutoApproveController
+    ) {
+        guard interactionCoordinator == nil else { return }
+        interactionCoordinator = coordinator
+        interactionHookAdapter = hookAdapter
+        interactionCodexAdapter = codexAdapter
+        interactionSessionAdapter = sessionAdapter
+        interactionAutoController = autoController
+        // Restore/discovery may have populated upstream facts before AppDelegate
+        // installs the owner. Replay those facts through the one mapper so the
+        // production snapshot starts complete without copying queue state.
+        for sessionId in sessions.keys {
+            publishInteractionObservation(for: sessionId)
+        }
+    }
+
+    var hasProductionInteractionRuntime: Bool { interactionCoordinator != nil }
+
+    /// Maps one already-reduced upstream session fact into the interaction
+    /// snapshot.  No request/queue state is copied into SessionSnapshot and no
+    /// provider JSON crosses this boundary.
+    func publishInteractionObservation(
+        for sessionId: String,
+        lifecycle: UpstreamSessionLifecycle? = nil,
+        visibility: CLIVisibility = .unknown,
+        observedAt: Date = Date()
+    ) {
+        guard let coordinator = interactionCoordinator,
+              let mapper = interactionSessionAdapter,
+              let snapshot = sessions[sessionId] else { return }
+        interactionSequence &+= 1
+        let sequence = interactionSequence
+        let capabilities = ProviderCapabilityCompiler().capabilities(
+            for: ProviderID(snapshot.source),
+            independentControlChannel: false,
+            canNeutralFinalize: true
+        )
+        guard let observation = mapper.map(
+            snapshot: snapshot,
+            sessionID: sessionId,
+            sequence: sequence,
+            revision: sequence,
+            lifecycle: lifecycle,
+            visibility: visibility,
+            capabilities: capabilities,
+            observedAt: observedAt
+        ) else { return }
+        _ = interactionAutoController?.observe(observation)
+        _ = coordinator.send(.sessionObserved(observation))
+    }
+
+    /// Sends an upstream close fact before removing the AppState session.  A
+    /// close is identity-bearing and therefore cannot be represented by a
+    /// string-only remove callback.
+    func closeInteractionSession(for sessionId: String) {
+        guard interactionCoordinator != nil else { return }
+        publishInteractionObservation(for: sessionId, lifecycle: .closed)
+    }
+
+    /// HookServer uses this single ingress seam for blocking and display-only
+    /// requests.  It returns the adapter result so the server can keep socket
+    /// encoding/connection lifetime outside the reducer.
+    @discardableResult
+    func receiveInteractionHook(
+        _ event: HookEvent,
+        responseHandle: ProviderResponseHandle,
+        responder: any OnceResponder<HookWireResponse>
+    ) -> HookIngressResult? {
+        guard let adapter = interactionHookAdapter else { return nil }
+        return adapter.receive(
+            event,
+            responseHandle: responseHandle,
+            responder: responder,
+            receivedAt: Date()
+        )
+    }
+
+    func submitInteraction(_ input: InteractionInput) {
+        _ = interactionCoordinator?.send(input)
+    }
+
+    /// Resolves a Center SessionRef back to the upstream snapshot for the
+    /// AppKit navigation adapter. The lookup is read-only and requires the
+    /// complete provider/session identity; it never guesses from a queue head.
+    func sessionForInteraction(_ ref: SessionRef) -> (sessionID: String, snapshot: SessionSnapshot)? {
+        guard let match = sessions.first(where: { id, snapshot in
+            let provider = ProviderID(snapshot.source)
+            let providerSessionID = snapshot.providerSessionId ?? id
+            return provider == ref.key.provider && providerSessionID == ref.key.providerSessionID
+        }) else { return nil }
+        return (sessionID: match.key, snapshot: match.value)
+    }
+
+    /// Returns the currently-authorized interaction identity for one upstream
+    /// provider session. Codex request ingress uses this rather than deriving
+    /// a generation from a raw JSON thread id.
+    func interactionSessionRef(provider: ProviderID, providerSessionID: String) -> SessionRef? {
+        interactionCoordinator?.snapshot.local.sessions.keys.first {
+            $0.key.provider == provider && $0.key.providerSessionID == providerSessionID
+        }
+    }
+
     @ObservationIgnored
     private(set) var recentHookEvents: [DiagnosticHookEvent] = []
     @ObservationIgnored
@@ -435,6 +563,10 @@ final class AppState {
     var dismissedPermissionSessionIds: Set<String> = [] {
         didSet { followUps.waitingChanged() }
     }
+    /// Question presentation state is local to the legacy AppState bridge until
+    /// the Center question owner is switched. Dismissal never resolves the
+    /// underlying hook/Codex request or removes it from the queue.
+    var dismissedQuestionSessionIds: Set<String> = []
     private func nextVisiblePermissionIndex() -> Int? {
         permissionQueue.firstIndex { request in
             let sid = request.event.sessionId ?? "default"
@@ -942,9 +1074,13 @@ final class AppState {
             sessions[sessionId]?.status = .idle
             sessions[sessionId]?.currentTool = nil
             sessions[sessionId]?.toolDescription = nil
-            // Drain any pending permissions/questions — the process is gone
-            drainPermissions(forSession: sessionId, reason: "process-exited")
-            drainQuestions(forSession: sessionId, reason: "process-exited")
+            // Legacy continuations are drained only when the compatibility
+            // lifecycle is the owner. Production requests are Center-owned;
+            // draining these arrays here would create a second writer.
+            if interactionCoordinator == nil {
+                drainPermissions(forSession: sessionId, reason: "process-exited")
+                drainQuestions(forSession: sessionId, reason: "process-exited")
+            }
             refreshDerivedState()
         }
 
@@ -995,12 +1131,25 @@ final class AppState {
     /// so leaked continuations / connections are impossible.
     func removeSession(_ sessionId: String) {
         let displayOnlyWaitBefore = displayOnlyWaitKind(forSession: sessionId)
-        clearAutoApproveState(forRemovedSession: sessionId)
+        if let snapshot = sessions[sessionId],
+           snapshot.source == "codex",
+           let providerSessionID = snapshot.providerSessionId,
+           let ref = interactionSessionRef(provider: ProviderID("codex"), providerSessionID: providerSessionID) {
+            interactionCodexAdapter?.end(session: ref)
+        }
+        closeInteractionSession(for: sessionId)
+        if interactionCoordinator == nil {
+            clearAutoApproveState(forRemovedSession: sessionId)
+        }
 
 
-        // Resume ALL pending continuations for this session
-        drainPermissions(forSession: sessionId, reason: "removeSession")
-        drainQuestions(forSession: sessionId, reason: "removeSession")
+        // Resume legacy continuations only when the compatibility lifecycle is
+        // active. The production Center closes identity-bearing requests via
+        // closeInteractionSession above.
+        if interactionCoordinator == nil {
+            drainPermissions(forSession: sessionId, reason: "removeSession")
+            drainQuestions(forSession: sessionId, reason: "removeSession")
+        }
 
         completionQueue.removeAll { $0 == sessionId }
         if surface.sessionId == sessionId {
@@ -1752,7 +1901,7 @@ final class AppState {
         // Background subagents share the parent's session_id, so their tool
         // calls and SubagentStop kept arriving while the main thread's question
         // was on screen and denied it ("Permission denied by hook").
-        if wasWaiting {
+        if wasWaiting && interactionCoordinator == nil {
             let keepWaiting: Set<String> = ["Notification", "SessionStart", "SessionEnd", "PreCompact"]
             if !keepWaiting.contains(normalizedEventName) {
                 drainQuestions(
@@ -1806,7 +1955,15 @@ final class AppState {
             attachTranscriptTailerIfNeeded(sessionId: sessionId)
         }
 
-        syncAutoApproveWithPermissionMode(sessionId: sessionId)
+        // Upstream permissionMode is reconciled into the per-session
+        // interaction context below. The legacy global Auto singleton remains
+        // available only for tests/compatibility when production wiring is
+        // absent; it is not a second production writer.
+        if interactionCoordinator == nil {
+            syncAutoApproveWithPermissionMode(sessionId: sessionId)
+        }
+
+        publishInteractionObservation(for: sessionId, observedAt: Date())
 
         // Handle the "else if activeSessionId == sessionId → mostActive" edge case
         // (reducer can't check activeSessionId since it's AppState-local)
@@ -3397,7 +3554,6 @@ final class AppState {
                let scan = JSONLTailer.scanFileTail(path: path) {
                 _ = snapshot.applyTranscriptBackfill(scan)
             }
-            snapshot.observedPermissionMode = p.observedPermissionMode
             if let closed = p.closedSubagentIds, !closed.isEmpty {
                 snapshot.restoreClosedSubagentIds(closed)
             }
@@ -3926,6 +4082,11 @@ final class AppState {
         }
         if didMutate {
             scheduleSave()
+        }
+        if hasProductionInteractionRuntime {
+            for sessionId in sessions.keys {
+                publishInteractionObservation(for: sessionId)
+            }
         }
         refreshDerivedState()
     }

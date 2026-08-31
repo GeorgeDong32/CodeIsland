@@ -49,8 +49,104 @@ struct PersistedSession: Codable {
     // against the transcript by the attach-time backfill.
     var recap: SessionRecap? = nil
     var reasoningEffort: String? = nil
-    /// Peak observed permission mode for AUTO smart default.
-    let observedPermissionMode: String?
+    /// Legacy fork Auto-mode persistence slot. The pre-cutover value is decoded
+    /// and discarded below and never re-encoded, so it cannot re-enter the
+    /// runtime after a relaunch.
+    let observedPermissionMode: String? = nil
+}
+
+extension PersistedSession {
+    /// Explicit Codable over the full v1.0.35 field set. Accepts the
+    /// pre-cutover fork Auto key without allowing the fork-owned Auto mode to
+    /// re-enter the runtime. The key is intentionally omitted on every encode.
+    enum CodingKeys: String, CodingKey {
+        case sessionId, cwd, source, model, sessionTitle, sessionTitleSource
+        case providerSessionId, lastUserPrompt, lastAssistantMessage, termApp
+        case itermSessionId, ttyPath, kittyWindowId, tmuxPane, tmuxClientTty
+        case tmuxEnv, termBundleId, cmuxSurfaceId, cmuxWorkspaceId, zellijPaneId
+        case zellijSessionName, weztermPaneId, herdrPaneId, herdrSocketPath
+        case herdrBinaryPath, cliPid, cliStartTime, startTime
+        case lastActivity, transcriptPath, closedSubagentIds, observedPermissionMode
+        case agentTasks, recap, reasoningEffort
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sessionId = try c.decode(String.self, forKey: .sessionId)
+        cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
+        source = try c.decode(String.self, forKey: .source)
+        model = try c.decodeIfPresent(String.self, forKey: .model)
+        sessionTitle = try c.decodeIfPresent(String.self, forKey: .sessionTitle)
+        sessionTitleSource = try c.decodeIfPresent(SessionTitleSource.self, forKey: .sessionTitleSource)
+        providerSessionId = try c.decodeIfPresent(String.self, forKey: .providerSessionId)
+        lastUserPrompt = try c.decodeIfPresent(String.self, forKey: .lastUserPrompt)
+        lastAssistantMessage = try c.decodeIfPresent(String.self, forKey: .lastAssistantMessage)
+        termApp = try c.decodeIfPresent(String.self, forKey: .termApp)
+        itermSessionId = try c.decodeIfPresent(String.self, forKey: .itermSessionId)
+        ttyPath = try c.decodeIfPresent(String.self, forKey: .ttyPath)
+        kittyWindowId = try c.decodeIfPresent(String.self, forKey: .kittyWindowId)
+        tmuxPane = try c.decodeIfPresent(String.self, forKey: .tmuxPane)
+        tmuxClientTty = try c.decodeIfPresent(String.self, forKey: .tmuxClientTty)
+        tmuxEnv = try c.decodeIfPresent(String.self, forKey: .tmuxEnv)
+        termBundleId = try c.decodeIfPresent(String.self, forKey: .termBundleId)
+        cmuxSurfaceId = try c.decodeIfPresent(String.self, forKey: .cmuxSurfaceId)
+        cmuxWorkspaceId = try c.decodeIfPresent(String.self, forKey: .cmuxWorkspaceId)
+        zellijPaneId = try c.decodeIfPresent(String.self, forKey: .zellijPaneId)
+        zellijSessionName = try c.decodeIfPresent(String.self, forKey: .zellijSessionName)
+        weztermPaneId = try c.decodeIfPresent(String.self, forKey: .weztermPaneId)
+        herdrPaneId = try c.decodeIfPresent(String.self, forKey: .herdrPaneId)
+        herdrSocketPath = try c.decodeIfPresent(String.self, forKey: .herdrSocketPath)
+        herdrBinaryPath = try c.decodeIfPresent(String.self, forKey: .herdrBinaryPath)
+        cliPid = try c.decodeIfPresent(Int32.self, forKey: .cliPid)
+        cliStartTime = try c.decodeIfPresent(Date.self, forKey: .cliStartTime)
+        startTime = try c.decode(Date.self, forKey: .startTime)
+        lastActivity = try c.decode(Date.self, forKey: .lastActivity)
+        transcriptPath = try c.decodeIfPresent(String.self, forKey: .transcriptPath)
+        closedSubagentIds = try c.decodeIfPresent([String].self, forKey: .closedSubagentIds)
+        agentTasks = try c.decodeIfPresent(AgentTaskList.self, forKey: .agentTasks)
+        recap = try c.decodeIfPresent(SessionRecap.self, forKey: .recap)
+        reasoningEffort = try c.decodeIfPresent(String.self, forKey: .reasoningEffort)
+        // Decode and discard the pre-cutover fork-owned Auto field.
+        _ = try c.decodeIfPresent(String.self, forKey: .observedPermissionMode)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(sessionId, forKey: .sessionId)
+        try c.encodeIfPresent(cwd, forKey: .cwd)
+        try c.encode(source, forKey: .source)
+        try c.encodeIfPresent(model, forKey: .model)
+        try c.encodeIfPresent(sessionTitle, forKey: .sessionTitle)
+        try c.encodeIfPresent(sessionTitleSource, forKey: .sessionTitleSource)
+        try c.encodeIfPresent(providerSessionId, forKey: .providerSessionId)
+        try c.encodeIfPresent(lastUserPrompt, forKey: .lastUserPrompt)
+        try c.encodeIfPresent(lastAssistantMessage, forKey: .lastAssistantMessage)
+        try c.encodeIfPresent(termApp, forKey: .termApp)
+        try c.encodeIfPresent(itermSessionId, forKey: .itermSessionId)
+        try c.encodeIfPresent(ttyPath, forKey: .ttyPath)
+        try c.encodeIfPresent(kittyWindowId, forKey: .kittyWindowId)
+        try c.encodeIfPresent(tmuxPane, forKey: .tmuxPane)
+        try c.encodeIfPresent(tmuxClientTty, forKey: .tmuxClientTty)
+        try c.encodeIfPresent(tmuxEnv, forKey: .tmuxEnv)
+        try c.encodeIfPresent(termBundleId, forKey: .termBundleId)
+        try c.encodeIfPresent(cmuxSurfaceId, forKey: .cmuxSurfaceId)
+        try c.encodeIfPresent(cmuxWorkspaceId, forKey: .cmuxWorkspaceId)
+        try c.encodeIfPresent(zellijPaneId, forKey: .zellijPaneId)
+        try c.encodeIfPresent(zellijSessionName, forKey: .zellijSessionName)
+        try c.encodeIfPresent(weztermPaneId, forKey: .weztermPaneId)
+        try c.encodeIfPresent(herdrPaneId, forKey: .herdrPaneId)
+        try c.encodeIfPresent(herdrSocketPath, forKey: .herdrSocketPath)
+        try c.encodeIfPresent(herdrBinaryPath, forKey: .herdrBinaryPath)
+        try c.encodeIfPresent(cliPid, forKey: .cliPid)
+        try c.encodeIfPresent(cliStartTime, forKey: .cliStartTime)
+        try c.encode(startTime, forKey: .startTime)
+        try c.encode(lastActivity, forKey: .lastActivity)
+        try c.encodeIfPresent(transcriptPath, forKey: .transcriptPath)
+        try c.encodeIfPresent(closedSubagentIds, forKey: .closedSubagentIds)
+        try c.encodeIfPresent(agentTasks, forKey: .agentTasks)
+        try c.encodeIfPresent(recap, forKey: .recap)
+        try c.encodeIfPresent(reasoningEffort, forKey: .reasoningEffort)
+    }
 }
 
 enum SessionPersistence {
@@ -127,8 +223,7 @@ enum SessionPersistence {
                 closedSubagentIds: s.closedSubagentIds.isEmpty ? nil : s.closedSubagentIds,
                 agentTasks: s.agentTasks.isEmpty ? nil : s.agentTasks,
                 recap: s.recap,
-                reasoningEffort: s.reasoningEffort,
-                observedPermissionMode: s.observedPermissionMode
+                reasoningEffort: s.reasoningEffort
             )
         }
         do {

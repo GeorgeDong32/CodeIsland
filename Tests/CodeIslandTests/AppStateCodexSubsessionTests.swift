@@ -303,11 +303,17 @@ final class AppStateCodexSubsessionTests: XCTestCase {
     func testCodexDesktopDoesNotRetainSharedHelperPidButOtherSessionsDo() {
         let appState = AppState()
         let now = Date()
-        let currentPid = getpid()
+        // Use a non-live sentinel so the test exercises discovery storage
+        // without the runner's real Codex/terminal ancestry rewriting it.
+        let currentPid: pid_t = 999_999
+        let suffix = UUID().uuidString
+        let desktopID = "codexapp:desktop-\(suffix)"
+        let cliID = "codex-cli-\(suffix)"
+        let otherID = "other-native-\(suffix)"
 
         appState.integrateDiscovered([
             AppState.DiscoveredSession(
-                sessionId: "codexapp:desktop",
+                sessionId: desktopID,
                 cwd: "/same/repo",
                 tty: nil,
                 model: nil,
@@ -319,7 +325,7 @@ final class AppStateCodexSubsessionTests: XCTestCase {
                 providerSessionId: "desktop"
             ),
             AppState.DiscoveredSession(
-                sessionId: "codex-cli",
+                sessionId: cliID,
                 cwd: "/same/repo",
                 tty: nil,
                 model: nil,
@@ -329,21 +335,20 @@ final class AppStateCodexSubsessionTests: XCTestCase {
                 source: "codex"
             ),
             AppState.DiscoveredSession(
-                sessionId: "other-native",
+                sessionId: otherID,
                 cwd: "/same/repo",
                 tty: nil,
                 model: nil,
                 pid: currentPid,
                 modifiedAt: now,
                 recentMessages: [],
-                source: "cursor",
-                termBundleId: "com.todesktop.230313mzl4w4u92"
+                source: "claude"
             ),
         ])
 
-        XCTAssertNil(appState.sessions["codexapp:desktop"]?.cliPid)
-        XCTAssertEqual(appState.sessions["codex-cli"]?.cliPid, currentPid)
-        XCTAssertEqual(appState.sessions["other-native"]?.cliPid, currentPid)
+        XCTAssertNil(appState.sessions[desktopID]?.cliPid)
+        XCTAssertEqual(appState.sessions[cliID]?.cliPid, currentPid)
+        XCTAssertEqual(appState.sessions[otherID]?.cliPid, currentPid)
     }
 
     func testCompletedLastCodexSubagentClearsParentProjection() {
