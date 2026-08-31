@@ -4,6 +4,91 @@ import OSLog
 
 private let log = Logger(subsystem: "com.codeisland", category: "AppState")
 
+/// Typed bridge for the Phase 5 Auto owner.  AppState's legacy hook response
+/// path is intentionally left below until the permission continuation owner is
+/// cut over; this controller is the seam that production wiring can inject
+/// without making a pending permission continuation an Auto transport.
+@MainActor
+final class AppStateAutoApproveController {
+    let contexts: InteractionSessionContextStore
+    let adapter: AutoCommandAdapter
+    let compiler: AutoCommandCompiler
+
+    init(
+        contexts: InteractionSessionContextStore,
+        adapter: AutoCommandAdapter,
+        compiler: AutoCommandCompiler = AutoCommandCompiler()
+    ) {
+        self.contexts = contexts
+        self.adapter = adapter
+        self.compiler = compiler
+    }
+
+    convenience init(
+        adapter: AutoCommandAdapter,
+        compiler: AutoCommandCompiler = AutoCommandCompiler()
+    ) {
+        self.init(
+            contexts: InteractionSessionContextStore(),
+            adapter: adapter,
+            compiler: compiler
+        )
+    }
+
+    @discardableResult
+    func observe(
+        _ observation: SessionObservation
+    ) -> AutoSnapshot {
+        contexts.observe(observation)
+    }
+
+    /// Builds an independent Auto transaction for one complete SessionRef.
+    /// The returned effect must be submitted by the coordinator; this method
+    /// does not execute a permission response or mark the mode confirmed.
+    @discardableResult
+    func begin(
+        session: SessionRef,
+        intent: AutoModeIntent,
+        effectID: EffectID,
+        token: AutoControlToken,
+        completion: @escaping (Result<AutoDelivery, AutoAdapterFailure>) -> Void
+    ) -> Result<AutoCommandTransaction, AutoCompileError> {
+        let result = contexts.beginAuto(session: session, intent: intent, effectID: effectID, token: token, compiler: compiler)
+        // The coordinator is the sole effect executor. This controller records
+        // the per-session transaction, but never submits it directly (doing so
+        // would create a second Auto writer beside InteractionCoordinator).
+        _ = completion
+        return result
+    }
+
+    func markDelivered(_ effectID: EffectID, session: SessionRef) -> Bool {
+        contexts.markDelivered(effectID, session: session)
+    }
+
+    func markAwaitingConfirmation(_ effectID: EffectID, session: SessionRef) -> Bool {
+        contexts.markAwaitingConfirmation(effectID, session: session)
+    }
+
+    func fail(_ effectID: EffectID, session: SessionRef, message: String) -> Bool {
+        contexts.fail(effectID, session: session, message: message)
+    }
+
+    func disconnect(session: SessionRef) {
+        contexts.disconnect(session: session)
+    }
+}
+
+extension AutoApproveMode {
+    /// Settings are translated once at the AppState boundary. Provider command
+    /// names never leak into the UI-facing intent.
+    var interactionIntent: AutoModeIntent {
+        switch self {
+        case .auto, .addRules: return .enable
+        case .bypassPermissions: return .bypassExplicit
+        }
+    }
+}
+
 extension AppState {
     // MARK: - Auto Approve
 
@@ -151,11 +236,14 @@ extension AppState {
         "TodoRead", "TodoWrite", "EnterPlanMode", "ExitPlanMode",
     ]
 
-    /// Resolve the effective AutoApproveMode for a session's AUTO button.
-    /// Priority: observed bypass → observed auto → global setting.
+    /// Resolve the legacy hook response mode from the current upstream fact.
+    ///
+    /// `observedPermissionMode` used to be a fork-owned peak-memory field on
+    /// `SessionSnapshot`. It is intentionally not read here: only the current
+    /// CLI `permissionMode` may influence this compatibility response path.
     func effectiveAutoApproveMode(for sessionId: String?) -> AutoApproveMode {
         guard let sid = sessionId,
-              let observed = sessions[sid]?.observedPermissionMode else {
+              let observed = sessions[sid]?.permissionMode else {
             return SettingsManager.shared.autoApproveMode
         }
         switch observed {

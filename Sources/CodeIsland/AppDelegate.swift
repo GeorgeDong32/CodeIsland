@@ -13,7 +13,86 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastHookCheck: Date = .distantPast
     private let hotKeyManager = GlobalHotKeyManager()
     private var localShortcutMonitor: Any?
+    /// Installed by the interaction owner once upstream adapters are ready.
+    /// Consumers are kept behind this single router so stale shortcuts cannot
+    /// fall through to a different request's queue head.
+    private var interactionRouter: InteractionUIActionRouter?
+    private var interactionExecutor: InteractionProductionEffectExecutor?
     let appState = AppState()
+
+    /// Production cutover seam for Phase 6. The caller owns the Center and its
+    /// one effect executor; AppDelegate only wires read-only external
+    /// projection and typed input forwarding to publishers.
+    func attachInteractionCoordinator(_ coordinator: InteractionCoordinator) {
+        let router = InteractionUIActionRouter(coordinator: coordinator)
+        interactionRouter = router
+        panelController?.attachInteractionRouter(router)
+        AppleCompanionPublisher.shared.attachExternalProjection(
+            snapshot: { [weak router] in router?.snapshot.external ?? RedactedInteractionSnapshot() },
+            send: { [weak router] input in _ = router?.send(input) }
+        )
+        ESP32StatePublisher.shared.attachExternalProjection(
+            snapshot: { [weak router] in router?.snapshot.external ?? RedactedInteractionSnapshot() },
+            send: { [weak router] input in _ = router?.send(input) }
+        )
+    }
+
+    /// Builds the production interaction graph exactly once, before any hook,
+    /// Codex, UI, or companion ingress is started.  The store and coordinator
+    /// are retained by AppState; this owner retains the single effect executor
+    /// so adapter callbacks cannot outlive the application graph.
+    private func installInteractionRuntime() {
+        guard interactionRouter == nil else { return }
+
+        let ids = RandomInteractionIDFactory()
+        let authority = InMemorySessionGenerationAuthority()
+        let buffer = InMemoryRequestIngressBuffer(idFactory: ids)
+        let transportRegistry = HookTransportRegistry()
+        let hookTransport = HookTransportAdapter(registry: transportRegistry)
+        let hookAdapter = HookInteractionAdapter(
+            generationAuthority: authority,
+            ingressBuffer: buffer,
+            transportRegistry: transportRegistry,
+            idFactory: ids,
+            configuration: HookAdmissionConfiguration(
+                defaultProvider: ProviderID("claude"),
+                autoApproveTools: SettingsManager.shared.autoApproveTools,
+                autoApprovedSources: SettingsManager.shared.autoApproveSources,
+                safeNeutralResponse: .hookEmptyObject
+            )
+        )
+        let sessionAdapter = SessionObservationAdapter(generationAuthority: authority)
+        let autoAdapter = UnavailableAutoCommandAdapter()
+        let autoController = AppStateAutoApproveController(adapter: autoAdapter)
+        let codexAdapter = CodexTransportAdapter(idFactory: ids)
+        let executor = InteractionProductionEffectExecutor(
+            hook: hookTransport,
+            codex: codexAdapter,
+            auto: autoAdapter,
+            navigator: .shared,
+            sessionLookup: { [weak appState] ref in
+                guard let appState else { return nil }
+                return appState.sessionForInteraction(ref)
+            }
+        )
+        let store = InteractionCenterStore(dependencies: InteractionCenterDependencies(
+            idFactory: ids,
+            generationAuthority: authority,
+            ingressBuffer: buffer,
+            presentationPolicy: .adaptiveCLI()
+        ))
+        let coordinator = InteractionCoordinator(store: store, executor: executor)
+
+        interactionExecutor = executor
+        appState.installInteractionRuntime(
+            coordinator: coordinator,
+            hookAdapter: hookAdapter,
+            codexAdapter: codexAdapter,
+            sessionAdapter: sessionAdapter,
+            autoController: autoController
+        )
+        attachInteractionCoordinator(coordinator)
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         ProcessInfo.processInfo.disableAutomaticTermination("CodeIsland must stay running")
@@ -21,6 +100,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Pre-set app icon so Dock/menu bar use the packaged bundle icon.
         NSApp.applicationIconImage = SettingsWindowController.bundleAppIcon()
         SettingsWindowController.shared.appState = appState
+        // Install the sole interaction owner before starting any producer.
+        installInteractionRuntime()
         StatusItemController.shared.startObserving()
         // Start HookServer BEFORE installing hooks into CLI configs.
         // If we write settings.json first, Claude Code picks up the new hooks
@@ -54,7 +135,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // their periodic schedules instead of pinning a core after wake (#225).
         MascotAnimationGate.shared.start()
 
-        panelController = PanelWindowController(appState: appState)
+        panelController = PanelWindowController(appState: appState, interactionRouter: interactionRouter)
         panelController?.showPanel()
 
         appState.startSessionDiscovery()
@@ -64,22 +145,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Buddy bridge (opt-in): mirrors the Dynamic Island onto the companion
         // device and routes its button press back to TerminalActivator.
         ESP32StatePublisher.shared.attach(appState)
-        ESP32BridgeManager.shared.onFocusRequest = { [weak appState] mascot in
-            guard let appState else { return }
-            ESP32FocusCoordinator.handle(mascot: mascot, appState: appState)
+        ESP32BridgeManager.shared.onFocusRequest = { mascot in
+            ESP32StatePublisher.shared.handleFocusRequest(mascot)
         }
-        ESP32BridgeManager.shared.onControlCommand = { [weak appState] command in
-            guard let appState else { return }
-            appState.handleBuddyControlCommand(command)
+        ESP32BridgeManager.shared.onControlCommand = { command in
+            ESP32StatePublisher.shared.handleControlCommand(command)
         }
         AppleCompanionPublisher.shared.attach(appState)
         AppleCompanionPublisher.shared.onFocusRequest = { [weak appState] mascot in
             guard let appState else { return }
+            // Compatibility fallback; when the Center projection is attached
+            // the publisher consumes the redacted session list instead.
             ESP32FocusCoordinator.handle(mascot: mascot, appState: appState)
         }
         AppleCompanionPublisher.shared.onControlCommand = { [weak appState] command in
-            guard let appState else { return }
-            appState.handleBuddyControlCommand(command)
+            // This callback is only used until the external snapshot/action
+            // seam is attached; publisher-side command validation takes over
+            // as soon as the Center coordinator is installed.
+            appState?.handleBuddyControlCommand(command)
         }
         AppleCompanionPublisher.shared.onQuestionAnswer = { [weak appState] answer in
             guard let appState else { return }
@@ -224,6 +307,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func executeShortcut(_ action: ShortcutAction) {
+        if let interactionRouter {
+            switch action {
+            case .togglePanel:
+                break
+            case .jumpToTerminal:
+                guard let requestID = interactionRouter.snapshot.local.presentation.prominentRequest,
+                      let request = interactionRouter.snapshot.local.requests[requestID] else { return }
+                _ = interactionRouter.navigate(.session(request.session))
+            case .approve:
+                _ = interactionRouter.perform(.allowOnce)
+            case .approveAlways:
+                _ = interactionRouter.perform(.allowAlways)
+            case .deny:
+                _ = interactionRouter.perform(.deny)
+            case .skipQuestion:
+                _ = interactionRouter.perform(.skipQuestion)
+            }
+            if case .togglePanel = action {
+                // Panel presentation remains an AppKit/UI concern.
+            } else {
+                return
+            }
+        }
+
         switch action {
         case .togglePanel:
             if appState.surface.isExpanded {

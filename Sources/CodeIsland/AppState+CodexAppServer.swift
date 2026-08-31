@@ -136,6 +136,25 @@ extension AppState {
     /// it and is not replayed onto a replacement connection. Remove only those
     /// dead-channel questions; hook-backed queues retain their continuations.
     func invalidateCodexAppServerQuestionsAfterDisconnect() {
+        if hasProductionInteractionRuntime {
+            guard let adapter = interactionCodexAdapter,
+                  let generation = adapter.clientGeneration else { return }
+            let events = adapter.disconnect(generation: generation)
+            for event in events {
+                submitInteraction(.adapter(event))
+            }
+            let affectedSessionIds = sessions.compactMap { id, snapshot in
+                snapshot.source == "codex" && snapshot.status == .waitingQuestion ? id : nil
+            }
+            for sessionId in affectedSessionIds {
+                sessions[sessionId]?.status = .processing
+                sessions[sessionId]?.currentTool = nil
+                sessions[sessionId]?.toolDescription = nil
+                publishInteractionObservation(for: sessionId, observedAt: Date())
+            }
+            refreshDerivedState()
+            return
+        }
         let affectedSessionIds = Set(questionQueue.compactMap { request in
             request.isCodexAppServer ? request.event.sessionId : nil
         })
@@ -240,7 +259,11 @@ extension AppState {
             case "thread/closed":
                 applyCodexThreadClosedNotification(params: params)
             case "serverRequest/resolved":
-                applyCodexServerRequestResolvedNotification(params: params)
+                if hasProductionInteractionRuntime {
+                    applyProductionCodexServerRequestResolved(params: params)
+                } else {
+                    applyCodexServerRequestResolvedNotification(params: params)
+                }
             default:
                 break
             }
@@ -250,12 +273,87 @@ extension AppState {
             // these, so this is the only channel that carries the question text.
             switch method {
             case "item/tool/requestUserInput":
-                applyCodexRequestUserInput(params: params, requestId: id)
+                if hasProductionInteractionRuntime {
+                    applyProductionCodexRequest(message)
+                } else {
+                    applyCodexRequestUserInput(params: params, requestId: id)
+                }
             default:
                 break
             }
         case .response, .error:
             break
+        }
+    }
+
+    // MARK: - Production request routing
+
+    /// The app-server request is admitted by CodexTransportAdapter and then
+    /// handed to the Center. AppState only supplies upstream session facts and
+    /// the live client response sink; it never appends to questionQueue here.
+    private func applyProductionCodexRequest(_ message: CodexJSONRPCMessage) {
+        guard let params = message.raw["params"]?.asObject,
+              let threadId = params["threadId"]?.asString,
+              case .request = message.kind else { return }
+        let sessionId = AppState.codexAppSessionPrefix + threadId
+        var snapshot = sessions[sessionId] ?? SessionSnapshot(startTime: Date())
+        snapshot.source = "codex"
+        snapshot.termBundleId = AppState.codexAppBundleId
+        snapshot.providerSessionId = threadId
+        snapshot.status = .waitingQuestion
+        snapshot.lastActivity = Date()
+        sessions[sessionId] = snapshot
+        publishInteractionObservation(for: sessionId, observedAt: snapshot.lastActivity)
+
+        guard let ref = interactionSessionRef(provider: ProviderID("codex"), providerSessionID: threadId),
+              let adapter = interactionCodexAdapter,
+              let client = codexAppServerClient else { return }
+        let generation = adapter.openClient()
+        let result = adapter.receive(
+            message,
+            session: ref,
+            generation: generation,
+            sink: CodexAppServerResponseSink(client: client),
+            receivedAt: snapshot.lastActivity
+        )
+        switch result {
+        case let .question(arrival):
+            submitInteraction(.requestArrived(arrival.arrival))
+        case let .externallyResolved(requestID):
+            submitInteraction(.adapter(.externallyResolved(requestID, evidence: .providerRequestID)))
+        case .duplicate, .ignored, .staleClient, .invalidRequest:
+            // An invalid/duplicate request remains entirely in the adapter's
+            // typed failure domain; no legacy queue or guessed reply is used.
+            break
+        }
+    }
+
+    private func applyProductionCodexServerRequestResolved(params: [String: AnyCodableLike]) {
+        guard let threadId = params["threadId"]?.asString,
+              let rawID = params["requestId"] ?? params["requestID"],
+              let requestID = Self.codexRequestID(from: rawID),
+              let adapter = interactionCodexAdapter,
+              let generation = adapter.clientGeneration else { return }
+        switch adapter.externallyResolve(requestID: requestID, threadID: threadId, generation: generation) {
+        case let .externallyResolved(localRequestID):
+            submitInteraction(.adapter(.externallyResolved(localRequestID, evidence: .providerRequestID)))
+            let sessionId = AppState.codexAppSessionPrefix + threadId
+            if sessions[sessionId]?.status == .waitingQuestion {
+                sessions[sessionId]?.status = .processing
+                sessions[sessionId]?.currentTool = nil
+                sessions[sessionId]?.toolDescription = nil
+                publishInteractionObservation(for: sessionId, observedAt: Date())
+            }
+        case .staleClient, .ignored, .duplicate, .invalidRequest, .question:
+            break
+        }
+    }
+
+    private static func codexRequestID(from value: AnyCodableLike) -> CodexRequestID? {
+        switch value {
+        case let .int(value): return .int(value)
+        case let .string(value): return .string(value)
+        default: return nil
         }
     }
 
@@ -433,6 +531,7 @@ extension AppState {
         sessions[sessionId] = snapshot
         attachTranscriptTailerIfNeeded(sessionId: sessionId)
         refreshDerivedState()
+        publishInteractionObservation(for: sessionId, observedAt: snapshot.lastActivity)
     }
 
     private func applyCodexThreadStatusNotification(params: [String: AnyCodableLike]) {
@@ -444,6 +543,7 @@ extension AppState {
         snapshot.lastActivity = Date()
         sessions[sessionId] = snapshot
         refreshDerivedState()
+        publishInteractionObservation(for: sessionId, observedAt: snapshot.lastActivity)
     }
 
     private func applyCodexThreadClosedNotification(params: [String: AnyCodableLike]) {

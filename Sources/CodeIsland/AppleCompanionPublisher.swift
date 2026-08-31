@@ -24,6 +24,15 @@ final class AppleCompanionPublisher: NSObject, ObservableObject {
     var onFocusRequest: ((MascotID) -> Void)?
     var onQuestionAnswer: ((String) -> Void)?
 
+    /// Phase 6 consumer seam. When installed, the companion can only read the
+    /// redacted projection and can only send typed Center inputs. The legacy
+    /// callbacks remain as an additive migration bridge until AppState's
+    /// interaction owner is cut over; they are never used when this seam is
+    /// attached.
+    private var externalSnapshotProvider: (() -> RedactedInteractionSnapshot)?
+    private var interactionInputSink: ((InteractionInput) -> Void)?
+    private let interactionAdapter = AppleCompanionCompatibilityAdapter()
+
     private weak var appState: AppState?
     private let peerID: MCPeerID
     private lazy var session = MCSession(peer: peerID, securityIdentity: nil, encryptionPreference: .required)
@@ -59,6 +68,17 @@ final class AppleCompanionPublisher: NSObject, ObservableObject {
 
     func attach(_ appState: AppState) {
         self.appState = appState
+    }
+
+    /// Connect the publisher to the single InteractionCenter coordinator. The
+    /// closure returns only `RedactedInteractionSnapshot`; callers cannot pass
+    /// a local snapshot, SessionSnapshot, continuation or raw protocol object.
+    func attachExternalProjection(
+        snapshot: @escaping () -> RedactedInteractionSnapshot,
+        send: @escaping (InteractionInput) -> Void
+    ) {
+        externalSnapshotProvider = snapshot
+        interactionInputSink = send
     }
 
     func configure(enabled: Bool, heartbeatSeconds: Double) {
@@ -103,9 +123,23 @@ final class AppleCompanionPublisher: NSObject, ObservableObject {
     }
 
     private func flush(reason: String) {
-        guard enabled, let appState else { return }
+        guard enabled else { return }
         sequence &+= 1
-        let payload = appState.appleCompanionStatePayload(sequence: sequence)
+        let payload: AppleCompanionStatePayload
+        if let externalSnapshotProvider {
+            payload = AppleCompanionStatePayload(
+                sequence: sequence,
+                snapshot: externalSnapshotProvider(),
+                updatedAt: Date()
+            )
+        } else if let appState {
+            // Temporary migration bridge. Production wiring installs the
+            // external projection above; retaining this fallback keeps old
+            // companion clients usable until the Center owner is switched.
+            payload = appState.appleCompanionStatePayload(sequence: sequence)
+        } else {
+            return
+        }
 
         bluetooth.publish(payload)
 
@@ -121,6 +155,35 @@ final class AppleCompanionPublisher: NSObject, ObservableObject {
     }
 
     private func handleCommand(_ command: AppleCompanionCommandPayload) {
+        if let externalSnapshotProvider, let interactionInputSink {
+            guard interactionAdapter.accepts(command, latestSequence: sequence) else {
+                lastError = "Ignored unsupported companion protocol"
+                return
+            }
+            if command.type == .focus {
+                handleFocusRequest(MascotID(sourceName: command.source) ?? .claude)
+                return
+            }
+            if command.type == .requestCurrentState {
+                flush(reason: "requested")
+                return
+            }
+            let decision = interactionAdapter.decision(
+                command,
+                snapshot: externalSnapshotProvider(),
+                latestSequence: sequence
+            )
+            switch decision {
+            case let .action(input):
+                interactionInputSink(input)
+            case .ignored:
+                // Stale/ambiguous/unsupported commands deliberately do not
+                // fall through to the legacy queue callbacks.
+                lastError = "Ignored stale or unsupported companion command"
+            }
+            return
+        }
+
         switch command.type {
         case .requestCurrentState:
             flush(reason: "requested")
@@ -136,8 +199,26 @@ final class AppleCompanionPublisher: NSObject, ObservableObject {
                 onQuestionAnswer?(answer)
             }
         case .focus:
-            onFocusRequest?(MascotID(sourceName: command.source) ?? .claude)
+            handleFocusRequest(MascotID(sourceName: command.source) ?? .claude)
         }
+    }
+
+    /// Focus requests from a companion are routed through the external
+    /// projection when available. This prevents the publisher from receiving
+    /// local session metadata (including terminal handles).
+    func handleFocusRequest(_ mascot: MascotID) {
+        if let externalSnapshotProvider, let interactionInputSink {
+            let sessions = externalSnapshotProvider().sessions.values
+                .filter { $0.session.key.provider.rawValue == mascot.sourceName }
+                .sorted {
+                    if $0.pendingCount != $1.pendingCount { return $0.pendingCount > $1.pendingCount }
+                    return $0.session.key.providerSessionID < $1.session.key.providerSessionID
+                }
+            guard let target = sessions.first else { return }
+            interactionInputSink(.user(.navigate(.session(target.session))))
+            return
+        }
+        onFocusRequest?(mascot)
     }
 
     private func refreshConnectedPeers() {

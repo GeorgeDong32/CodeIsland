@@ -99,7 +99,7 @@ struct PlanPreview: View {
 
 // MARK: - ExitPlanMode approval options
 
-/// Plan approval OptionRows for ExitPlanMode (Auto Accept / Manual / Request Changes).
+/// Plan approval OptionRows for ExitPlanMode (Allow / Allow always / Deny).
 struct ExitPlanModeApprovalOptions: View {
     let queuePosition: Int
     let queueTotal: Int
@@ -111,6 +111,13 @@ struct ExitPlanModeApprovalOptions: View {
     @FocusState private var feedbackFocused: Bool
 
     private let planColor = planApprovalColor
+
+    /// The card's session is the stable identity available to this legacy
+    /// AppState bridge.  Plan actions must carry it rather than resolving the
+    /// queue head, which may have changed while the card was on screen.
+    private var expectedSessionId: String? {
+        appState.surface.approvalSessionId
+    }
 
     var body: some View {
         VStack(spacing: 4) {
@@ -133,26 +140,30 @@ struct ExitPlanModeApprovalOptions: View {
             VStack(spacing: 2) {
                 OptionRow(
                     index: 1,
-                    label: L10n.shared["plan_auto_accept"],
+                    label: L10n.shared["always"],
                     description: L10n.shared["plan_auto_accept_desc"],
                     isSelected: false,
                     accent: planColor,
                     action: {
-                        let mode = appState.smartModeForPendingPlan() ?? "acceptEdits"
-                        appState.approvePlanWithMode(mode)
+                        guard let expectedSessionId else { return }
+                        let mode = appState.smartModeForPendingPlan(expectedSessionId: expectedSessionId) ?? "acceptEdits"
+                        appState.allowPlan(mode: mode, expectedSessionId: expectedSessionId)
                     }
                 )
                 OptionRow(
                     index: 2,
-                    label: L10n.shared["plan_manual"],
+                    label: L10n.shared["allow_once"],
                     description: L10n.shared["plan_manual_desc"],
                     isSelected: false,
                     accent: planColor,
-                    action: { appState.approvePlanWithMode(nil) }
+                    action: {
+                        guard let expectedSessionId else { return }
+                        appState.allowPlan(mode: nil, expectedSessionId: expectedSessionId)
+                    }
                 )
                 OptionRow(
                     index: 3,
-                    label: L10n.shared["plan_request_changes"],
+                    label: L10n.shared["deny"],
                     description: L10n.shared["plan_request_changes_desc"],
                     isSelected: showFeedbackInput,
                     accent: planColor,
@@ -177,7 +188,11 @@ struct ExitPlanModeApprovalOptions: View {
                         .foregroundStyle(.white)
                         .focused($feedbackFocused)
                         .onSubmit {
-                            appState.denyPermissionWithFeedback(feedbackText.isEmpty ? nil : feedbackText)
+                            guard let expectedSessionId else { return }
+                            appState.denyPlanWithFeedback(
+                                feedbackText.isEmpty ? nil : feedbackText,
+                                expectedSessionId: expectedSessionId
+                            )
                         }
                 }
                 .padding(.horizontal, 10)
@@ -192,27 +207,15 @@ struct ExitPlanModeApprovalOptions: View {
                 .onAppear { feedbackFocused = true }
             }
 
-            // Two ways to put the plan card away:
-            //  - Skip: resolve the ExitPlanMode continuation (plain allow) so the
-            //    CLI unblocks and the agent keeps running. Drains the queue entry.
-            //  - Dismiss: collapse the panel only; the request stays pending and
-            //    the user can return to the CLI to handle it. (upstream behavior)
-            HStack(spacing: 6) {
-                PixelButton(
-                    label: L10n.shared["skip"],
-                    fg: .white.opacity(0.85),
-                    bg: Color(red: 0.2, green: 0.22, blue: 0.28),
-                    border: Color.white.opacity(0.2),
-                    action: { appState.skipPlanAndResume() }
-                )
-                PixelButton(
-                    label: L10n.shared["dismiss"],
-                    fg: .white.opacity(0.6),
-                    bg: Color.white.opacity(0.06),
-                    border: Color.white.opacity(0.12),
-                    action: onDismiss
-                )
-            }
+            // Dismiss only hides the card.  The pending Plan continuation is
+            // intentionally untouched so the CLI remains the source of truth.
+            PixelButton(
+                label: L10n.shared["dismiss"],
+                fg: .white.opacity(0.6),
+                bg: Color.white.opacity(0.06),
+                border: Color.white.opacity(0.12),
+                action: onDismiss
+            )
             .padding(.horizontal, 14)
         }
     }

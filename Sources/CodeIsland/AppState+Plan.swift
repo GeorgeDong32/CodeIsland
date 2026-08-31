@@ -1,13 +1,20 @@
 import Foundation
 import CodeIslandCore
+import OSLog
+
+private let planLog = Logger(subsystem: "com.codeisland", category: "Plan")
 
 extension AppState {
     // MARK: - Plan Approval (ExitPlanMode)
 
-    /// Extract setMode suggestion from ExitPlanMode permission_suggestions
-    func suggestedModeForPendingPlan() -> String? {
-        guard let pending = permissionQueue.first,
-              pending.event.toolName == "ExitPlanMode",
+    /// Extract setMode suggestion from the targeted ExitPlanMode request.
+    ///
+    /// Plan actions must carry the card's session identity.  In particular, a
+    /// Plan helper must never silently act on `permissionQueue.first`, since a
+    /// regular permission from another session can move the queue head while a
+    /// card is being rendered.
+    func suggestedModeForPendingPlan(expectedSessionId: String) -> String? {
+        guard let pending = pendingPlan(expectedSessionId: expectedSessionId),
               let suggestions = pending.event.rawJSON["permission_suggestions"] as? [[String: Any]] else {
             return nil
         }
@@ -20,20 +27,30 @@ extension AppState {
         return nil
     }
 
-    /// Resolve the setMode value for the Plan card's auto-accept OptionRow.
+    /// Resolve the setMode value for the Plan card's Allow always action.
     /// Priority:
     /// 1. permission_suggestions (preserves Claude Code's explicit hint)
     /// 2. SettingsManager.shared.planAutoAcceptMode.rawValue ("auto" or "acceptEdits")
     /// 3. "acceptEdits" as the final safety net (handled by the caller)
-    func smartModeForPendingPlan() -> String? {
-        if let suggested = suggestedModeForPendingPlan() { return suggested }
+    func smartModeForPendingPlan(expectedSessionId: String) -> String? {
+        if let suggested = suggestedModeForPendingPlan(expectedSessionId: expectedSessionId) {
+            return suggested
+        }
         return SettingsManager.shared.planAutoAcceptMode.rawValue
     }
 
-    /// Approve ExitPlanMode with optional permission mode change
-    func approvePlanWithMode(_ mode: String?) {
-        guard !permissionQueue.isEmpty else { return }
-        let pending = permissionQueue.removeFirst()
+    /// Resolve the targeted ExitPlanMode request with an explicit Plan action.
+    ///
+    /// `mode == nil` is the typed/manual Plan resolution.  Its historical wire
+    /// representation is a plain allow, but the helper name and target make it
+    /// clear that this is a Plan resolution rather than a queue operation.
+    func allowPlan(mode: String?, expectedSessionId: String) {
+        guard let index = planIndex(expectedSessionId: expectedSessionId) else {
+            discardStalePlanAction(expectedSessionId: expectedSessionId, kind: "allowPlan")
+            return
+        }
+
+        let pending = permissionQueue.remove(at: index)
         let sessionId = pending.event.sessionId ?? "default"
         dismissedPermissionSessionIds.remove(sessionId)
 
@@ -45,7 +62,7 @@ extension AppState {
                 "destination": "session",
             ]])
         } else {
-            responseData = Self.simpleAllowResponse
+            responseData = Self.allowResponseData(for: pending.event)
         }
 
         pending.continuation.resume(returning: responseData)
@@ -57,41 +74,22 @@ extension AppState {
         refreshDerivedState()
     }
 
-    /// Skip the pending ExitPlanMode approval: resolve its continuation so the
-    /// CLI unblocks and the agent continues, but without changing the
-    /// permission mode. Unlike `dismissPermissionPrompt` (which only collapses
-    /// the panel and leaves the request pending), this actually drains the
-    /// queue entry so the agent is not left blocked waiting on the hook.
-    func skipPlanAndResume() {
-        guard !permissionQueue.isEmpty else { return }
-        let pending = permissionQueue.removeFirst()
-        let sessionId = pending.event.sessionId ?? "default"
-        dismissedPermissionSessionIds.remove(sessionId)
-
-        // Plain allow — no setMode, no updatedInput. Lets the agent proceed
-        // past the ExitPlanMode call without altering its permission state.
-        pending.continuation.resume(returning: Self.simpleAllowResponse)
-        sessions[sessionId]?.status = .running
-        sessions[sessionId]?.currentTool = nil
-        sessions[sessionId]?.toolDescription = nil
-
-        showNextPending()
-        refreshDerivedState()
-    }
-
-    /// Deny permission with optional feedback message (Plan "Request Changes").
-    func denyPermissionWithFeedback(_ feedback: String?) {
-        guard !permissionQueue.isEmpty else { return }
-        let pending = permissionQueue.removeFirst()
-        let sessionId = pending.event.sessionId ?? "default"
-        dismissedPermissionSessionIds.remove(sessionId)
-
-        let responseData: Data
-        if let feedback, !feedback.isEmpty {
-            responseData = Self.denyResponseData(for: pending.event, message: feedback)
-        } else {
-            responseData = Self.denyResponseData(for: pending.event)
+    /// Deny the targeted Plan request, optionally providing feedback for a
+    /// revision.  This is deliberately separate from generic permission deny
+    /// so a Plan card cannot resolve whichever request happens to be first.
+    func denyPlanWithFeedback(_ feedback: String?, expectedSessionId: String) {
+        guard let index = planIndex(expectedSessionId: expectedSessionId) else {
+            discardStalePlanAction(expectedSessionId: expectedSessionId, kind: "denyPlan")
+            return
         }
+
+        let pending = permissionQueue.remove(at: index)
+        let sessionId = pending.event.sessionId ?? "default"
+        dismissedPermissionSessionIds.remove(sessionId)
+
+        let responseData = feedback.flatMap { message in
+            message.isEmpty ? nil : Self.denyResponseData(for: pending.event, message: message)
+        } ?? Self.denyResponseData(for: pending.event)
         pending.continuation.resume(returning: responseData)
         sessions[sessionId]?.status = .idle
         sessions[sessionId]?.currentTool = nil
@@ -101,6 +99,32 @@ extension AppState {
             activeSessionId = mostActiveSessionId()
         }
 
+        showNextPending()
+        refreshDerivedState()
+    }
+
+    /// Finds a Plan request by its explicit session target.
+    ///
+    /// The current AppState bridge predates Center RequestIDs, so the session
+    /// is the strongest identity available at this seam.  Returning nil for a
+    /// missing/stale target is a safe no-op; it must never fall back to queue
+    /// head and risk answering a different CLI request.
+    private func pendingPlan(expectedSessionId: String) -> PermissionRequest? {
+        guard let index = planIndex(expectedSessionId: expectedSessionId) else { return nil }
+        return permissionQueue[index]
+    }
+
+    private func planIndex(expectedSessionId: String) -> Int? {
+        permissionQueue.firstIndex {
+            ($0.event.sessionId ?? "default") == expectedSessionId
+                && $0.event.toolName == "ExitPlanMode"
+        }
+    }
+
+    private func discardStalePlanAction(expectedSessionId: String, kind: String) {
+        planLog.notice(
+            "⚠️ ignored \(kind, privacy: .public) for session=\(expectedSessionId, privacy: .public) — Plan request no longer queued"
+        )
         showNextPending()
         refreshDerivedState()
     }

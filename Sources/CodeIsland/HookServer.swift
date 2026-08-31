@@ -742,6 +742,14 @@ class HookServer {
         case .permission:
             let sessionId = event.sessionId ?? "default"
 
+            // Production owner switch.  HookServer keeps parsing/routing and
+            // socket lifetime; the request lifecycle is owned by the typed
+            // interaction coordinator once installed.
+            if appState.hasProductionInteractionRuntime {
+                handleProductionInteraction(event: event, connection: connection, question: false)
+                return
+            }
+
             // Auto-approve safe internal tools without showing UI
             if let toolName = event.toolName, Self.autoApproveTools.contains(toolName) {
                 sendResponse(
@@ -802,6 +810,10 @@ class HookServer {
 
         case .question:
             let questionSessionId = event.sessionId ?? "default"
+            if appState.hasProductionInteractionRuntime {
+                handleProductionInteraction(event: event, connection: connection, question: true)
+                return
+            }
             monitorPeerDisconnect(connection: connection, sessionId: questionSessionId)
             Task {
                 let responseBody = await withCheckedContinuation { continuation in
@@ -813,6 +825,54 @@ class HookServer {
         case .event:
             appState.handleEvent(event)
             sendResponse(connection: connection, data: Data("{}".utf8))
+        }
+    }
+
+    /// Production Hook ingress. Network.framework is kept at this boundary;
+    /// the adapter and reducer see only an opaque response handle plus typed
+    /// request/effect values.
+    private func handleProductionInteraction(event: HookEvent, connection: NWConnection, question: Bool) {
+        appState.prepareInteractionHookSession(event, question: question)
+        let responseHandle = ProviderResponseHandle(UUID())
+        let connectionID = ObjectIdentifier(connection)
+        let context = ConnectionContext()
+        connectionContexts[connectionID] = context
+
+        let sink = ClosureHookWireResponseSink { [weak self, weak connection] response in
+            guard let self, let connection else { return false }
+            let data = HookProductionResponseCodec.data(for: response, event: event)
+            self.sendResponse(connection: connection, data: data)
+            return true
+        }
+        let responder = HookOnceResponder(sink: sink)
+        guard let result = appState.receiveInteractionHook(
+            event,
+            responseHandle: responseHandle,
+            responder: responder
+        ) else {
+            _ = responder.finish(.neutral(.hookEmptyObject))
+            return
+        }
+
+        switch result {
+        case let .request(arrival):
+            if case let .response(token) = arrival.channel {
+                monitorPeerDisconnect(connection: connection, token: token)
+            }
+            appState.submitInteraction(.requestArrived(arrival))
+        case let .nativePrompt(observation):
+            appState.submitInteraction(.nativePromptObserved(observation))
+        case let .providerResponse(plan):
+            _ = responder.finish(.provider(plan))
+            connectionContexts.removeValue(forKey: connectionID)
+        case .buffered:
+            // Preparation normally binds immediately. If a provider races
+            // generation creation, the bounded adapter buffer owns the
+            // request until a typed observation arrives.
+            monitorPeerDisconnect(connection: connection, token: nil)
+        case .quarantine, .ignored, .diagnostic:
+            _ = responder.finish(.neutral(.hookEmptyObject))
+            connectionContexts.removeValue(forKey: connectionID)
         }
     }
 
@@ -865,6 +925,46 @@ class HookServer {
                 if !context.responded {
                     connection.cancel()
                 }
+            }
+        }
+    }
+
+    /// Token-scoped production disconnect handling.  A hook connection can be
+    /// reused for multiple logical requests, so no session-wide drain is
+    /// permitted on this path.
+    private func monitorPeerDisconnect(connection: NWConnection, token: TransportToken?) {
+        let connId = ObjectIdentifier(connection)
+        let context = connectionContexts[connId] ?? ConnectionContext()
+        connectionContexts[connId] = context
+        connection.stateUpdateHandler = { [weak self] state in
+            Task { @MainActor in
+                guard let self else { return }
+                switch state {
+                case .cancelled, .failed:
+                    if !context.responded, let token {
+                        self.appState.submitInteraction(.adapter(.transportEnded(
+                            token: token,
+                            evidence: .peerDisconnected
+                        )))
+                    }
+                    self.connectionContexts.removeValue(forKey: connId)
+                default:
+                    break
+                }
+            }
+        }
+
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000_000)
+            guard let self else { return }
+            if self.connectionContexts.removeValue(forKey: connId) != nil,
+               !context.responded,
+               let token {
+                self.appState.submitInteraction(.adapter(.transportEnded(
+                    token: token,
+                    evidence: .timedOut
+                )))
+                connection.cancel()
             }
         }
     }

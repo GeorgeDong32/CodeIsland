@@ -133,6 +133,7 @@ class PanelWindowController: NSObject, NSWindowDelegate {
     private var panel: NSPanel?
     private var hostingView: NotchHostingView<NotchPanelView>?
     private let appState: AppState
+    private var interactionRouter: InteractionUIActionRouter?
 
     nonisolated static func screenHopFrames(
         oldFrame: NSRect,
@@ -182,9 +183,18 @@ class PanelWindowController: NSObject, NSWindowDelegate {
     private var lastNotchHeightMode = SettingsDefaults.notchHeightMode
     private var lastCustomNotchHeight = SettingsDefaults.customNotchHeight
 
-    init(appState: AppState) {
+    init(appState: AppState, interactionRouter: InteractionUIActionRouter? = nil) {
         self.appState = appState
+        self.interactionRouter = interactionRouter
         super.init()
+    }
+
+    /// Install the fork-owned surface after the Center coordinator is ready.
+    /// Rebuilding the host view keeps a single SwiftUI reader in production.
+    func attachInteractionRouter(_ router: InteractionUIActionRouter?) {
+        interactionRouter = router
+        guard let screen = panel?.screen ?? NSScreen.main else { return }
+        rebuildForCurrentScreen(screen)
     }
 
     /// Watch `sessions` / `surface` for changes that affect panel visibility.
@@ -341,7 +351,8 @@ class PanelWindowController: NSObject, NSWindowDelegate {
             hasNotch: hasNotch,
             notchHeight: notchHeight,
             notchW: notchW,
-            screenWidth: screen.frame.width
+            screenWidth: screen.frame.width,
+            interactionRouter: interactionRouter
         )
         let contentView = NotchHostingView(rootView: rootView)
         contentView.sizingOptions = []

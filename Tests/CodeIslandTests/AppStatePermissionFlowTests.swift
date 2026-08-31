@@ -213,15 +213,15 @@ final class AppStatePermissionFlowTests: XCTestCase {
         XCTAssertEqual(appState.permissionQueue.count, 0)
     }
 
-    // MARK: - skipPlanAndResume (ExitPlanMode)
+    // MARK: - Plan variant (ExitPlanMode)
 
-    /// Skip resolves the pending ExitPlanMode continuation with a plain allow
-    /// (no setMode), drains it from the queue, and lets the agent continue.
-    /// Unlike `dismissPermissionPrompt`, the request does not stay pending.
-    func testSkipPlanAndResumeResolvesExitPlanModeWithPlainAllow() async throws {
+    /// Manual Plan approval is a plain allow on the wire, but uses an explicit
+    /// Plan resolution name and session target in the AppState seam.
+    func testAllowPlanManuallyResolvesTargetedExitPlanModeWithPlainAllow() async throws {
         let appState = AppState()
+        let sessionId = "s-plan-manual"
         let event = try makePermissionRequestEvent(
-            sessionId: "s-plan-skip",
+            sessionId: sessionId,
             toolName: "ExitPlanMode",
             toolInput: ["plan": "step 1\nstep 2"]
         )
@@ -234,9 +234,9 @@ final class AppStatePermissionFlowTests: XCTestCase {
         await Task.yield()
 
         XCTAssertEqual(appState.permissionQueue.count, 1)
-        XCTAssertEqual(appState.sessions["s-plan-skip"]?.status, .waitingApproval)
+        XCTAssertEqual(appState.sessions[sessionId]?.status, .waitingApproval)
 
-        appState.skipPlanAndResume()
+        appState.allowPlan(mode: nil, expectedSessionId: sessionId)
 
         let response = await responseTask.value
         // Plain allow — no updatedPermissions/setMode payload, just behavior.
@@ -244,15 +244,113 @@ final class AppStatePermissionFlowTests: XCTestCase {
         let decision = try extractPermissionDecision(from: response)
         XCTAssertNil(decision["updatedPermissions"])
         XCTAssertEqual(appState.permissionQueue.count, 0)
-        XCTAssertEqual(appState.sessions["s-plan-skip"]?.status, .running)
+        XCTAssertEqual(appState.sessions[sessionId]?.status, .running)
     }
 
-    /// Skip is a no-op (does not crash / does not touch state) when the queue
-    /// is already empty — guards against double-tap on the button.
-    func testSkipPlanAndResumeIsNoOpWhenQueueEmpty() {
+    func testAllowPlanAlwaysUsesTargetedSuggestedMode() async throws {
         let appState = AppState()
+        let sessionId = "s-plan-always"
+        let event = try makePermissionRequestEvent(
+            sessionId: sessionId,
+            toolName: "ExitPlanMode",
+            toolInput: ["plan": "step 1"],
+            extraJSON: [
+                "permission_suggestions": [["type": "setMode", "mode": "acceptEdits"]]
+            ]
+        )
+        let responseTask = Task<Data, Never> {
+            await withCheckedContinuation { continuation in
+                appState.handlePermissionRequest(event, continuation: continuation)
+            }
+        }
+        await Task.yield()
+
+        let mode = appState.smartModeForPendingPlan(expectedSessionId: sessionId)
+        appState.allowPlan(mode: mode, expectedSessionId: sessionId)
+
+        let response = await responseTask.value
+        let decision = try extractPermissionDecision(from: response)
+        let permissions = try XCTUnwrap(decision["updatedPermissions"] as? [[String: Any]])
+        XCTAssertEqual(permissions.first?["type"] as? String, "setMode")
+        XCTAssertEqual(permissions.first?["mode"] as? String, "acceptEdits")
         XCTAssertEqual(appState.permissionQueue.count, 0)
-        appState.skipPlanAndResume() // must not crash
+    }
+
+    func testDenyPlanWithFeedbackUsesTargetedPermissionDeny() async throws {
+        let appState = AppState()
+        let sessionId = "s-plan-deny"
+        let event = try makePermissionRequestEvent(
+            sessionId: sessionId,
+            toolName: "ExitPlanMode",
+            toolInput: ["plan": "step 1"]
+        )
+        let responseTask = Task<Data, Never> {
+            await withCheckedContinuation { continuation in
+                appState.handlePermissionRequest(event, continuation: continuation)
+            }
+        }
+        await Task.yield()
+
+        appState.denyPlanWithFeedback("Please split this into smaller steps", expectedSessionId: sessionId)
+
+        let response = await responseTask.value
+        XCTAssertEqual(try extractPermissionBehavior(from: response), "deny")
+        let decision = try extractPermissionDecision(from: response)
+        XCTAssertEqual(decision["message"] as? String, "Please split this into smaller steps")
+        XCTAssertEqual(appState.permissionQueue.count, 0)
+        XCTAssertEqual(appState.sessions[sessionId]?.status, .idle)
+    }
+
+    /// A missing target is a safe no-op.  Plan actions never resolve queue
+    /// head, even when that head happens to be a regular permission.
+    func testAllowPlanRequiresTargetedPlanVariant() async throws {
+        let appState = AppState()
+        let event = try makePermissionRequestEvent(sessionId: "s-regular", toolName: "Bash")
+        let responseTask = Task<Data, Never> {
+            await withCheckedContinuation { continuation in
+                appState.handlePermissionRequest(event, continuation: continuation)
+            }
+        }
+        await Task.yield()
+
+        appState.allowPlan(mode: nil, expectedSessionId: "s-regular")
+        XCTAssertEqual(appState.permissionQueue.count, 1)
+        await assertTaskNotResolved(responseTask)
+        appState.handlePeerDisconnect(sessionId: "s-regular")
+        _ = await responseTask.value
+    }
+
+    /// Dismiss only hides a Plan card; its continuation and queue entry remain
+    /// pending until the CLI or an explicit resolution handles it.
+    func testDismissPlanKeepsPendingAndDoesNotResolve() async throws {
+        let appState = AppState()
+        let sessionId = "s-plan-dismiss"
+        let event = try makePermissionRequestEvent(
+            sessionId: sessionId,
+            toolName: "ExitPlanMode",
+            toolInput: ["plan": "step 1"]
+        )
+        let responseTask = Task<Data, Never> {
+            await withCheckedContinuation { continuation in
+                appState.handlePermissionRequest(event, continuation: continuation)
+            }
+        }
+        await Task.yield()
+
+        appState.dismissPermissionPrompt(expectedSessionId: sessionId)
+        XCTAssertEqual(appState.surface, .collapsed)
+        XCTAssertEqual(appState.permissionQueue.count, 1)
+        XCTAssertEqual(appState.sessions[sessionId]?.status, .waitingApproval)
+        await assertTaskNotResolved(responseTask)
+
+        appState.handlePeerDisconnect(sessionId: sessionId)
+        let response = await responseTask.value
+        XCTAssertEqual(try extractPermissionBehavior(from: response), "deny")
+    }
+
+    func testAllowPlanIsNoOpWhenQueueEmpty() {
+        let appState = AppState()
+        appState.allowPlan(mode: nil, expectedSessionId: "missing")
         XCTAssertEqual(appState.permissionQueue.count, 0)
     }
 
@@ -827,7 +925,8 @@ final class AppStatePermissionFlowTests: XCTestCase {
         sessionId: String,
         toolName: String,
         toolInput: [String: Any] = ["command": "echo test"],
-        source: String? = nil
+        source: String? = nil,
+        extraJSON: [String: Any] = [:]
     ) throws -> HookEvent {
         var payload: [String: Any] = [
             "hook_event_name": "PermissionRequest",
@@ -837,6 +936,9 @@ final class AppStatePermissionFlowTests: XCTestCase {
         ]
         if let source {
             payload["_source"] = source
+        }
+        for (key, value) in extraJSON {
+            payload[key] = value
         }
         let data = try JSONSerialization.data(withJSONObject: payload)
         guard let event = HookEvent(from: data) else {

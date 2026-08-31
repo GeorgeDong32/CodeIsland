@@ -91,6 +91,13 @@ struct NotchPanelView: View {
     let notchHeight: CGFloat
     let notchW: CGFloat
     let screenWidth: CGFloat
+    /// Optional injection seam for previews/tests. Production callers use the
+    /// shared navigator, while the panel remains source-compatible with the
+    /// existing synthesized initializer.
+    var navigator: SessionNavigator? = nil
+    /// Fork-owned interaction projection. When installed, expanded content is
+    /// rendered from its local snapshot and actions go through typed inputs.
+    var interactionRouter: InteractionUIActionRouter? = nil
 
     @AppStorage(SettingsKey.contentFontSize) private var contentFontSize = SettingsDefaults.contentFontSize
     @AppStorage(SettingsKey.showAgentDetails) private var showAgentDetails = SettingsDefaults.showAgentDetails
@@ -112,7 +119,10 @@ struct NotchPanelView: View {
     @State private var curtainOpacity: Double = 1
     @State private var displayedToolStatus: Bool = SettingsDefaults.showToolStatus
 
-    private var isActive: Bool { !appState.sessions.isEmpty }
+    private var isActive: Bool {
+        if let interactionRouter { return !interactionRouter.snapshot.local.sessions.isEmpty }
+        return !appState.sessions.isEmpty
+    }
     /// First launch / no-session state should still render a visible marker so the app
     /// doesn't disappear completely behind the physical notch.
     private var showIdleIndicator: Bool {
@@ -120,10 +130,14 @@ struct NotchPanelView: View {
     }
     /// Whether the bar content should be visible (respects hideWhenNoSession)
     private var showBar: Bool {
-        isActive && !(hideWhenNoSession && appState.activeSessionCount == 0)
+        let activeCount = interactionRouter?.snapshot.local.sessions.count ?? appState.activeSessionCount
+        return isActive && !(hideWhenNoSession && activeCount == 0)
     }
     private var shouldShowExpanded: Bool {
-        showBar && appState.surface.isExpanded
+        if let interactionRouter {
+            return showBar && interactionRouter.snapshot.local.presentation.surface != .collapsed
+        }
+        return showBar && appState.surface.isExpanded
     }
     /// Prehover acknowledgement is only rendered on the collapsed active bar —
     /// once the surface expands (from hover or any other path) it disappears.
@@ -202,6 +216,10 @@ struct NotchPanelView: View {
                         .frame(height: 0.5)
                         .padding(.horizontal, 12)
 
+                    if let interactionRouter {
+                        InteractionCenterSurfaceView(router: interactionRouter)
+                            .transition(.blurFade.combined(with: .scale(scale: 0.96, anchor: .top)))
+                    } else {
                     switch appState.surface {
                     case .approvalCard(let sid):
                         // Card is addressed by session — render that session's
@@ -219,7 +237,8 @@ struct NotchPanelView: View {
                                 onAllow: { appState.approvePermission(always: false, expectedSessionId: sid) },
                                 onAlwaysAllow: { appState.approvePermission(always: true, expectedSessionId: sid) },
                                 onDeny: { appState.denyPermission(expectedSessionId: sid) },
-                                onDismiss: { appState.dismissPermissionPrompt(expectedSessionId: sid) }
+                                onDismiss: { appState.dismissPermissionPrompt(expectedSessionId: sid) },
+                                navigator: navigator
                             )
                             .transition(.blurFade.combined(with: .scale(scale: 0.96, anchor: .top)))
                         }
@@ -240,7 +259,8 @@ struct NotchPanelView: View {
                                 appState: appState,
                                 onAnswer: { appState.answerQuestion($0, expectedSessionId: sid) },
                                 onAnswerMulti: { appState.answerQuestionMulti($0, expectedSessionId: sid) },
-                                onSkip: { appState.skipQuestion(expectedSessionId: sid) }
+                                onDismiss: { appState.dismissQuestionPrompt(expectedSessionId: sid) },
+                                navigator: navigator
                             )
                             .transition(.blurFade.combined(with: .scale(scale: 0.96, anchor: .top)))
                         } else if let preview = appState.previewQuestionPayload {
@@ -258,18 +278,20 @@ struct NotchPanelView: View {
                                 appState: appState,
                                 onAnswer: { _ in },
                                 onAnswerMulti: { _ in },
-                                onSkip: { }
+                                onDismiss: { },
+                                navigator: navigator
                             )
                             .transition(.blurFade.combined(with: .scale(scale: 0.96, anchor: .top)))
                         }
                     case .completionCard:
-                        SessionListView(appState: appState, onlySessionId: appState.justCompletedSessionId)
+                        SessionListView(appState: appState, onlySessionId: appState.justCompletedSessionId, navigator: navigator)
                             .transition(.blurFade.combined(with: .move(edge: .top)))
                     case .sessionList:
-                        SessionListView(appState: appState, onlySessionId: nil)
+                        SessionListView(appState: appState, onlySessionId: nil, navigator: navigator)
                             .transition(.blurFade.combined(with: .move(edge: .top)))
                     case .collapsed:
                         EmptyView()
+                    }
                     }
                 }
             }
@@ -1019,10 +1041,10 @@ private struct ApprovalBar: View {
     let onAlwaysAllow: () -> Void
     let onDeny: () -> Void
     let onDismiss: () -> Void
+    var navigator: SessionNavigator? = nil
 
-    // Jump validation state for click-to-jump functionality
     @State private var failureShakeOffset: CGFloat = 0
-    @State private var jumpValidationTask: Task<Void, Never>?
+    @State private var navigationOperationID: UUID?
     @AppStorage(SettingsKey.autoCollapseAfterSessionJump) private var autoCollapseAfterSessionJump = SettingsDefaults.autoCollapseAfterSessionJump
 
     private var fileName: String? {
@@ -1040,6 +1062,20 @@ private struct ApprovalBar: View {
 
     var body: some View {
         VStack(spacing: 8) {
+            SessionIdentityLine(
+                appState: appState,
+                session: session,
+                sessionId: sessionId,
+                onNavigate: handleCardClick,
+                projectFontSize: 11,
+                projectColor: .white.opacity(0.9),
+                sessionFontSize: 10,
+                sessionColor: .white.opacity(0.7),
+                dividerColor: .white.opacity(0.28)
+            )
+            .padding(.horizontal, 14)
+            .help(L10n.shared["shortcut_jumpToTerminal_desc"])
+
             // Tool name + file context
             HStack(spacing: 6) {
                 Text("!")
@@ -1111,18 +1147,18 @@ private struct ApprovalBar: View {
         .padding(.vertical, 10)
         .offset(x: failureShakeOffset)
         .onDisappear {
-            jumpValidationTask?.cancel()
-            jumpValidationTask = nil
+            if let navigationOperationID {
+                activeNavigator.cancel(operationID: navigationOperationID)
+            }
+            navigationOperationID = nil
         }
     }
 
     // MARK: - Click-to-jump handling
 
-    /// Handle click on approval card to jump to terminal.
-    /// Logic mirrors SessionCard.handleSessionClick():
-    /// - nil session: play error sound + shake animation
-    /// - remote session: skip (no terminal to jump to)
-    /// - valid local session: activate terminal + optionally auto-collapse
+    /// Handle click on the approval identity/content. Retry, visibility and
+    /// physical activation are owned by SessionNavigator; this view only
+    /// applies the result to its own surface and shake animation.
     /// Badge text for a global shortcut, shown only when the user has enabled
     /// it in Settings — the shortcut existed but nothing surfaced it (#12 UX).
     static func shortcutHint(_ action: ShortcutAction) -> String? {
@@ -1140,57 +1176,29 @@ private struct ApprovalBar: View {
             return
         }
 
-        // Remote sessions have no local terminal
-        guard !session.isRemote else { return }
-
-        TerminalActivator.activate(session: session, sessionId: sessionId)
-
-        guard autoCollapseAfterSessionJump else { return }
-
-        // Validate jump: retry 3x with increasing delays (120ms, 320ms, 640ms)
-        // Collapse on success; play error sound + shake on failure
-        jumpValidationTask?.cancel()
-        jumpValidationTask = Task {
-            let delays: [UInt64] = [120_000_000, 320_000_000, 640_000_000]
-            let outcome = await evaluateJumpValidation(
-                delays: delays,
-                checkSucceeded: { await checkJumpSucceeded(session: session) }
-            )
-
-            switch outcome {
-            case .success:
-                guard !Task.isCancelled else { return }
-                // Auto-collapse to collapsed surface on successful jump
-                await MainActor.run {
-                    switch appState.surface {
-                    case .approvalCard:
-                        withAnimation(NotchAnimation.close) {
-                            appState.surface = .collapsed
-                        }
-                    default:
-                        break
-                    }
-                }
-            case .failed:
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    SoundManager.shared.preview("8bit_error")
-                }
-                guard !Task.isCancelled else { return }
-                await runJumpFailureShakeAnimation()
-            case .cancelled:
-                return
-            }
-        }
+        navigationOperationID = activeNavigator.begin(
+            target: SessionNavigationTarget(session: session, sessionId: sessionId),
+            collapsePolicy: autoCollapseAfterSessionJump ? .afterSuccess : .never,
+            onResult: handleNavigationResult
+        )
     }
 
-    private func checkJumpSucceeded(session: SessionSnapshot) async -> Bool {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let succeeded = TerminalVisibilityDetector.isSessionTabVisible(session)
-                    || TerminalVisibilityDetector.isTerminalFrontmostForSession(session)
-                continuation.resume(returning: succeeded)
+    private var activeNavigator: SessionNavigator {
+        navigator ?? .shared
+    }
+
+    private func handleNavigationResult(_ result: SessionNavigationResult) {
+        navigationOperationID = nil
+        switch result {
+        case .succeeded:
+            guard case .approvalCard = appState.surface else { return }
+            withAnimation(NotchAnimation.close) {
+                appState.surface = .collapsed
             }
+        case .failed:
+            Task { @MainActor in await runJumpFailureShakeAnimation() }
+        case .activated, .unavailable, .cancelled:
+            break
         }
     }
 
@@ -1231,15 +1239,15 @@ private struct QuestionBar: View {
     let appState: AppState
     let onAnswer: (String) -> Void
     let onAnswerMulti: ([AskUserQuestionAnswer]) -> Void
-    let onSkip: () -> Void
+    let onDismiss: () -> Void
+    var navigator: SessionNavigator? = nil
 
     @State private var textInput = ""
     @FocusState private var isFocused: Bool
     @State private var selectedIndex: Int? = nil
 
-    // Jump validation state for click-to-jump on header (parity with ApprovalBar)
     @State private var failureShakeOffset: CGFloat = 0
-    @State private var jumpValidationTask: Task<Void, Never>?
+    @State private var navigationOperationID: UUID?
     @AppStorage(SettingsKey.autoCollapseAfterSessionJump) private var autoCollapseAfterSessionJump = SettingsDefaults.autoCollapseAfterSessionJump
 
     // Multi-question wizard state
@@ -1259,31 +1267,23 @@ private struct QuestionBar: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            // Session context
-            if sessionSource != nil || sessionContext != nil {
-                HStack(spacing: 5) {
-                    if let src = sessionSource, let icon = cliIcon(source: src, size: 12) {
-                        Image(nsImage: icon)
-                            .resizable()
-                            .frame(width: 12, height: 12)
-                    }
-                    if let cwd = sessionContext {
-                        Image(systemName: "folder.fill")
-                            .font(.system(size: 8))
-                            .foregroundStyle(.white.opacity(0.5))
-                        Text((cwd as NSString).lastPathComponent)
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.6))
-                    }
-                    Spacer()
-                }
-                .padding(.horizontal, 14)
-                // Click-to-jump on the session-context header (parity with
-                // ApprovalBar): tap to activate the session's terminal.
-                .contentShape(Rectangle())
-                .onTapGesture { handleHeaderClick() }
-                .help(L10n.shared["shortcut_jumpToTerminal_desc"])
-            }
+            // Always show the same identity row as session and approval cards.
+            // In particular, a sparse question payload still gets a stable ID.
+            SessionIdentityLine(
+                appState: appState,
+                session: session,
+                sessionId: sessionId,
+                fallbackSource: sessionSource,
+                fallbackContext: sessionContext,
+                onNavigate: handleHeaderClick,
+                projectFontSize: 11,
+                projectColor: .white.opacity(0.9),
+                sessionFontSize: 10,
+                sessionColor: .white.opacity(0.7),
+                dividerColor: .white.opacity(0.28)
+            )
+            .padding(.horizontal, 14)
+            .help(L10n.shared["shortcut_jumpToTerminal_desc"])
 
             if let item = currentItem {
                 multiQuestionContent(item)
@@ -1294,6 +1294,12 @@ private struct QuestionBar: View {
         .padding(.vertical, 10)
         .offset(x: failureShakeOffset)
         .onAppear { isFocused = true }
+        .onDisappear {
+            if let navigationOperationID {
+                activeNavigator.cancel(operationID: navigationOperationID)
+            }
+            navigationOperationID = nil
+        }
     }
 
     // MARK: - Multi-question content (AskUserQuestion)
@@ -1429,11 +1435,11 @@ private struct QuestionBar: View {
                 )
             }
             PixelButton(
-                label: L10n.shared["skip"],
+                label: L10n.shared["dismiss"],
                 fg: .white.opacity(0.6),
                 bg: Color.white.opacity(0.06),
                 border: Color.white.opacity(0.12),
-                action: onSkip
+                action: onDismiss
             )
             if item.payload.options?.isEmpty != false {
                 PixelButton(
@@ -1563,53 +1569,29 @@ private struct QuestionBar: View {
             }
             return
         }
-        guard !session.isRemote else { return }
-
-        TerminalActivator.activate(session: session, sessionId: sessionId)
-
-        guard autoCollapseAfterSessionJump else { return }
-
-        jumpValidationTask?.cancel()
-        jumpValidationTask = Task {
-            let delays: [UInt64] = [120_000_000, 320_000_000, 640_000_000]
-            let outcome = await evaluateJumpValidation(
-                delays: delays,
-                checkSucceeded: { await checkJumpSucceeded(session: session) }
-            )
-
-            switch outcome {
-            case .success:
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    switch appState.surface {
-                    case .questionCard:
-                        withAnimation(NotchAnimation.close) {
-                            appState.surface = .collapsed
-                        }
-                    default:
-                        break
-                    }
-                }
-            case .failed:
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    SoundManager.shared.preview("8bit_error")
-                }
-                guard !Task.isCancelled else { return }
-                await runJumpFailureShakeAnimation()
-            case .cancelled:
-                return
-            }
-        }
+        navigationOperationID = activeNavigator.begin(
+            target: SessionNavigationTarget(session: session, sessionId: sessionId),
+            collapsePolicy: autoCollapseAfterSessionJump ? .afterSuccess : .never,
+            onResult: handleNavigationResult
+        )
     }
 
-    private func checkJumpSucceeded(session: SessionSnapshot) async -> Bool {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let succeeded = TerminalVisibilityDetector.isSessionTabVisible(session)
-                    || TerminalVisibilityDetector.isTerminalFrontmostForSession(session)
-                continuation.resume(returning: succeeded)
+    private var activeNavigator: SessionNavigator {
+        navigator ?? .shared
+    }
+
+    private func handleNavigationResult(_ result: SessionNavigationResult) {
+        navigationOperationID = nil
+        switch result {
+        case .succeeded:
+            guard case .questionCard = appState.surface else { return }
+            withAnimation(NotchAnimation.close) {
+                appState.surface = .collapsed
             }
+        case .failed:
+            Task { @MainActor in await runJumpFailureShakeAnimation() }
+        case .activated, .unavailable, .cancelled:
+            break
         }
     }
 
@@ -1681,11 +1663,11 @@ private struct QuestionBar: View {
 
         HStack(spacing: 6) {
             PixelButton(
-                label: L10n.shared["skip"],
+                label: L10n.shared["dismiss"],
                 fg: .white.opacity(0.6),
                 bg: Color.white.opacity(0.06),
                 border: Color.white.opacity(0.12),
-                action: onSkip
+                action: onDismiss
             )
             if options == nil || options?.isEmpty == true {
                 PixelButton(
@@ -1852,6 +1834,7 @@ private struct SessionListView: View {
     var appState: AppState
     /// When set, only show this session (auto-expand on completion)
     var onlySessionId: String? = nil
+    var navigator: SessionNavigator? = nil
     @AppStorage(SettingsKey.sessionGroupingMode) private var groupingMode = SettingsDefaults.sessionGroupingMode
     @AppStorage(SettingsKey.maxVisibleSessions) private var maxVisibleSessions = SettingsDefaults.maxVisibleSessions
     @AppStorage(SettingsKey.showUsageStats) private var showUsageStats = SettingsDefaults.showUsageStats
@@ -1970,7 +1953,8 @@ private struct SessionListView: View {
                             appState: appState,
                             sessionId: sessionId,
                             session: session,
-                            isCompletion: onlySessionId != nil
+                            isCompletion: onlySessionId != nil,
+                            navigator: navigator
                         )
                     }
                 }
@@ -2105,10 +2089,59 @@ private struct ThinScrollView<Content: View>: NSViewRepresentable {
     }
 }
 
+/// Pure projection used by every identity row. Keeping the sparse-payload
+/// fallback outside the view makes the stable-ID contract easy to test.
+enum SessionIdentityPresentation {
+    enum HitTarget: Equatable {
+        case projectName
+        case sessionIdentifier
+        case cardBody
+    }
+
+    enum ActionOwner: Equatable {
+        case projectPath
+        case sessionNavigator
+    }
+
+    /// The project link remains an independent Finder action. Only the
+    /// explicit session identifier and otherwise-unclaimed card body navigate;
+    /// this prevents nested gestures from routing one click twice.
+    static func actionOwner(for target: HitTarget) -> ActionOwner {
+        switch target {
+        case .projectName:
+            return .projectPath
+        case .sessionIdentifier, .cardBody:
+            return .sessionNavigator
+        }
+    }
+
+    static func displayID(session: SessionSnapshot?, sessionId: String) -> String {
+        session?.displaySessionId(sessionId: sessionId) ?? sessionId
+    }
+
+    static func projectName(
+        session: SessionSnapshot?,
+        fallbackSource: String?,
+        fallbackContext: String?
+    ) -> String {
+        if let session { return session.projectDisplayName }
+        if let fallbackContext, !fallbackContext.isEmpty {
+            return (fallbackContext as NSString).lastPathComponent
+        }
+        if let fallbackSource, !fallbackSource.isEmpty {
+            return fallbackSource.capitalized
+        }
+        return "Session"
+    }
+}
+
 private struct SessionIdentityLine: View {
     let appState: AppState
-    let session: SessionSnapshot
+    let session: SessionSnapshot?
     let sessionId: String
+    var fallbackSource: String? = nil
+    var fallbackContext: String? = nil
+    var onNavigate: (() -> Void)? = nil
     let projectFontSize: CGFloat
     let projectColor: Color
     let sessionFontSize: CGFloat
@@ -2116,20 +2149,33 @@ private struct SessionIdentityLine: View {
     let dividerColor: Color
     @AppStorage(SettingsKey.showGitBranch) private var showGitBranch = SettingsDefaults.showGitBranch
 
-    private var displaySessionId: String { session.displaySessionId(sessionId: sessionId) }
+    private var displaySessionId: String {
+        SessionIdentityPresentation.displayID(session: session, sessionId: sessionId)
+    }
+    private var projectName: String {
+        SessionIdentityPresentation.projectName(
+            session: session,
+            fallbackSource: fallbackSource,
+            fallbackContext: fallbackContext
+        )
+    }
+    private var projectCwd: String? { session?.cwd ?? fallbackContext }
+    private var isInteractive: Bool {
+        session?.isRemote == false && projectCwd != nil
+    }
 
     var body: some View {
         HStack(spacing: 4) {
             ProjectNameLink(
-                name: session.projectDisplayName,
-                cwd: session.cwd,
-                isInteractive: !session.isRemote,
+                name: projectName,
+                cwd: projectCwd,
+                isInteractive: isInteractive,
                 fontSize: projectFontSize,
                 color: projectColor
             )
             .layoutPriority(2)
 
-            if showGitBranch, let branch = session.gitBranch {
+            if showGitBranch, let session, let branch = session.gitBranch {
                 HStack(spacing: 2) {
                     Image(systemName: "arrow.triangle.branch")
                         .font(.system(size: max(sessionFontSize - 1, 8), weight: .semibold))
@@ -2142,7 +2188,7 @@ private struct SessionIdentityLine: View {
                 .layoutPriority(1)
             }
 
-            if let sessionLabel = session.sessionLabel {
+            if let sessionLabel = session?.sessionLabel {
                 Text("#\(sessionLabel)")
                     .font(.system(size: sessionFontSize, weight: .medium, design: .monospaced))
                     .foregroundStyle(sessionColor)
@@ -2154,18 +2200,12 @@ private struct SessionIdentityLine: View {
                     .font(.system(size: sessionFontSize, weight: .semibold, design: .monospaced))
                     .foregroundStyle(dividerColor)
 
-                Text("#\(shortSessionId(displaySessionId))")
-                    .font(.system(size: sessionFontSize, weight: .medium, design: .monospaced))
-                    .foregroundStyle(sessionColor.opacity(0.6))
-                    .fixedSize()
+                sessionIdentifierView
             } else {
-                Text("#\(shortSessionId(displaySessionId))")
-                    .font(.system(size: sessionFontSize, weight: .medium, design: .monospaced))
-                    .foregroundStyle(sessionColor.opacity(0.6))
-                    .fixedSize()
+                sessionIdentifierView
             }
 
-            if let config = permissionIndicatorConfig(for: session.permissionMode) {
+            if let config = session.flatMap({ permissionIndicatorConfig(for: $0.permissionMode) }) {
                 let indicator = Text(config.symbol)
                     .font(.system(size: sessionFontSize + 2, weight: .bold))
                     .foregroundStyle(config.color)
@@ -2185,6 +2225,26 @@ private struct SessionIdentityLine: View {
                     indicator
                 }
             }
+        }
+    }
+
+    private var sessionIdentifierText: some View {
+        Text("#\(shortSessionId(displaySessionId))")
+            .font(.system(size: sessionFontSize, weight: .medium, design: .monospaced))
+            .foregroundStyle(sessionColor.opacity(0.6))
+            .fixedSize()
+    }
+
+    @ViewBuilder
+    private var sessionIdentifierView: some View {
+        if let onNavigate {
+            Button(action: onNavigate) {
+                sessionIdentifierText
+            }
+            .buttonStyle(.plain)
+            .help(L10n.shared["shortcut_jumpToTerminal_desc"])
+        } else {
+            sessionIdentifierText
         }
     }
 }
@@ -2267,27 +2327,6 @@ enum JumpAnimationHelper {
     }
 }
 
-enum JumpValidationOutcome: Equatable {
-    case success
-    case failed
-    case cancelled
-}
-
-func evaluateJumpValidation(
-    delays: [UInt64],
-    isCancelled: () -> Bool = { Task.isCancelled },
-    sleep: (UInt64) async -> Void = { try? await Task.sleep(nanoseconds: $0) },
-    checkSucceeded: () async -> Bool
-) async -> JumpValidationOutcome {
-    for delay in delays {
-        await sleep(delay)
-        if isCancelled() { return .cancelled }
-        if await checkSucceeded() { return .success }
-    }
-
-    return isCancelled() ? .cancelled : .failed
-}
-
 enum ApprovalInlineSummary: Equatable {
     case text(String)
     case bashCommand(String)
@@ -2312,9 +2351,10 @@ private struct SessionCard: View {
     let sessionId: String
     let session: SessionSnapshot
     var isCompletion: Bool = false
+    var navigator: SessionNavigator? = nil
     @State private var hovering = false
     @State private var failureShakeOffset: CGFloat = 0
-    @State private var jumpValidationTask: Task<Void, Never>?
+    @State private var navigationOperationID: UUID?
     @State private var showApprovalDetails = false
     @AppStorage(SettingsKey.contentFontSize) private var contentFontSize = SettingsDefaults.contentFontSize
     @AppStorage(SettingsKey.aiMessageLines) private var aiMessageLines = SettingsDefaults.aiMessageLines
@@ -2402,6 +2442,7 @@ private struct SessionCard: View {
                         appState: appState,
                         session: session,
                         sessionId: sessionId,
+                        onNavigate: handleSessionClick,
                         projectFontSize: fontSize + 2,
                         projectColor: statusNameColor,
                         sessionFontSize: fontSize,
@@ -2607,61 +2648,49 @@ private struct SessionCard: View {
         )
         .padding(.horizontal, 6)
         .offset(x: failureShakeOffset)
+        // Keep the card body as a navigation target, but do not include child
+        // gestures. ProjectNameLink opens cwd and the identity Button starts
+        // exactly one navigator operation; neither bubbles into this gesture.
         .contentShape(Rectangle())
-        .onTapGesture { handleSessionClick() }
+        .gesture(
+            TapGesture().onEnded { handleSessionClick() },
+            including: .gesture
+        )
         .onHover { h in withAnimation(NotchAnimation.micro) { hovering = h } }
         .onDisappear {
-            jumpValidationTask?.cancel()
-            jumpValidationTask = nil
+            if let navigationOperationID {
+                activeNavigator.cancel(operationID: navigationOperationID)
+            }
+            navigationOperationID = nil
         }
     }
 
     private func handleSessionClick() {
-        TerminalActivator.activate(session: session, sessionId: sessionId)
-
-        guard autoCollapseAfterSessionJump, !session.isRemote else { return }
-
-        jumpValidationTask?.cancel()
-        jumpValidationTask = Task {
-            let delays: [UInt64] = [120_000_000, 320_000_000, 640_000_000]
-            let outcome = await evaluateJumpValidation(
-                delays: delays,
-                checkSucceeded: { await checkJumpSucceeded() }
-            )
-
-            switch outcome {
-            case .success:
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    switch appState.surface {
-                    case .sessionList, .completionCard:
-                        withAnimation(NotchAnimation.close) {
-                            appState.surface = .collapsed
-                        }
-                    default:
-                        break
-                    }
-                }
-            case .failed:
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    SoundManager.shared.preview("8bit_error")
-                }
-                guard !Task.isCancelled else { return }
-                await runJumpFailureShakeAnimation()
-            case .cancelled:
-                return
-            }
-        }
+        navigationOperationID = activeNavigator.begin(
+            target: SessionNavigationTarget(session: session, sessionId: sessionId),
+            collapsePolicy: autoCollapseAfterSessionJump ? .afterSuccess : .never,
+            onResult: handleNavigationResult
+        )
     }
 
-    private func checkJumpSucceeded() async -> Bool {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let succeeded = TerminalVisibilityDetector.isSessionTabVisible(session)
-                    || TerminalVisibilityDetector.isTerminalFrontmostForSession(session)
-                continuation.resume(returning: succeeded)
+    private var activeNavigator: SessionNavigator {
+        navigator ?? .shared
+    }
+
+    private func handleNavigationResult(_ result: SessionNavigationResult) {
+        navigationOperationID = nil
+        switch result {
+        case .succeeded:
+            switch appState.surface {
+            case .sessionList, .completionCard:
+                withAnimation(NotchAnimation.close) { appState.surface = .collapsed }
+            default:
+                break
             }
+        case .failed:
+            Task { @MainActor in await runJumpFailureShakeAnimation() }
+        case .activated, .unavailable, .cancelled:
+            break
         }
     }
 

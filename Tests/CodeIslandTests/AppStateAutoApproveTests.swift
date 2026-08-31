@@ -32,14 +32,14 @@ final class AppStateAutoApproveTests: XCTestCase {
         }
         await Task.yield()
 
-        let mode = appState.smartModeForPendingPlan()
+        let mode = appState.smartModeForPendingPlan(expectedSessionId: "s1")
         XCTAssertEqual(mode, "bypassPermissions")
     }
 
     func testSmartModeReturnsPlanSettingWhenNoSuggestions() {
         let appState = AppState()
         // Empty queue — no pending plan, so no suggestions
-        let mode = appState.smartModeForPendingPlan()
+        let mode = appState.smartModeForPendingPlan(expectedSessionId: "no-pending-plan")
         // Falls back to planAutoAcceptMode setting (default: "auto")
         XCTAssertEqual(mode, "auto")
     }
@@ -61,9 +61,9 @@ final class AppStateAutoApproveTests: XCTestCase {
         let appState = AppState()
         let sid = "session-bypass"
 
-        // Simulate a session that has observed bypassPermissions
+        // Simulate the current upstream CLI fact.
         appState.sessions[sid] = SessionSnapshot()
-        appState.sessions[sid]?.mergeObservedPermissionMode("bypassPermissions")
+        appState.sessions[sid]?.permissionMode = "bypassPermissions"
 
         let response = appState.autoApproveInitialResponse(for: sid)
         let mode = setModeFromResponse(response)
@@ -74,9 +74,9 @@ final class AppStateAutoApproveTests: XCTestCase {
         let appState = AppState()
         let sid = "session-auto"
 
-        // Simulate a session that has observed auto
+        // Simulate the current upstream CLI fact.
         appState.sessions[sid] = SessionSnapshot()
-        appState.sessions[sid]?.mergeObservedPermissionMode("auto")
+        appState.sessions[sid]?.permissionMode = "auto"
 
         let response = appState.autoApproveInitialResponse(for: sid)
         let mode = setModeFromResponse(response)
@@ -96,9 +96,9 @@ final class AppStateAutoApproveTests: XCTestCase {
         let appState = AppState()
         let sid = "session-acceptedits"
 
-        // Simulate a session that has only observed acceptEdits (lowest rank)
+        // acceptEdits does not imply a native Auto intent.
         appState.sessions[sid] = SessionSnapshot()
-        appState.sessions[sid]?.mergeObservedPermissionMode("acceptEdits")
+        appState.sessions[sid]?.permissionMode = "acceptEdits"
 
         let response = appState.autoApproveInitialResponse(for: sid)
         let mode = setModeFromResponse(response)

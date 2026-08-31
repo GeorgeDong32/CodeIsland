@@ -75,6 +75,64 @@ final class NotchPanelViewTests: XCTestCase {
         XCTAssertEqual(JumpAnimationHelper.shakeSequence, [8, -8, 6, -6, 3, -3, 0])
     }
 
+    func testQuestionIdentityKeepsSessionIDWhenMetadataIsSparse() {
+        XCTAssertEqual(
+            SessionIdentityPresentation.displayID(session: nil, sessionId: "question-session"),
+            "question-session"
+        )
+        XCTAssertEqual(
+            SessionIdentityPresentation.projectName(
+                session: nil,
+                fallbackSource: nil,
+                fallbackContext: nil
+            ),
+            "Session"
+        )
+    }
+
+    func testQuestionIdentityUsesContextOnlyAsProjectFallback() {
+        XCTAssertEqual(
+            SessionIdentityPresentation.projectName(
+                session: nil,
+                fallbackSource: "claude",
+                fallbackContext: "/tmp/example"
+            ),
+            "example"
+        )
+    }
+
+    func testSessionIdentityRoutesProjectAndSessionTargetsToSeparateOwners() {
+        XCTAssertEqual(
+            SessionIdentityPresentation.actionOwner(for: .projectName),
+            .projectPath
+        )
+        XCTAssertEqual(
+            SessionIdentityPresentation.actionOwner(for: .sessionIdentifier),
+            .sessionNavigator
+        )
+        XCTAssertEqual(
+            SessionIdentityPresentation.actionOwner(for: .cardBody),
+            .sessionNavigator
+        )
+    }
+
+    func testPlanCardUsesExplicitResolutionActionsAndDismissOnly() {
+        let candidates = [
+            "Sources/CodeIsland/NotchPanelView+Plan.swift",
+            Bundle(for: NotchPanelViewTests.self).bundlePath + "/../../../../Sources/CodeIsland/NotchPanelView+Plan.swift",
+        ]
+        let source = candidates.lazy.compactMap {
+            try? String(contentsOfFile: $0, encoding: .utf8)
+        }.first ?? ""
+
+        XCTAssertFalse(source.isEmpty, "Could not locate Plan panel source")
+        XCTAssertFalse(source.contains("L10n.shared[\"skip\"]"))
+        XCTAssertTrue(source.contains("allowPlan(mode:"))
+        XCTAssertTrue(source.contains("denyPlanWithFeedback("))
+        XCTAssertTrue(source.contains("L10n.shared[\"dismiss\"]"))
+        XCTAssertTrue(source.contains("expectedSessionId"))
+    }
+
     func testEvaluateJumpValidationReturnsSuccessWhenCheckSucceeds() async {
         var callCount = 0
         let outcome = await evaluateJumpValidation(

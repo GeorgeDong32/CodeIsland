@@ -237,6 +237,8 @@ private struct AppleCompanionBluetoothSummary: Codable {
     }
 
     let version: Int
+    let protocolMajor: Int?
+    let protocolMinor: Int?
     let sequence: UInt64
     let sessionId: String?
     let source: String
@@ -245,13 +247,17 @@ private struct AppleCompanionBluetoothSummary: Codable {
     let workspaceName: String?
     let message: String?
     let pendingAction: String?
+    let pendingRequestID: RequestID?
+    let sessionGeneration: UInt64?
     let questionHeader: String?
     let questionText: String?
     let sessions: [SessionSummary]
     let updatedAt: Date
 
     init(payload: AppleCompanionStatePayload) {
-        version = 1
+        version = payload.version
+        protocolMajor = payload.protocolMajor
+        protocolMinor = payload.protocolMinor
         sequence = payload.sequence
         sessionId = payload.sessionId.map { Self.truncate($0, limit: 96) }
         source = payload.source
@@ -260,6 +266,8 @@ private struct AppleCompanionBluetoothSummary: Codable {
         workspaceName = payload.workspaceName.map { Self.truncate($0, limit: 64) }
         message = payload.messages.last.map { Self.truncate($0.text, limit: 220) }
         pendingAction = payload.pendingAction?.rawValue
+        pendingRequestID = payload.pendingRequestID
+        sessionGeneration = payload.sessionGeneration
         questionHeader = payload.question?.header.map { Self.truncate($0, limit: 40) }
         questionText = payload.question.map { Self.truncate($0.question, limit: 180) }
         sessions = payload.sessions.prefix(5).map {
