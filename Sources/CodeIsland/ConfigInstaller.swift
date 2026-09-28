@@ -1696,7 +1696,12 @@ struct ConfigInstaller {
             case .claude:
                 // Qwen Code (a Claude fork) reuses this format and NEEDS timeout per entry
                 // — otherwise long-running PermissionRequest hooks hang the agent (#103).
-                entry = ["matcher": "*", "hooks": [["type": "command", "command": baseCommand, "timeout": timeout] as [String: Any]]]
+                // Devin shares the entry shape but its matcher is a REGEX: a
+                // bare "*" is invalid there and risks the entry never matching
+                // (or the config failing to load). Empty matcher = match all
+                // in both CLIs, so Devin gets "" instead of Claude's "*".
+                let matcher = cli.source == "devin" ? "" : "*"
+                entry = ["matcher": matcher, "hooks": [["type": "command", "command": baseCommand, "timeout": timeout] as [String: Any]]]
             case .nested:
                 let cmd = (cli.source == "gemini" || cli.source == "traecli-next")
                     ? "\(baseCommand) --event \(event)"
