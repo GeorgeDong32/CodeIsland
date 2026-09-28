@@ -2267,6 +2267,11 @@ final class AppState {
             responseData = Data(response.utf8)
         } else if always, Self.isZcodeEvent(pending.event) {
             responseData = Self.zcodeAlwaysAllowResponse(toolName: pending.event.toolName)
+        } else if always, Self.isDevinEvent(pending.event) {
+            // Devin's hook reply has no rule-persistence form (its permissions
+            // live in config.json, not in hook output) — "always" degrades to
+            // approving this request only.
+            responseData = Self.allowResponseData(for: pending.event)
         } else if always {
             let toolName = pending.event.toolName ?? ""
             // MCP tools (`mcp__server__tool`) don't accept a rule specifier — the
@@ -2314,6 +2319,10 @@ final class AppState {
 
     nonisolated static func isZcodeEvent(_ event: HookEvent) -> Bool {
         SessionSnapshot.normalizedSupportedSource(event.rawJSON["_source"] as? String) == "zcode"
+    }
+
+    nonisolated static func isDevinEvent(_ event: HookEvent) -> Bool {
+        SessionSnapshot.normalizedSupportedSource(event.rawJSON["_source"] as? String) == "devin"
     }
 
     nonisolated static func isQoderEvent(_ event: HookEvent) -> Bool {
@@ -2507,8 +2516,8 @@ final class AppState {
         let pending = permissionQueue.remove(at: index)
         let sessionId = pending.event.sessionId ?? "default"
         dismissedPermissionSessionIds.remove(sessionId)
-        let response = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#
-        pending.continuation.resume(returning: Data(response.utf8))
+        // Source-aware deny shape (Devin wants a bare top-level block).
+        pending.continuation.resume(returning: Self.denyResponseData(for: pending.event))
         // Folded Task deny must not idle the whole parent chat card.
         resolveMergedSubagentAfterUI(
             sessionId: sessionId,
@@ -3006,11 +3015,11 @@ final class AppState {
         where matches: (HookEvent) -> Bool = { _ in true }
     ) {
         dismissedPermissionSessionIds.remove(sessionId)
-        let denyResponse = Data(#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny"}}}"#.utf8)
         permissionQueue.removeAll { item in
             guard item.event.sessionId == sessionId, matches(item.event) else { return false }
             log.notice("⚠️ permission deny reason=drainPermissions(\(reason, privacy: .public)) session=\(sessionId, privacy: .public) toolUseId=\(item.toolUseId ?? "nil", privacy: .public) tool=\(item.event.toolName ?? "nil", privacy: .public)")
-            item.continuation.resume(returning: denyResponse)
+            // Source-aware shape (Devin wants a bare top-level block decision).
+            item.continuation.resume(returning: Self.denyResponseData(for: item.event))
             return true
         }
     }

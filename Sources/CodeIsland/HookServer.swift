@@ -765,8 +765,12 @@ class HookServer {
             // not permissions, so AskUserQuestion is deliberately excluded below.
             if event.toolName != "AskUserQuestion",
                Self.isAutoApprovedSource(event) {
-                let response = #"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#
-                sendResponse(connection: connection, data: Data(response.utf8))
+                // Routed through the reply factory so Devin gets its bare
+                // top-level {"decision":"approve"} shape.
+                sendResponse(
+                    connection: connection,
+                    data: AppState.allowResponseData(for: event)
+                )
                 return
             }
 

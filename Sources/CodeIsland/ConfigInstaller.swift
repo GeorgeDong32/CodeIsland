@@ -647,6 +647,29 @@ struct ConfigInstaller {
             configPath: ".zcode/cli/config.json", configKey: "hooks",
             format: .zcode,
             events: defaultEvents(for: .zcode)
+        ),
+        // Devin CLI (Cognition) — reads Claude-format hooks from
+        // ~/.config/devin/config.json under the "hooks" key (it also imports
+        // ~/.claude settings by default, but a dedicated install keeps Devin
+        // sessions labelled and avoids double delivery when both are enabled).
+        // Stdin payloads are Claude-style snake_case plus session_id/prompt_id.
+        // The reply contract is NOT Claude's: a PermissionRequest hook answers
+        // with a bare top-level {"decision":"approve"|"block","reason"?} —
+        // see AppState.isDevinEvent reply branches. Timeout is seconds, as in
+        // Claude settings. PostCompaction exists but adds nothing for status.
+        CLIConfig(
+            name: "Devin", source: "devin",
+            configPath: ".config/devin/config.json", configKey: "hooks",
+            format: .claude,
+            events: [
+                ("SessionStart", 5, false),
+                ("SessionEnd", 5, true),
+                ("UserPromptSubmit", 5, false),
+                ("PreToolUse", 5, false),
+                ("PostToolUse", 5, true),
+                ("PermissionRequest", 86400, false),
+                ("Stop", 5, true),
+            ]
         )
     ]
 

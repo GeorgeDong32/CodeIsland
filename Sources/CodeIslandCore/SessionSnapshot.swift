@@ -42,6 +42,7 @@ public struct SessionSnapshot: Sendable {
         "zcode",
         "aiwork",
         "aiwork-cli",
+        "devin",
     ]
 
     /// Sources whose tool/description text arrives as a rapid delta stream
@@ -684,6 +685,7 @@ public struct SessionSnapshot: Sendable {
         case "zcode": return "ZCode"
         case "aiwork": return "AiWork"
         case "aiwork-cli": return "AiWork CLI"
+        case "devin": return "Devin CLI"
         default:
             if let customName = Self.loadCustomSourceNames()[source] {
                 return customName

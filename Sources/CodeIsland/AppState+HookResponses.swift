@@ -12,10 +12,26 @@ extension AppState {
         #"{"continue":true,"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#.utf8
     )
 
+    /// Devin CLI (Cognition) answers a PermissionRequest hook with a bare
+    /// top-level decision — no hookSpecificOutput wrapper, no `continue`
+    /// (docs.devin.ai/cli extensibility/hooks: `{"decision":"approve"}`).
+    private static let devinApproveResponse = Data(
+        #"{"decision":"approve"}"#.utf8
+    )
+
+    private nonisolated static func devinBlockResponse(message: String?) -> Data {
+        var obj: [String: Any] = ["decision": "block"]
+        if let message, !message.isEmpty { obj["reason"] = message }
+        return (try? JSONSerialization.data(withJSONObject: obj)) ?? Data(#"{"decision":"block"}"#.utf8)
+    }
+
     /// Pick the right allow-response bytes for the event's CLI source.
-    static func allowResponseData(for event: HookEvent? = nil) -> Data {
+    nonisolated static func allowResponseData(for event: HookEvent? = nil) -> Data {
         if let event, CodexPermissionRules.isCodexEvent(event) {
             return codexSimpleAllowResponse
+        }
+        if let event, isDevinEvent(event) {
+            return devinApproveResponse
         }
         return simpleAllowResponse
     }
@@ -23,7 +39,7 @@ extension AppState {
     /// Generic ack response for non-permission events
     static let ackResponse = Data(#"{"continue":true,"suppressOutput":true}"#.utf8)
 
-    static func hookResponse(
+    nonisolated static func hookResponse(
         hookEventName: String,
         decision: [String: Any],
         omitSuppressOutput: Bool = false
@@ -51,13 +67,16 @@ extension AppState {
         return hookResponse(hookEventName: "PermissionRequest", decision: decision)
     }
 
-    static func permissionDenyResponse(message: String? = nil) -> Data {
+    nonisolated static func permissionDenyResponse(message: String? = nil) -> Data {
         var decision: [String: Any] = ["behavior": "deny"]
         if let message, !message.isEmpty { decision["message"] = message }
         return hookResponse(hookEventName: "PermissionRequest", decision: decision)
     }
 
-    static func denyResponseData(for event: HookEvent? = nil, message: String? = nil) -> Data {
+    nonisolated static func denyResponseData(for event: HookEvent? = nil, message: String? = nil) -> Data {
+        if let event, isDevinEvent(event) {
+            return devinBlockResponse(message: message)
+        }
         if let event, CodexPermissionRules.isCodexEvent(event) {
             var decision: [String: Any] = ["behavior": "deny"]
             if let message, !message.isEmpty { decision["message"] = message }
