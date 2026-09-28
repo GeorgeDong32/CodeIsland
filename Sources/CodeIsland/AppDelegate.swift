@@ -20,6 +20,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var interactionExecutor: InteractionProductionEffectExecutor?
     let appState = AppState()
 
+    /// The production UI remains on the proven upstream/fork overlay until
+    /// the Center renderer has visual parity. Developers can opt into the new
+    /// owner graph without changing persisted user settings.
+    static func interactionCenterProductionEnabled(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        environment["CODEISLAND_INTERACTION_CENTER"] == "1"
+    }
+
     /// Production cutover seam for Phase 6. The caller owns the Center and its
     /// one effect executor; AppDelegate only wires read-only external
     /// projection and typed input forwarding to publishers.
@@ -103,8 +112,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Pre-set app icon so Dock/menu bar use the packaged bundle icon.
         NSApp.applicationIconImage = SettingsWindowController.bundleAppIcon()
         SettingsWindowController.shared.appState = appState
-        // Install the sole interaction owner before starting any producer.
-        installInteractionRuntime()
+        // Keep the proven hook/UI path as the production default. The Center
+        // cutover is explicit until its renderer passes behavioral and visual
+        // parity gates against that baseline.
+        if Self.interactionCenterProductionEnabled() {
+            installInteractionRuntime()
+        }
         StatusItemController.shared.startObserving()
         // Start HookServer BEFORE installing hooks into CLI configs.
         // If we write settings.json first, Claude Code picks up the new hooks

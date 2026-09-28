@@ -93,4 +93,23 @@ final class InteractionProductionWiringTests: XCTestCase {
         let encoded = try encoder.encode(decoded)
         XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains("observedPermissionMode"))
     }
+    /// Production default must be the proven legacy UI path: the Center
+    /// runtime is opt-in via CODEISLAND_INTERACTION_CENTER=1 until its
+    /// renderer passes behavioral parity (panel auto-collapse included).
+    /// Regression guard for the v1.0.35 sync incident.
+    func testInteractionCenterIsOptInOnlyForProduction() {
+        XCTAssertFalse(
+            AppDelegate.interactionCenterProductionEnabled(environment: [:]),
+            "Center must NOT run by default"
+        )
+        XCTAssertFalse(
+            AppDelegate.interactionCenterProductionEnabled(environment: ["CODEISLAND_INTERACTION_CENTER": "0"]),
+            "Explicit opt-out must be honored"
+        )
+        XCTAssertTrue(
+            AppDelegate.interactionCenterProductionEnabled(environment: ["CODEISLAND_INTERACTION_CENTER": "1"]),
+            "Explicit opt-in must work"
+        )
+    }
 }
+
