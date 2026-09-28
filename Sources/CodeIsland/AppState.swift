@@ -2942,7 +2942,13 @@ final class AppState {
         // (additionalProperties: false, only questions/answers/annotations/
         // metadata). The scalar `answer` key fails that validation with
         // "params must NOT have additional properties", so omit it there.
-        if let answer, !Self.isQoderEvent(event) {
+        // ZCode is equally strict: its kernel re-validates a PermissionRequest
+        // `updatedInput` against the tool's runtime input schema (Zod .strict()
+        // — glm/zcode.cjs), so the extra scalar voids the whole modify decision
+        // and the question falls back to ZCode's own dialog. ZCode reads
+        // answers[question.question] exactly like Claude, so the record above
+        // is all it needs.
+        if let answer, !Self.isQoderEvent(event), !Self.isZcodeEvent(event) {
             updatedInput["answer"] = answer
         }
         // Structured picks for plugins that answer with label arrays: OMP/Pi,

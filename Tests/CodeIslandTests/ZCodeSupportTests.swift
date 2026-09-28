@@ -394,4 +394,63 @@ final class ZCodeSupportTests: XCTestCase {
         XCTAssertTrue(AppState.isZcodeEvent(zcodeEvent))
         XCTAssertFalse(AppState.isZcodeEvent(claudeEvent))
     }
+    // MARK: - AskUserQuestion reply contract
+
+    /// ZCode re-validates a PermissionRequest decision's `updatedInput`
+    /// against the tool's runtime input schema (Zod `.strict()` in
+    /// glm/zcode.cjs): any key outside {questions, answers, annotations}
+    /// voids the whole modify decision, so the island's answer falls back to
+    /// ZCode's own dialog — the "question never works" failure. The reply
+    /// must carry `answers` keyed by question text (the kernel's
+    /// answers[question.question] lookup) and NO scalar `answer` key.
+    @MainActor
+    func testZcodeAskUserQuestionReplyPassesStrictUpdatedInputSchema() async throws {
+        let appState = AppState()
+        let questions: [[String: Any]] = [
+            [
+                "question": "Which library should we use for date formatting?",
+                "header": "Library",
+                "options": [
+                    ["label": "Foundation", "description": "Built in"],
+                    ["label": "SwiftDate", "description": "Third party"],
+                ],
+                "multiSelect": false,
+            ],
+        ]
+        // Field names verbatim from the kernel's hook input (camelCase,
+        // `toolCallId`) — see testZcodePermissionRequestPayloadParsesCamelCaseFields.
+        let payload: [String: Any] = [
+            "hookEventName": "PermissionRequest",
+            "sessionId": "zc-ask-1",
+            "toolName": "AskUserQuestion",
+            "toolInput": ["questions": questions],
+            "toolCallId": "call-ask-1",
+            "_source": "zcode",
+        ]
+        let event = try XCTUnwrap(HookEvent(from: JSONSerialization.data(withJSONObject: payload)))
+        XCTAssertTrue(AppState.isZcodeEvent(event))
+
+        let responseTask = await startHookRequest { appState.handleAskUserQuestion(event, continuation: $0) }
+        XCTAssertEqual(appState.questionQueue.count, 1)
+
+        appState.answerQuestionMulti([
+            (question: "Which library should we use for date formatting?", answer: "Foundation"),
+        ])
+        let responseData = try await awaitValue(of: responseTask)
+
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+        let output = try XCTUnwrap(json["hookSpecificOutput"] as? [String: Any])
+        XCTAssertEqual(output["hookEventName"] as? String, "PermissionRequest")
+        let decision = try XCTUnwrap(output["decision"] as? [String: Any])
+        XCTAssertEqual(decision["behavior"] as? String, "allow")
+
+        let updatedInput = try XCTUnwrap(decision["updatedInput"] as? [String: Any])
+        // Strict runtime input schema: only questions/answers(/annotations).
+        XCTAssertNil(updatedInput["answer"], "scalar answer key voids ZCode's strict modify decision")
+        let returnedQuestions = try XCTUnwrap(updatedInput["questions"] as? [[String: Any]])
+        XCTAssertEqual(returnedQuestions.count, 1)
+        XCTAssertEqual(returnedQuestions[0]["question"] as? String, "Which library should we use for date formatting?")
+        let answers = try XCTUnwrap(updatedInput["answers"] as? [String: Any])
+        XCTAssertEqual(answers["Which library should we use for date formatting?"] as? String, "Foundation")
+    }
 }
