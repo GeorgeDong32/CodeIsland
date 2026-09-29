@@ -66,7 +66,7 @@ struct ZcodeView: View {
     // ── Tile body: rounded black square with an edge highlight ──
     private func drawTile(_ c: GraphicsContext, v: V, dy: CGFloat,
                           squashX: CGFloat = 1, squashY: CGFloat = 1) {
-        let x: CGFloat = 3.5, y: CGFloat = 5, w: CGFloat = 9, h: CGFloat = 8
+        let x: CGFloat = 2, y: CGFloat = 3.5, w: CGFloat = 12, h: CGFloat = 8.5
         let cx = x + w / 2, cy = y + h / 2
         let rx = cx + (x - cx) * squashX
         let rw = w * squashX
@@ -101,17 +101,17 @@ struct ZcodeView: View {
         // wide stepped diagonal (brand-style notches dropped — they shattered
         // the letterform at this size).
         if top {
-            c.fill(Path(v.r(4.3, 6.4, 7.4, 1.4, dy: dy)), with: .color(color))
+            c.fill(Path(v.r(2.8, 4.6, 10.4, 1.5, dy: dy)), with: .color(color))
         }
         if diag {
             // Wide staircase from the top bar's right end down to the bottom
             // bar's left end — reads as one thick stroke.
-            c.fill(Path(v.r(9.4, 7.9, 1.8, 1.05, dy: dy)), with: .color(color))
-            c.fill(Path(v.r(7.9, 8.9, 1.8, 1.05, dy: dy)), with: .color(color))
-            c.fill(Path(v.r(6.4, 9.9, 1.8, 1.05, dy: dy)), with: .color(color))
+            c.fill(Path(v.r(10.6, 6.2, 2.0, 1.1, dy: dy)), with: .color(color))
+            c.fill(Path(v.r(8.6, 7.4, 2.0, 1.1, dy: dy)), with: .color(color))
+            c.fill(Path(v.r(6.6, 8.6, 2.0, 1.1, dy: dy)), with: .color(color))
         }
         if bottom {
-            c.fill(Path(v.r(4.3, 10.9, 7.4, 1.4, dy: dy)), with: .color(color))
+            c.fill(Path(v.r(2.8, 9.8, 10.4, 1.5, dy: dy)), with: .color(color))
         }
     }
 
@@ -121,8 +121,8 @@ struct ZcodeView: View {
     }
 
     private func drawLegs(_ c: GraphicsContext, v: V) {
-        c.fill(Path(v.r(5.5, 13.2, 1, 1.5)), with: .color(Self.legC))
-        c.fill(Path(v.r(9.5, 13.2, 1, 1.5)), with: .color(Self.legC))
+        c.fill(Path(v.r(4.5, 12.2, 1.2, 1.6)), with: .color(Self.legC))
+        c.fill(Path(v.r(10.3, 12.2, 1.2, 1.6)), with: .color(Self.legC))
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -171,17 +171,15 @@ struct ZcodeView: View {
         let barOn = pulse > 0 ? (pulse * 4).truncatingRemainder(dividingBy: 1) < 0.5 : breathe
 
         return Canvas { c, sz in
-            let v = V(sz, svgW: 15, svgH: 12, svgY0: 4)
+            let v = V(sz, svgW: 16, svgH: 14, svgY0: 3)
 
-            drawShadow(c, v: v, width: 7 + abs(float) * 0.3, opacity: 0.2)
+            drawShadow(c, v: v, width: 9 + abs(float) * 0.3, opacity: 0.2)
             drawLegs(c, v: v)
             drawTile(c, v: v, dy: float)
-            // Sleep: dim Z — full face on the pulse, breathing bottom bar otherwise.
-            if pulse > 0 {
-                drawZ(c, v: v, dy: float, color: Self.zC.opacity(0.55))
-            } else if barOn {
-                drawZ(c, v: v, dy: float, color: Self.zC.opacity(0.62), top: false, diag: false)
-            }
+            // Sleep: the full Z stays up (identity first) and breathes; the
+            // pulse briefly lifts it to full white.
+            let breatheOp: Double = pulse > 0 ? 0.95 : (barOn ? 0.8 : 0.55)
+            drawZ(c, v: v, dy: float, color: Self.zC.opacity(breatheOp))
         }
     }
 

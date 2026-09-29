@@ -66,7 +66,7 @@ struct DevinView: View {
     // ── Tile body: rounded navy square ──
     private func drawTile(_ c: GraphicsContext, v: V, dy: CGFloat,
                           squashX: CGFloat = 1, squashY: CGFloat = 1) {
-        let x: CGFloat = 3.5, y: CGFloat = 5, w: CGFloat = 9, h: CGFloat = 8
+        let x: CGFloat = 2, y: CGFloat = 3.5, w: CGFloat = 12, h: CGFloat = 8.5
         let cx = x + w / 2, cy = y + h / 2
         let rx = cx + (x - cx) * squashX
         let rw = w * squashX
@@ -98,12 +98,12 @@ struct DevinView: View {
                           chevron: Bool = true, cursorOn: Bool = true) {
         if chevron {
             // `›` — bold stacked steps, centered on the tile.
-            c.fill(Path(v.r(4.8, 7.2, 1.5, 1.1, dy: dy)), with: .color(color))
-            c.fill(Path(v.r(6.3, 8.5, 1.5, 1.1, dy: dy)), with: .color(color))
-            c.fill(Path(v.r(4.8, 9.8, 1.5, 1.1, dy: dy)), with: .color(color))
+            c.fill(Path(v.r(3.6, 5.0, 2.0, 1.3, dy: dy)), with: .color(color))
+            c.fill(Path(v.r(5.6, 6.6, 2.0, 1.3, dy: dy)), with: .color(color))
+            c.fill(Path(v.r(3.6, 8.2, 2.0, 1.3, dy: dy)), with: .color(color))
         }
         if cursorOn {
-            c.fill(Path(v.r(8.3, 10.9, 3.2, 1.2, dy: dy)), with: .color(color))
+            c.fill(Path(v.r(8.6, 10.0, 3.6, 1.4, dy: dy)), with: .color(color))
         }
     }
 
@@ -113,8 +113,8 @@ struct DevinView: View {
     }
 
     private func drawLegs(_ c: GraphicsContext, v: V) {
-        c.fill(Path(v.r(5.5, 13.2, 1, 1.5)), with: .color(Self.legC))
-        c.fill(Path(v.r(9.5, 13.2, 1, 1.5)), with: .color(Self.legC))
+        c.fill(Path(v.r(4.5, 12.2, 1.2, 1.6)), with: .color(Self.legC))
+        c.fill(Path(v.r(10.3, 12.2, 1.2, 1.6)), with: .color(Self.legC))
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -160,16 +160,15 @@ struct DevinView: View {
         let cursorOn = pulse > 0 ? (pulse * 4).truncatingRemainder(dividingBy: 1) < 0.5 : cursorPhase < 0.6
 
         return Canvas { c, sz in
-            let v = V(sz, svgW: 15, svgH: 12, svgY0: 4)
+            let v = V(sz, svgW: 16, svgH: 14, svgY0: 3)
 
-            drawShadow(c, v: v, width: 7 + abs(float) * 0.3, opacity: 0.2)
+            drawShadow(c, v: v, width: 9 + abs(float) * 0.3, opacity: 0.2)
             drawLegs(c, v: v)
             drawTile(c, v: v, dy: float)
-            // Sleep: no chevron (eyes closed), dim breathing cursor.
-            if cursorOn {
-                drawFace(c, v: v, dy: float, color: Self.faceC.opacity(pulse > 0 ? 0.75 : 0.55),
-                         chevron: false)
-            }
+            // Sleep: full face breathing; the pulse briefly lifts to full mint.
+            let breatheOp: Double = pulse > 0 ? 0.95 : (cursorOn ? 0.8 : 0.55)
+            drawFace(c, v: v, dy: float, color: Self.faceC.opacity(breatheOp),
+                     cursorOn: cursorOn || pulse > 0)
         }
     }
 
