@@ -1532,6 +1532,8 @@ private struct MascotsPage: View {
         ("Gemini", "google-antigravity", "Google Antigravity", Color(red: 0.278, green: 0.588, blue: 0.894)),
         ("AiWorkBot", "aiwork", "AiWork", Color(red: 0.12, green: 0.72, blue: 0.28)),
         ("AiWorkBot", "aiwork-cli", "AiWork CLI", Color(red: 0.12, green: 0.55, blue: 0.90)),
+        ("ZTile", "zcode", "ZCode (Z.ai)", Color(red: 0.94, green: 0.94, blue: 0.95)),
+        ("DevinTile", "devin", "Devin CLI", Color(red: 0.50, green: 0.90, blue: 0.77)),
     ]
 
     var body: some View {
