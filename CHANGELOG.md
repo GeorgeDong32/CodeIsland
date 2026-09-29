@@ -1,22 +1,27 @@
 # Changelog
 
-## [Unreleased] — fork overlay on upstream v1.0.35 (lean)
+## [v1.2.9] - 2026-09-29 — fork on upstream v1.0.35
 
 ### English
-- Lean fork overlay, now on upstream v1.0.35: Auto/Plan UI layer + Sparkle disable
+- Rebased onto upstream v1.0.35 (v1.0.33–35 all included: task progress bars, Markdown reply rendering, push notifications, follow-up reminders, multi-account, #333 cross-session answer fix, idle CPU and panel fixes). The lean overlay stays: Auto/Plan UI + Sparkle disable only
+- **Fixed: ZCode questions never worked from the island.** The hook config had never been installed, and our AskUserQuestion reply carried a scalar `answer` key that ZCode's strict runtime schema rejects — voiding the whole decision. Replies are now schema-clean (answers keyed by question text) and the install contract is verified against the shipped kernel
+- **New: Devin CLI (Cognition) support** — session cards and approvals, wired through every approval path with Devin's bare `{"decision":"approve"|"block"}` reply contract
+- **New mascots: ZCode** (Z.ai black tile, white Z — palette from the app icon) **and Devin** (navy tile, mint terminal face), full status animations
+- The unfinished fork InteractionCenter runtime is opt-in (`CODEISLAND_INTERACTION_CENTER=1`); the proven hook/UI path is the production default
 - Claude Code Auto Mode button (auto / addRules / bypass) with per-session smart default and permission-mode badge sync
-- ExitPlanMode plan preview card with Auto Accept / Manual / Request Changes, plus Skip (resolve with plain allow so the CLI unblocks) beside Dismiss
-- QuestionBar header click-to-jump is now provided natively by upstream — the fork copy was dropped in this sync
+- ExitPlanMode plan preview card with Auto Accept / Manual / Request Changes, plus Skip beside Dismiss
 - Sparkle auto-update disabled by default (self-built distributions publish no appcast); flip `sparkleAutoUpdateEnabled` to opt back in
-- Upstream #283 Always-proceed Agents setting is kept and rendered inside the fork's `AutoApproveSettingsSections` component
 
 ### 中文
-- 精简版 fork overlay：基于 upstream v1.0.35，Auto/Plan UI 层 + 禁用 Sparkle
+- 重放到 upstream v1.0.35（v1.0.33–35 全部包含：任务进度条、Markdown 回复渲染、推送通知、跟进提醒、多账号、#333 多会话答案串卡修复、空闲 CPU 与面板修复）。lean overlay 定位不变：Auto/Plan UI 层 + 禁用 Sparkle
+- **修复：ZCode 提问在岛上一直无效。** hook 配置从未装上；回复多带的标量 `answer` 键被 ZCode 严格 schema 拒收、整个决策作废。现在回复 schema 干净（答案按问题文本 keyed），安装契约对过随包 kernel
+- **新增 Devin CLI（Cognition）支持**——会话卡片 + 审批，裸 `{"decision":"approve"/"block"}` 回复契约已接入全部审批路径
+- **新形象：ZCode**（Z.AI 黑方块白 Z，配色采自 app 图标）**与 Devin**（深蓝方块薄荷终端脸），完整状态动画
+- 未完成的 fork InteractionCenter 改为 opt-in（`CODEISLAND_INTERACTION_CENTER=1`），生产默认走成熟的 hook/UI 路径
 - 保留 Claude Code Auto Mode（auto / addRules / bypass）、会话级 smart default 与权限徽章同步
-- 保留 ExitPlanMode 计划预览卡（自动接受 / 手动 / 请求更改），并在 Dismiss 旁加 Skip（plain allow 放行，CLI 不再阻塞）
-- 提问卡标题栏点击跳转已由上游原生提供，本次同步移除了 fork 副本
-- Sparkle 自动更新默认禁用（自建包无 appcast）；需要时把 `sparkleAutoUpdateEnabled` 打开即可
-- 上游 #283「免确认的 Agent」设置保留，并入 fork 的 `AutoApproveSettingsSections` 组件渲染
+- 保留 ExitPlanMode 计划预览卡（自动接受 / 手动 / 请求更改 + Skip）
+- Sparkle 自动更新默认禁用（自建包无 appcast）；`sparkleAutoUpdateEnabled` 可开回
+
 
 ## [v1.0.35] - 2026-09-24
 
