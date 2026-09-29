@@ -198,9 +198,9 @@ struct ZcodeView: View {
         let intensity = 1.0 - Double(pause)
         let bounce = sin(t * 2 * .pi / 0.4) * 1.0 * intensity
 
-        // Full Z face while typing; solid during the pause.
-        let facePhase = t.truncatingRemainder(dividingBy: 0.3)
-        let faceOn = pause > 0.3 ? true : facePhase < 0.15
+        // The Z stays structurally complete at all times — blinking its
+        // bottom bar away (the old cursor gag) read as a broken letterform
+        // at real size. The compile-pause dims the whole Z instead.
 
         // Key flash with humanized stroke cadence.
         let stroke = MascotMotion.typingStroke(t, cadence: 0.1, seed: 0x2C2DE)
@@ -232,11 +232,8 @@ struct ZcodeView: View {
             }
 
             drawTile(c, v: v, dy: dy)
-            if faceOn {
-                drawZ(c, v: v, dy: dy)
-            } else {
-                drawZ(c, v: v, dy: dy, top: true, diag: true, bottom: false)
-            }
+            let zOpacity: Double = pause > 0.3 ? 0.65 : 1.0
+            drawZ(c, v: v, dy: dy, color: Self.zC.opacity(zOpacity))
         }
     }
 
