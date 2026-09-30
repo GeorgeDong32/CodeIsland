@@ -1,5 +1,12 @@
 # Changelog
 
+## [v1.2.10] - 2026-09-30
+
+### English
+- ZCode mascot: the Z's diagonal now runs corner-to-corner with equal side margins — the letterform no longer reads crooked to the left
+
+### 中文
+- ZCode 形象：Z 的斜杠改为角到角、左右等边距——字形不再左歪
 ## [v1.2.9] - 2026-09-29 — fork on upstream v1.0.35
 
 ### English
