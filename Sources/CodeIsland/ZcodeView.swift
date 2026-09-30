@@ -100,18 +100,22 @@ struct ZcodeView: View {
         // Bold solid Z for legibility at 27pt: full-width 1.4-unit bars and a
         // wide stepped diagonal (brand-style notches dropped — they shattered
         // the letterform at this size).
+        // Symmetric corner-to-corner Z: equal 1.0-unit side margins, and the
+        // diagonal staircase runs from the top bar's right end all the way to
+        // the bottom bar's left end (the earlier 3-step diagonal landed
+        // mid-bar and made the letterform read crooked to the left).
         if top {
-            c.fill(Path(v.r(2.8, 4.6, 10.4, 1.5, dy: dy)), with: .color(color))
+            c.fill(Path(v.r(3.0, 4.6, 10.0, 1.4, dy: dy)), with: .color(color))
         }
         if diag {
-            // Wide staircase from the top bar's right end down to the bottom
-            // bar's left end — reads as one thick stroke.
-            c.fill(Path(v.r(10.6, 6.2, 2.0, 1.1, dy: dy)), with: .color(color))
-            c.fill(Path(v.r(8.6, 7.4, 2.0, 1.1, dy: dy)), with: .color(color))
-            c.fill(Path(v.r(6.6, 8.6, 2.0, 1.1, dy: dy)), with: .color(color))
+            for i in 0..<5 {
+                let sx = 11.1 - CGFloat(i) * 1.85
+                let sy = 6.15 + CGFloat(i) * 0.72
+                c.fill(Path(v.r(sx, sy, 1.9, 0.74, dy: dy)), with: .color(color))
+            }
         }
         if bottom {
-            c.fill(Path(v.r(2.8, 9.8, 10.4, 1.5, dy: dy)), with: .color(color))
+            c.fill(Path(v.r(3.0, 9.85, 10.0, 1.4, dy: dy)), with: .color(color))
         }
     }
 
