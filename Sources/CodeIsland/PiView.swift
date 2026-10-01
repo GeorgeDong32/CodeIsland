@@ -1,22 +1,19 @@
 import SwiftUI
 
-/// Pi — Earendil Works' pi.dev mascot: pixel-art cream tile with the official
-/// 4×4 "Pi" monogram (chunky square P + dotless i, from pi.dev's favicon.svg).
-/// Near-black glyph on warm off-white — the brand carries it, monochrome like
-/// ZcodeView/DexView. The mark is never dismembered; sleep breathes via
-/// opacity, and the standby quirk lets the dotless i briefly find its tittle.
+/// Pi — Earendil Works' pi.dev mascot: the official 4×4 "Pi" monogram
+/// (chunky square P + dotless i) as a free-floating white glyph, matching
+/// the favicon's dark-mode form (#f6f6f6 foreground). No tile — the mark
+/// itself is the body, like DexView's cloud. The letterform is never
+/// dismembered: sleep breathes via opacity, and the standby quirk lets
+/// the dotless i briefly find its tittle.
 struct PiView: View {
     let status: MascotAgentStatus
     var size: CGFloat = 27
     @State private var alive = false
 
-    // pi.dev favicon palette — warm off-white tile, near-black monogram.
-    // (favicon.svg draws #111111 on transparent; the cream ground is the app
-    // bitmap's rendering — kept here so the mark reads on the dark island.)
-    private static let tileC    = Color(red: 0.94, green: 0.935, blue: 0.925) // #F0EFEC
-    private static let tileEdge = Color(red: 1.00, green: 1.00, blue: 0.99)
-    private static let piC      = Color(red: 0.04, green: 0.04, blue: 0.043)  // #0A0A0B
-    private static let legC     = Color(red: 0.35, green: 0.33, blue: 0.31)
+    // pi.dev favicon dark-mode palette — near-white glyph.
+    private static let piC      = Color(red: 0.965, green: 0.965, blue: 0.965) // #f6f6f6
+    private static let legC     = Color(red: 0.62, green: 0.62, blue: 0.64)
     private static let alertC   = Color(red: 1.0, green: 0.42, blue: 0.12)
     private static let kbBase   = Color(red: 0.18, green: 0.18, blue: 0.20)
     private static let kbKey    = Color(red: 0.40, green: 0.40, blue: 0.42)
@@ -67,25 +64,6 @@ struct PiView: View {
         return keyframes.last?.1 ?? 0
     }
 
-    // ── Tile body: rounded cream square with an edge highlight ──
-    private func drawTile(_ c: GraphicsContext, v: V, dy: CGFloat,
-                          squashX: CGFloat = 1, squashY: CGFloat = 1) {
-        let x: CGFloat = 2, y: CGFloat = 3.5, w: CGFloat = 12, h: CGFloat = 8.5
-        let cx = x + w / 2, cy = y + h / 2
-        let rx = cx + (x - cx) * squashX
-        let rw = w * squashX
-        let ry = cy + (y - cy) * squashY
-        let rh = h * squashY
-        // Rounded-rect tile (pixel-corner radius ≈ 1 unit). The row-stack
-        // trick ZcodeView uses would spill the bottom row past the clip —
-        // invisible on its near-black tile, glaring on cream.
-        c.fill(Path(roundedRect: v.r(rx, ry, rw, rh, dy: dy), cornerRadius: 1.1 * v.s),
-               with: .color(Self.tileC))
-        // Edge highlight — one light line under the top rounding.
-        c.fill(Path(v.r(rx + 0.5, ry + 1, rw - 1, 0.5, dy: dy)),
-               with: .color(Self.tileEdge.opacity(0.8)))
-    }
-
     // ── Official "Pi" monogram: 4×4 unit grid (pi.dev favicon.svg),
     // matrix [1110; 1010; 1101; 1001] — square P (stem col 0, bowl closing
     // inward at r2c1) + dotless i (col 3, rows 2-3). Structurally complete
@@ -93,9 +71,9 @@ struct PiView: View {
     // `tittle` lights the missing dot above the i (standby quirk only). ──
     private func drawPi(_ c: GraphicsContext, v: V, dy: CGFloat,
                         color: Color = PiView.piC, tittle: Bool = false) {
-        let u: CGFloat = 1.7                       // monogram unit
-        let mx: CGFloat = 2 + (12 - 4 * u) / 2     // centred in the tile
-        let my: CGFloat = 3.5 + (8.5 - 4 * u) / 2
+        let u: CGFloat = 1.7                        // monogram unit
+        let mx: CGFloat = (16 - 4 * u) / 2          // centred on the 16-unit grid
+        let my: CGFloat = 4.55
         let cells: [(Int, Int)] = [
             (0, 0), (0, 1), (0, 2),   // P top bar
             (1, 0), (1, 2),           // stem + bowl wall
@@ -117,18 +95,18 @@ struct PiView: View {
         }
     }
 
-    private func drawShadow(_ c: GraphicsContext, v: V, width: CGFloat = 9, opacity: Double = 0.3) {
-        c.fill(Path(v.r(7.5 - width / 2, 15, width, 1)),
+    private func drawShadow(_ c: GraphicsContext, v: V, width: CGFloat = 7, opacity: Double = 0.3) {
+        c.fill(Path(v.r(8 - width / 2, 15, width, 1)),
                with: .color(.black.opacity(opacity)))
     }
 
     private func drawLegs(_ c: GraphicsContext, v: V) {
-        c.fill(Path(v.r(4.5, 12.2, 1.2, 1.6)), with: .color(Self.legC))
-        c.fill(Path(v.r(10.3, 12.2, 1.2, 1.6)), with: .color(Self.legC))
+        c.fill(Path(v.r(4.8, 12.6, 1.2, 1.4)), with: .color(Self.legC))
+        c.fill(Path(v.r(10.0, 12.6, 1.2, 1.4)), with: .color(Self.legC))
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // SLEEP — hovering tile, the mark breathing via opacity
+    // SLEEP — hovering mark breathing via opacity
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private var sleepScene: some View {
         ZStack {
@@ -156,7 +134,7 @@ struct PiView: View {
                 let yOff = -size * CGFloat(0.15 + phase * 0.38)
                 Text("z")
                     .font(.system(size: fontSize, weight: .black, design: .monospaced))
-                    .foregroundStyle(.white.opacity(opacity))
+                    .foregroundStyle(Self.piC.opacity(opacity))
                     .offset(x: xOff, y: yOff)
             }
         }
@@ -174,16 +152,15 @@ struct PiView: View {
         return Canvas { c, sz in
             let v = V(sz)
 
-            drawShadow(c, v: v, width: 9 + abs(float) * 0.3, opacity: 0.2)
+            drawShadow(c, v: v, width: 7 + abs(float) * 0.3, opacity: 0.2)
             drawLegs(c, v: v)
-            drawTile(c, v: v, dy: float)
-            let breatheOp: Double = pulse > 0 ? 0.98 : (breathe ? 0.88 : 0.62)
+            let breatheOp: Double = pulse > 0 ? 0.98 : (breathe ? 0.9 : 0.55)
             drawPi(c, v: v, dy: float, color: Self.piC.opacity(breatheOp), tittle: tittleOn)
         }
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // WORK — bouncing tile typing on a keyboard, mark lit
+    // WORK — bouncing mark typing on a keyboard, glyph lit
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private var workScene: some View {
         MascotTimeline(interval: 0.03) { t in
@@ -208,8 +185,8 @@ struct PiView: View {
             let v = V(sz)
             let dy = bounce
 
-            let shadowW: CGFloat = 8 - abs(dy) * 0.3
-            c.fill(Path(v.r(4 + (8 - shadowW) / 2, 16, shadowW, 1)),
+            let shadowW: CGFloat = 7 - abs(dy) * 0.3
+            c.fill(Path(v.r(8 - shadowW / 2, 16, shadowW, 1)),
                    with: .color(.black.opacity(max(0.1, 0.35 - abs(dy) * 0.03))))
 
             // Keyboard
@@ -229,8 +206,7 @@ struct PiView: View {
                 c.fill(Path(v.r(fkx, fky, 1.8, 0.7)), with: .color(Self.kbHi.opacity(0.9)))
             }
 
-            drawTile(c, v: v, dy: dy)
-            let piOpacity: Double = pause > 0.3 ? 0.65 : 1.0
+            let piOpacity: Double = pause > 0.3 ? 0.6 : 1.0
             drawPi(c, v: v, dy: dy, color: Self.piC.opacity(piOpacity))
         }
     }
@@ -265,8 +241,6 @@ struct PiView: View {
             (0.62, 0), (1.0, 0),
         ], at: pct)
 
-        let squashX: CGFloat = jumpY > 0.5 ? 1.0 + jumpY * 0.03 : 1.0
-        let squashY: CGFloat = jumpY > 0.5 ? 1.0 - jumpY * 0.02 : 1.0
         let shakeX: CGFloat = (pct > 0.15 && pct < 0.55) ? sin(pct * 80) * 0.6 : 0
         let flash = (pct > 0.03 && pct < 0.55) ? sin(pct * 25) * 0.5 + 0.5 : 0.0
         let piColor = flash > 0.5 ? Self.alertC : Self.piC
@@ -277,13 +251,12 @@ struct PiView: View {
         return Canvas { c, sz in
             let v = V(sz)
 
-            let shadowW: CGFloat = 8 * (1.0 - abs(min(0, jumpY)) * 0.04)
+            let shadowW: CGFloat = 7 * (1.0 - abs(min(0, jumpY)) * 0.04)
             let shadowOp = max(0.08, 0.4 - abs(min(0, jumpY)) * 0.04)
-            c.fill(Path(v.r(4 + (8 - shadowW) / 2, 16, shadowW, 1)),
+            c.fill(Path(v.r(8 - shadowW / 2, 16, shadowW, 1)),
                    with: .color(.black.opacity(shadowOp)))
 
             c.translateBy(x: shakeX * v.s, y: 0)
-            drawTile(c, v: v, dy: jumpY, squashX: squashX, squashY: squashY)
             drawPi(c, v: v, dy: jumpY, color: piColor)
             c.translateBy(x: -shakeX * v.s, y: 0)
 
