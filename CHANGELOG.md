@@ -3,10 +3,10 @@
 ## [v1.2.11] - 2026-10-01
 
 ### English
-- Pi mascot redrawn as the official pi.dev mark: white 4×4 pixel "Pi" monogram (square P + dotless i), pixel-identical to the favicon's dark-mode foreground; standby quirk lets the i briefly find its missing tittle
+- Pi mascot redrawn as the official pi.dev mark: white 4×4 pixel "Pi" monogram (square P + dotless i), pixel-identical to the favicon's dark-mode foreground
 
 ### 中文
-- Pi 形象重绘为官方 pi.dev mark：白色 4×4 像素 "Pi" 字母组合（方块 P + 无点 i），与官方 favicon 深色模式前景一致；待机彩蛋——无点的 i 会短暂找到自己的点
+- Pi 形象重绘为官方 pi.dev mark：白色 4×4 像素 "Pi" 字母组合（方块 P + 无点 i），与官方 favicon 深色模式前景一致
 
 ## [v1.2.10] - 2026-09-30
 

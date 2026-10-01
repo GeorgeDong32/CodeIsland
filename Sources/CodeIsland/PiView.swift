@@ -4,8 +4,7 @@ import SwiftUI
 /// (chunky square P + dotless i) as a free-floating white glyph, matching
 /// the favicon's dark-mode form (#f6f6f6 foreground). No tile — the mark
 /// itself is the body, like DexView's cloud. The letterform is never
-/// dismembered: sleep breathes via opacity, and the standby quirk lets
-/// the dotless i briefly find its tittle.
+/// dismembered: sleep breathes via opacity.
 struct PiView: View {
     let status: MascotAgentStatus
     var size: CGFloat = 27
@@ -67,10 +66,9 @@ struct PiView: View {
     // ── Official "Pi" monogram: 4×4 unit grid (pi.dev favicon.svg),
     // matrix [1110; 1010; 1101; 1001] — square P (stem col 0, bowl closing
     // inward at r2c1) + dotless i (col 3, rows 2-3). Structurally complete
-    // at all times: breathing dims the whole mark, never a piece of it.
-    // `tittle` lights the missing dot above the i (standby quirk only). ──
+    // at all times: breathing dims the whole mark, never a piece of it. ──
     private func drawPi(_ c: GraphicsContext, v: V, dy: CGFloat,
-                        color: Color = PiView.piC, tittle: Bool = false) {
+                        color: Color = PiView.piC) {
         let u: CGFloat = 1.7                        // monogram unit
         let mx: CGFloat = (16 - 4 * u) / 2          // centred on the 16-unit grid
         let my: CGFloat = 4.55
@@ -84,13 +82,6 @@ struct PiView: View {
             c.fill(Path(v.r(mx + CGFloat(col) * u + 0.01,
                             my + CGFloat(row) * u + 0.01,
                             u + 0.02, u + 0.02, dy: dy)),
-                   with: .color(color))
-        }
-        if tittle {
-            // The i finally finds its dot — a square tittle in the empty
-            // top-right cell, above the i stem.
-            let d = u * 0.8
-            c.fill(Path(v.r(mx + 3 * u + (u - d) / 2, my + 1 * u + (u - d) / 2, d, d, dy: dy)),
                    with: .color(color))
         }
     }
@@ -143,19 +134,15 @@ struct PiView: View {
     private func sleepCanvas(t: Double) -> some View {
         // Two incommensurate sines — the hover never quite repeats (#15).
         let float = sin(t * 2 * .pi / 4.2) * 0.7 + sin(t * 2 * .pi / 6.6) * 0.35
-        // Standby quirk: every ~8s the dotless i double-blinks its missing
-        // tittle on — Pi briefly completes itself.
-        let pulse = MascotMotion.quirk(t, cycle: 8.0, duration: 0.5, seed: 0x31415)
         let breathe = t.truncatingRemainder(dividingBy: 1.4) < 0.7
-        let tittleOn = pulse > 0 && (pulse * 4).truncatingRemainder(dividingBy: 1) < 0.5
 
         return Canvas { c, sz in
             let v = V(sz)
 
             drawShadow(c, v: v, width: 7 + abs(float) * 0.3, opacity: 0.2)
             drawLegs(c, v: v)
-            let breatheOp: Double = pulse > 0 ? 0.98 : (breathe ? 0.9 : 0.55)
-            drawPi(c, v: v, dy: float, color: Self.piC.opacity(breatheOp), tittle: tittleOn)
+            let breatheOp: Double = breathe ? 0.9 : 0.55
+            drawPi(c, v: v, dy: float, color: Self.piC.opacity(breatheOp))
         }
     }
 
