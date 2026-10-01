@@ -75,3 +75,6 @@ build-dir/
 __pycache__/
 *.pyc
 default.profraw
+
+# ZCode CLI project-local data
+.zcode/
