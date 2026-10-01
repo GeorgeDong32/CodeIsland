@@ -78,3 +78,6 @@ default.profraw
 
 # ZCode CLI project-local data
 .zcode/
+
+# Local agent memory (pi persistent memory)
+memory/

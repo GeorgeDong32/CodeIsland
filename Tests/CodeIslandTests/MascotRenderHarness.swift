@@ -58,7 +58,11 @@ final class MascotRenderHarness: XCTestCase {
             ("waitingQuestion", .waitingQuestion),
         ]
         // Sample instants chosen to catch blink/quirk windows, not just phase 0.
-        let times: [Double] = [0.0, 0.6, 1.3, 2.1, 2.9, 3.6, 4.4, 5.2, 6.1, 7.0, 7.8, 8.5]
+        // `MASCOT_SHEET_TIMES` overrides them (comma-separated) so quirk windows
+        // outside the default span can be inspected without editing the file.
+        let times: [Double] = ProcessInfo.processInfo.environment["MASCOT_SHEET_TIMES"]
+            .map { $0.split(separator: ",").compactMap { Double($0) } }
+            ?? [0.0, 0.6, 1.3, 2.1, 2.9, 3.6, 4.4, 5.2, 6.1, 7.0, 7.8, 8.5]
 
         try FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true)
 
@@ -246,7 +250,7 @@ private struct ReadmeGifSpec {
         // 0.42s bounce ×3.
         ReadmeGifSpec(name: "openclaw", source: "openclaw", period: 1.26, frames: 15,
                       isCalm: calm(blinkSeed: 0xC1A7, pause: (10.5, 1.2, 0xC1A4))),
-        ReadmeGifSpec(name: "pi", source: "pi", period: 1.26, frames: 15,
+        ReadmeGifSpec(name: "pi", source: "pi", period: 1.2, frames: 15,
                       isCalm: calm(blinkSeed: 0x9BB, pause: nil)),
         // Kiro: 0.45s hover-bob ×4 on a 14-unit viewport.
         ReadmeGifSpec(name: "kiro", source: "kiro", period: 1.8, frames: 20, viewSize: 112, contour: true,
