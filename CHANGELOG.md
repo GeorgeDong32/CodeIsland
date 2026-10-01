@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.2.11] - 2026-10-01
+
+### English
+- Pi mascot redrawn as the official pi.dev mark: cream tile + black 4×4 pixel "Pi" monogram (square P + dotless i), pixel-identical to the favicon; standby quirk lets the i briefly find its missing tittle
+
+### 中文
+- Pi 形象重绘为官方 pi.dev mark：奶油方块 + 黑色 4×4 像素 "Pi" 字母组合（方块 P + 无点 i），与官方 favicon 逐格一致；待机彩蛋——无点的 i 会短暂找到自己的点
+
 ## [v1.2.10] - 2026-09-30
 
 ### English
