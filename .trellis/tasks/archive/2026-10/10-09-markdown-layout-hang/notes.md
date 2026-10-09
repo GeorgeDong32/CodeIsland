@@ -70,7 +70,7 @@ release metadata, or installation; the subsequent packaging work is recorded bel
 
 ## Commit and packaging
 
-Implementation, checks, and spec sync are complete. Proposed work commit:
+Implementation, checks, and spec sync are complete. Work commit:
 `fix(markdown): avoid nested list layout hangs`.
 
 Files: `Sources/CodeIsland/MarkdownReplyView.swift`,
@@ -83,5 +83,30 @@ do not initialize GitButler or ask again. Use the existing packaging script with
 arm64 architecture and ad-hoc signing, matching the installed app: this Mac has
 no valid Developer ID identities. A subsequent explicit request authorized the
 version bump to 1.2.12 (both bundle version fields and bilingual changelog).
-Preserve the previous installed app for rollback. The fix is committed as
-`627ba5d`; version metadata will be a separate release commit.
+The fix is committed as `627ba5d`; version metadata is committed as `e4c9c2e`.
+
+## Release build and local installation
+
+- Built optimized arm64 binaries with
+  `BUILD_ARCH=arm64 SKIP_SIGN=1 SKIP_NOTARIZE=1 ./scripts/build-dmg.sh 1.2.12`.
+- This machine has no Developer ID signing identities. The new bundle uses
+  ad-hoc signing with the existing entitlements, as did the previous install.
+- The create-dmg HFS image gained `com.apple.FinderInfo` inside the app and
+  failed mounted nested-signature verification although the staging app passed.
+  Kept it as `.build/CodeIsland-1.2.12-create-dmg-rejected.dmg`; never installed
+  or distributed it. Repacked the same verified staging app plus Applications
+  link using `hdiutil create -fs APFS -format UDZO`. The APFS image passed both
+  checksum verification and mounted `codesign --verify --deep --strict`.
+- Verified both bundle versions, arm64 app/helper/Sparkle architecture, icon,
+  Applications link, mounted executable/helper hashes against staging, and
+  installed executable hash against the verified release bundle.
+- Delivered `/Users/gd32/Downloads/CodeIsland-1.2.12-arm64.dmg` (12,005,657 bytes)
+  plus `.dmg.sha256`. Canonical build copy: `.build/CodeIsland.dmg`.
+- SHA-256: `f9fe39dffc69af2f0d7b6b9580f08c97d1ac6e6a8026170f8132594f79f99609`.
+- Replaced `/Applications/CodeIsland.app` after a graceful quit, preserving
+  rollback copies under `.build/install-backups/pre-1.2.12-zicb7lj0/`.
+- Relaunched app PID 96950; NSWorkspace reports finishedLaunching=true and
+  terminated=false, and `/tmp/codeisland-501.sock` accepts connections.
+- Build log: `/tmp/ci-crash/build-dmg-1.2.12.log`; local manifest:
+  `.build/release-1.2.12-verification.json` (source commit `e4c9c2e`).
+- No notarization, git push, remote release, or appcast publication performed.
