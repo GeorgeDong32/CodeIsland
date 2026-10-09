@@ -1,5 +1,15 @@
 # Changelog
 
+## [v1.2.12] - 2026-10-09
+
+### English
+
+- Fix UI freezes when completion cards render deeply nested Markdown lists, preserving full reply content and existing list formatting
+
+### 中文
+
+- 修复完成卡片渲染多层嵌套 Markdown 列表时的界面卡死，保留完整回复内容和现有列表格式
+
 ## [v1.2.11] - 2026-10-01
 
 ### English

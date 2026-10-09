@@ -9,8 +9,9 @@ unfinished fork-architecture task; lightweight PRD-only execution applies.
 
 Follow-up authorization: use native git to commit the completed fix, build a
 release app, replace this Mac's installation, and prepare a DMG. No additional
-confirmation or GitButler initialization is needed. Keep the current version
-and identify the local build by the fix commit in the DMG filename.
+confirmation or GitButler initialization is needed. The user then explicitly
+requested a version bump: ship the local app and DMG as 1.2.12, with both bundle
+version fields and the bilingual changelog updated.
 
 ## Evidence
 
@@ -35,7 +36,7 @@ and identify the local build by the fix commit in the DMG filename.
   tables, links, and existing completion card scrolling/height settings.
 - Keep changes local to Markdown rendering and meaningful regression tests.
 - No changes to settings, panel height, defaults, architecture migration,
-  permissions, hooks, session state, or release version. Local installation and
+  permissions, hooks, or session state. Version 1.2.12, local installation and
   DMG packaging are authorized; remote publishing is outside scope.
 - Preserve the diagnostic evidence outside the test target, then remove the
   throwaway harness from the normal suite once replaced by regression coverage.

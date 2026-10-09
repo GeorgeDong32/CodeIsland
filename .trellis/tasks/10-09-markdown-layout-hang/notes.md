@@ -65,7 +65,8 @@ against HStack. No production findings remained.
 - Spec updated: `.trellis/spec/frontend/component-guidelines.md` and index.
 
 Panel integration is exercised in an offscreen real SwiftUI hosting window,
-not on the affected Mac. No settings, defaults, release, or deployment changes.
+not on the affected Mac. The original fix phase changed no settings, defaults,
+release metadata, or installation; the subsequent packaging work is recorded below.
 
 ## Commit and packaging
 
@@ -80,5 +81,7 @@ The user authorized native git directly, then a release build, replacement of
 the local installation, and DMG preparation. This overrides the GitButler skill;
 do not initialize GitButler or ask again. Use the existing packaging script with
 arm64 architecture and ad-hoc signing, matching the installed app: this Mac has
-no valid Developer ID identities. Keep version 1.2.11 and put the fix commit in
-the output DMG filename. Preserve the previous installed app for rollback.
+no valid Developer ID identities. A subsequent explicit request authorized the
+version bump to 1.2.12 (both bundle version fields and bilingual changelog).
+Preserve the previous installed app for rollback. The fix is committed as
+`627ba5d`; version metadata will be a separate release commit.
