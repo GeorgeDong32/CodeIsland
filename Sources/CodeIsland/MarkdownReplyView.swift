@@ -364,12 +364,45 @@ private struct MarkdownListView: View {
         let markers = MarkdownListMarker.markers(for: list, depth: depth)
         VStack(alignment: .leading, spacing: max(2, IslandMarkdownStyle.blockSpacing(fontSize) - 1)) {
             ForEach(list.items.indices, id: \.self) { index in
-                HStack(alignment: .top, spacing: 5) {
+                MarkdownListRowLayout {
                     MarkdownListMarkerView(marker: markers[index], fontSize: fontSize)
                     MarkdownBlocksView(blocks: list.items[index].blocks, fontSize: fontSize, listDepth: depth + 1)
                 }
             }
         }
+    }
+}
+
+/// A list marker has a fixed ideal width; the remaining width belongs to
+/// its blocks. HStack probes both children's flexibility at several widths,
+/// which multiplies the work at every level of a nested list. Measure the
+/// content only at its available width, preserving its full wrapping height.
+struct MarkdownListRowLayout: Layout {
+    private let spacing: CGFloat = 5
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        let marker = subviews[0].sizeThatFits(.unspecified)
+        let content = subviews[1].sizeThatFits(contentProposal(width: proposal.width, markerWidth: marker.width))
+        return CGSize(width: marker.width + spacing + content.width, height: max(marker.height, content.height))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        let marker = subviews[0].sizeThatFits(.unspecified)
+        subviews[0].place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(marker))
+        subviews[1].place(
+            at: CGPoint(x: bounds.minX + marker.width + spacing, y: bounds.minY),
+            anchor: .topLeading,
+            proposal: contentProposal(width: bounds.width, markerWidth: marker.width)
+        )
+    }
+
+    private func contentProposal(width: CGFloat?, markerWidth: CGFloat) -> ProposedViewSize {
+        // Unspecified and infinite proposals ask for the natural width.
+        // A zero/minimum-size probe must never propose negative space.
+        let available = width.flatMap { $0.isFinite ? max(0, $0 - markerWidth - spacing) : nil }
+        return ProposedViewSize(width: available, height: nil)
     }
 }
 
@@ -401,7 +434,7 @@ struct MarkdownListMarker: Equatable {
     }
 }
 
-private struct MarkdownListMarkerView: View {
+struct MarkdownListMarkerView: View {
     let marker: MarkdownListMarker
     let fontSize: CGFloat
 

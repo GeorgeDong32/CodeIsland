@@ -1,0 +1,3 @@
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"SwiftUI rendering conventions"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Frontend verification expectations"}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Reuse existing layout and test helpers before introducing new ones"}
