@@ -62,7 +62,12 @@ public enum CLIProcessResolver {
         case "cursor-cli":
             // Cursor's CLI agent installs to ~/.local/share/cursor-agent/versions/<v>/cursor-agent
             // and is also referenced by /cursor-agent/index.js when invoked via Node.
+            // The Homebrew cask (`brew install cursor-cli`) execs a bundled node
+            // from the keg, so the keg path is the only recognizable component
+            // (the shell-script launcher and its argv never appear as an
+            // executable path) — task 10-16-cli-zombie-sessions.
             return lowercasedPath.contains("/cursor-agent")
+                || lowercasedPath.contains("/caskroom/cursor-cli/")
         case "qoder-cli":
             // npm @qoder-ai/qodercli installs as `qodercli` in PATH (Homebrew/npm-global).
             // The China build ships as a SEPARATE binary named `qoderclicn`, rooted at

@@ -1,0 +1,28 @@
+{
+  "id": "cli-zombie-sessions",
+  "name": "cli-zombie-sessions",
+  "title": "修复 homebrew 形态 CLI 会话清理失效（opencode 卡跑 + Cursor 假多 agent）",
+  "description": "",
+  "status": "in_progress",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "George·Dong",
+  "assignee": "George·Dong",
+  "createdAt": "2026-10-16",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "description": "homebrew/cask 安装形态（opencode-v2 cellar、cursor-cli caskroom）不进 CodeIsland 进程匹配白名单：opencode 挂不上 monitor 靠超时自愈、cursor-agent CLI 会话被误判为 IDE 且清理策略对常驻进程多会话卡全失效，堆积假 agent 卡。5 项修复：会话级回收、2b 扩展、cask 识别、白名单补全、插件订阅 session.idle。"
+  }
+}

@@ -638,6 +638,49 @@ final class AppState {
         return daemonBackedSources.contains(normalized)
     }
 
+    /// How long a quiet card on a shared pid may linger before the
+    /// many-sessions-per-PID reclamation collects it (Section 2c).
+    nonisolated static let sharedPidQuietThreshold: TimeInterval = 900
+
+    /// Input card for `staleSharedPidSessionIds` — the activity fields the
+    /// shared-pid reclamation reasons about.
+    struct SharedPidSessionCard {
+        let sessionId: String
+        let cliPid: pid_t
+        let lastActivity: Date
+    }
+
+    /// Many-sessions-per-PID reclamation: on a host pid carrying multiple
+    /// cards (cursor-agent TUI, app servers, IDEs) every card monitors the
+    /// same live process, so Sections 1/3/4 never fire and a missed Stop
+    /// hook leaves old cards "running" forever. Cards that went quiet past
+    /// `quietThreshold` are reclaimable — except the group's freshest card,
+    /// which is the host's current session. Single-card hosts and pid-less
+    /// cards are left to the classic lifecycle.
+    nonisolated static func staleSharedPidSessionIds(
+        _ cards: [SharedPidSessionCard],
+        now: Date,
+        quietThreshold: TimeInterval
+    ) -> Set<String> {
+        var freshestByPid: [pid_t: Date] = [:]
+        var countByPid: [pid_t: Int] = [:]
+        for card in cards where card.cliPid > 0 {
+            countByPid[card.cliPid, default: 0] += 1
+            if (freshestByPid[card.cliPid] ?? .distantPast) < card.lastActivity {
+                freshestByPid[card.cliPid] = card.lastActivity
+            }
+        }
+        var stale: Set<String> = []
+        for card in cards where card.cliPid > 0 {
+            guard countByPid[card.cliPid] ?? 0 > 1,
+                  let freshest = freshestByPid[card.cliPid],
+                  freshest > card.lastActivity,
+                  now.timeIntervalSince(card.lastActivity) > quietThreshold else { continue }
+            stale.insert(card.sessionId)
+        }
+        return stale
+    }
+
     private func cleanupIdleSessions() {
         // 1. Verify monitored PIDs are still alive (DispatchSource can silently miss exits)
         //    Also kill orphaned processes (ppid <= 1, terminal closed but process survived).
@@ -743,6 +786,42 @@ final class AppState {
             if elapsed > monitoredThinkingTimeout {
                 sessions[key]?.status = .idle
             }
+        }
+
+        // 2b-2. A processing card WITH a tool in flight normally clears on
+        //       PostToolUse/Stop. One on a live monitor that has heard nothing
+        //       for 30 minutes is a zombie (host quit mid-tool without hooking) —
+        //       the same evidence bar as Section 1 on a slower clock, because a
+        //       real long-running tool can legitimately outlast shorter windows.
+        //       If the tool does complete later, its PostToolUse/Stop re-activates
+        //       the card, so this flip is recoverable. (10-16-cli-zombie-sessions)
+        let monitoredToolCardTimeout: TimeInterval = 1800
+        for (key, session) in sessions
+            where session.status == .processing
+            && (session.currentTool != nil || session.toolDescription != nil)
+            && processMonitors[key] != nil {
+            if -session.lastActivity.timeIntervalSinceNow > monitoredToolCardTimeout {
+                sessions[key]?.status = .idle
+                sessions[key]?.currentTool = nil
+                sessions[key]?.toolDescription = nil
+            }
+        }
+
+        // 2c. Many-sessions-per-PID hosts (cursor-agent TUI, app servers, IDEs):
+        //     every card on the pid monitors the same live process, so Sections
+        //     1/3/4 never fire and a missed Stop hook leaves old cards "running"
+        //     forever — the false multi-agent pile-up. Reclaim cards that went
+        //     quiet on a shared pid, keeping the group's freshest card (the
+        //     host's current session). (10-16-cli-zombie-sessions)
+        let staleSharedPidIds = Self.staleSharedPidSessionIds(
+            sessions.map { key, value in
+                SharedPidSessionCard(sessionId: key, cliPid: value.cliPid ?? 0, lastActivity: value.lastActivity)
+            },
+            now: Date(),
+            quietThreshold: Self.sharedPidQuietThreshold
+        )
+        for key in staleSharedPidIds where sessions[key] != nil {
+            removeSession(key)
         }
 
         // 3. Verify PID liveness for sessions without monitors but with a known PID.
@@ -6233,13 +6312,15 @@ final class AppState {
         return []
     }
 
-    private nonisolated static func findOpenCodePids(candidatePids: [pid_t]? = nil) -> [pid_t] {
+    nonisolated static func findOpenCodePids(candidatePids: [pid_t]? = nil) -> [pid_t] {
         findPids(
             matchingPathSubstrings: [
                 "/opencode.app/contents/macos/opencode",
                 "/opencode.app/contents/macos/opencode-cli",
                 "/.opencode/bin/opencode",
+                "/cellar/opencode",
             ],
+            argSubstrings: ["/opencode-ai/"],
             candidatePids: candidatePids
         ).filter { pid in
             // OpenCode 2's shared background service is the same executable as
@@ -6252,6 +6333,11 @@ final class AppState {
         }
     }
 
+    /// Homebrew kegs install as `opencode-v2` today and may drop the suffix
+    /// later — the `/cellar/opencode` substring covers both; `/opencode-ai/`
+    /// covers npm-global installs, whose executable is the node binary with
+    /// the package path only in argv (task 10-16-cli-zombie-sessions).
+    ///
     /// `opencode serve --service` — OpenCode 2's per-user shared server.
     nonisolated static func isOpenCodeSharedService(arguments: [String]) -> Bool {
         arguments.contains("serve") && arguments.contains("--service")

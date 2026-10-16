@@ -117,6 +117,20 @@ describe("OpenCode 2 event mapping", () => {
       .toMatchObject({ hook_event_name: "UserPromptSubmit" });
   });
 
+  test("session.idle is a redundant Stop (upstream can drop the status edge)", () => {
+    // `session.idle` is the dedicated quiesce event — fired for every
+    // termination shape (clean / error / interrupt) just before the status
+    // map drops the session. Upstream's stuck-busy family can lose the
+    // `session.status: idle` edge, so both must map to Stop.
+    const map = createV2Mapper(base);
+    expect(map(ev("session.created", { sessionID: "ses_q", location: { directory: "/p/q" } })))
+      .toMatchObject({ hook_event_name: "SessionStart" });
+    expect(map(ev("session.status", { sessionID: "ses_q", status: { type: "busy" } })))
+      .toMatchObject({ hook_event_name: "UserPromptSubmit" });
+    expect(map(ev("session.idle", { sessionID: "ses_q" })))
+      .toMatchObject({ hook_event_name: "Stop", cwd: "/p/q" });
+  });
+
   test("permission.asked uses the v2 shape (action/resources), with v2 action names", () => {
     const map = createV2Mapper(base);
     const mapped = map(ev("permission.asked", {
