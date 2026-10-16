@@ -1,5 +1,19 @@
 # Changelog
 
+## [v1.2.13] - 2026-10-16
+
+### English
+
+- Reclaim zombie session cards on Homebrew-installed CLI hosts: quiet old cards on a shared cursor-agent TUI process are collected after 15 minutes, and monitored cards stuck on a tool for 30+ minutes settle back to idle
+- Recognize Homebrew cask/cellar install shapes (cursor-cli, opencode) so process monitors attach correctly and cards clear on process exit
+- OpenCode plugin v9: subscribe to the dedicated `session.idle` event as a redundant Stop signal
+
+### 中文
+
+- 回收 Homebrew 安装 CLI 宿主上的僵尸会话卡：cursor-agent TUI 同进程多会话时，安静超过 15 分钟的旧卡被回收；带工具的卡 30 分钟无事件回落 idle
+- 识别 Homebrew cask/cellar 安装形态（cursor-cli、opencode），进程 monitor 正确挂载，进程退出即清卡
+- OpenCode 插件 v9：订阅专门的 `session.idle` 事件作为冗余 Stop 信号
+
 ## [v1.2.12] - 2026-10-09
 
 ### English
