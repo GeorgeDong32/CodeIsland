@@ -1508,6 +1508,17 @@ private struct QuestionBar: View {
 
     @FocusState private var isFocused: Bool
 
+    @AppStorage(SettingsKey.maxVisibleSessions) private var maxVisibleSessions = SettingsDefaults.maxVisibleSessions
+
+    /// Height budget for the scrollable options area. The panel window's
+    /// height is `maxVisibleSessions*90+60` (PanelHeightMetrics) — the options
+    /// list must fit inside what remains after the identity row, question
+    /// header, answer input and dismiss/submit buttons, or the buttons get
+    /// clipped below the window with no scrollbar to reach them.
+    private var optionsScrollBudget: CGFloat {
+        max(140, CGFloat(max(2, maxVisibleSessions)) * 90 - 80)
+    }
+
     @State private var failureShakeOffset: CGFloat = 0
     @State private var navigationOperationID: UUID?
     @AppStorage(SettingsKey.autoCollapseAfterSessionJump) private var autoCollapseAfterSessionJump = SettingsDefaults.autoCollapseAfterSessionJump
@@ -1620,58 +1631,64 @@ private struct QuestionBar: View {
 
         // Options
         if let opts = item.payload.options, !opts.isEmpty {
-            VStack(spacing: 4) {
-                ForEach(Array(opts.enumerated()), id: \.offset) { idx, option in
-                    let desc = item.payload.descriptions?.indices.contains(idx) == true ? item.payload.descriptions?[idx] : nil
-                    if item.multiSelect {
-                        MultiSelectRow(index: idx + 1, label: option, description: desc,
-                                       isChecked: wizard.selectedIndices.contains(idx), accent: cyan) {
-                            if wizard.selectedIndices.contains(idx) {
-                                wizard.selectedIndices.remove(idx)
-                            } else {
-                                wizard.selectedIndices.insert(idx)
-                            }
-                        }
-                    } else {
-                        OptionRow(index: idx + 1, label: option, description: desc,
-                                  isSelected: wizard.selectedIndex == idx, accent: cyan) {
-                            wizard.selectedIndex = idx
-                            wizard.showOtherInput = false
-                            advanceWithAnswer(option, selectedOptions: [option])
-                        }
-                    }
-                }
-
-                // "Other" option
-                otherOptionRow(isMultiSelect: item.multiSelect)
-
-                // "Other" text input
-                if wizard.showOtherInput {
-                    HStack(spacing: 6) {
-                        Text(">")
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundStyle(Color(red: 0.3, green: 0.85, blue: 0.4))
-                        TextField(L10n.shared["type_answer"], text: $wizard.otherText)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(.white)
-                            .focused($otherFocused)
-                            .onSubmit {
-                                if !item.multiSelect && !wizard.otherText.isEmpty {
-                                    advanceWithAnswer(wizard.otherText, customInput: wizard.otherText)
+            // Long option lists scroll INSIDE the card: the panel window height
+            // is fixed (PanelHeightMetrics), so an unbounded list pushed the
+            // input and submit buttons below the window edge with no scrollbar,
+            // making the question unanswerable.
+            ThinScrollView(maxHeight: optionsScrollBudget) {
+                VStack(spacing: 4) {
+                        ForEach(Array(opts.enumerated()), id: \.offset) { idx, option in
+                        let desc = item.payload.descriptions?.indices.contains(idx) == true ? item.payload.descriptions?[idx] : nil
+                        if item.multiSelect {
+                            MultiSelectRow(index: idx + 1, label: option, description: desc,
+                                           isChecked: wizard.selectedIndices.contains(idx), accent: cyan) {
+                                if wizard.selectedIndices.contains(idx) {
+                                    wizard.selectedIndices.remove(idx)
+                                } else {
+                                    wizard.selectedIndices.insert(idx)
                                 }
                             }
+                        } else {
+                            OptionRow(index: idx + 1, label: option, description: desc,
+                                      isSelected: wizard.selectedIndex == idx, accent: cyan) {
+                                wizard.selectedIndex = idx
+                                wizard.showOtherInput = false
+                                advanceWithAnswer(option, selectedOptions: [option])
+                            }
+                        }
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.white.opacity(0.05))
-                    .cornerRadius(4)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4)
-                            .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
-                    )
+
+                    // "Other" option
+                    otherOptionRow(isMultiSelect: item.multiSelect)
+
+                    // "Other" text input
+                    if wizard.showOtherInput {
+                        HStack(spacing: 6) {
+                            Text(">")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundStyle(Color(red: 0.3, green: 0.85, blue: 0.4))
+                            TextField(L10n.shared["type_answer"], text: $wizard.otherText)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(.white)
+                                .focused($otherFocused)
+                                .onSubmit {
+                                    if !item.multiSelect && !wizard.otherText.isEmpty {
+                                        advanceWithAnswer(wizard.otherText, customInput: wizard.otherText)
+                                    }
+                                }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.white.opacity(0.05))
+                        .cornerRadius(4)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+                        )
                     .padding(.horizontal, 14)
                     .onAppear { otherFocused = true }
+                }
                 }
             }
             .padding(.horizontal, 14)
@@ -1890,16 +1907,20 @@ private struct QuestionBar: View {
         .padding(.horizontal, 14)
 
         if let options = options, !options.isEmpty {
-            VStack(spacing: 4) {
-                ForEach(Array(options.enumerated()), id: \.offset) { idx, option in
-                    let desc = descriptions?.indices.contains(idx) == true ? descriptions?[idx] : nil
-                    OptionRow(index: idx + 1, label: option, description: desc, isSelected: wizard.selectedIndex == idx, accent: cyan) {
-                        wizard.selectedIndex = idx
-                        onAnswer(option)
+            // Same scroll budget as the multi-question card: legacy option lists
+            // can be just as long, and the window clips identically.
+            ThinScrollView(maxHeight: optionsScrollBudget) {
+                VStack(spacing: 4) {
+                    ForEach(Array(options.enumerated()), id: \.offset) { idx, option in
+                        let desc = descriptions?.indices.contains(idx) == true ? descriptions?[idx] : nil
+                        OptionRow(index: idx + 1, label: option, description: desc, isSelected: wizard.selectedIndex == idx, accent: cyan) {
+                            wizard.selectedIndex = idx
+                            onAnswer(option)
+                        }
                     }
                 }
+                .padding(.horizontal, 14)
             }
-            .padding(.horizontal, 14)
         } else {
             HStack(spacing: 6) {
                 Text(">")

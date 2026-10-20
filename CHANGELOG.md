@@ -1,5 +1,15 @@
 # Changelog
 
+## [v1.2.17] - 2026-10-20
+
+### English
+
+- Question cards scroll long option lists inside a height budget so the answer input and submit buttons always stay reachable (the fixed panel window height used to clip them with no scrollbar)
+
+### 中文
+
+- 提问卡的长选项列表改为卡内滚动（高度预算联动面板窗口高度），回答输入框与提交按钮不再被固定窗口高度裁出可视区
+
 ## [v1.2.16] - 2026-10-20
 
 ### English
