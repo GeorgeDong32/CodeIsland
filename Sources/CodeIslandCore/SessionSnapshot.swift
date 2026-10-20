@@ -43,6 +43,7 @@ public struct SessionSnapshot: Sendable {
         "aiwork",
         "aiwork-cli",
         "devin",
+        "minimax",
     ]
 
     /// Sources whose tool/description text arrives as a rapid delta stream
@@ -346,6 +347,14 @@ public struct SessionSnapshot: Sendable {
             "oh my pi": "pi",
             "z-code": "zcode",
             "z code": "zcode",
+            // MiniMax Code CLI (mcode) — Claude-compatible hooks land under
+            // the `minimax` source; the binary name and hyphenation variants
+            // all normalise onto it.
+            "mcode": "minimax",
+            "minimax-code": "minimax",
+            "minimaxcode": "minimax",
+            "minimax_code": "minimax",
+            "minimax code": "minimax",
         ]
         let canonical = aliases[normalized] ?? normalized
         let dynamicSupportedSources = supportedSources.union(loadCustomSources())

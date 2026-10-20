@@ -35,6 +35,14 @@ enum HookFormat {
     /// Kimi Code CLI style: TOML [[hooks]] arrays in ~/.kimi-code/config.toml
     /// (legacy kimi-cli used ~/.kimi/config.toml).
     case kimi
+    /// MiniMax Code CLI (mcode) style: hooks load ONLY from Agent Plugins —
+    /// a local plugin at <dataDir>/plugins/codeisland with a
+    /// `.claude-plugin/plugin.json` manifest carrying inline hooks in the
+    /// Claude entry shape. No settings-level hooks key exists. Verified
+    /// empirically on mcode 0.5.5: plain command-string handlers work, a
+    /// hooks-only plugin (0 skills / 0 MCP) is auto-detected as installed
+    /// + enabled, and SessionEnd does not fire in exec mode.
+    case mcodePlugin
     /// Kiro CLI style: per-agent JSON file at ~/.kiro/agents/<name>.json
     /// with hooks keyed by camelCase event names and `timeout_ms` (#127).
     case kiroAgent
@@ -77,6 +85,7 @@ enum HookFormat {
         case .traecli: return "traecli"
         case .copilot: return "copilot"
         case .kimi: return "kimi"
+        case .mcodePlugin: return "mcodePlugin"
         case .kiroAgent: return "kiroAgent"
         case .none: return "none"
         case .cline: return "cline"
@@ -95,6 +104,7 @@ enum HookFormat {
         case "traecli": self = .traecli
         case "copilot": self = .copilot
         case "kimi": self = .kimi
+        case "mcodeplugin": self = .mcodePlugin
         case "kiroagent": self = .kiroAgent
         case "none": self = .none
         case "cline": self = .cline
@@ -580,6 +590,25 @@ struct ConfigInstaller {
             format: .kiroAgent,
             events: defaultEvents(for: .kiroAgent)
         ),
+        // MiniMax Code (mcode) — hooks-only local plugin under the mcode data
+        // dir (~/.minimax, or $MINIMAX_DATA_DIR). Dropping the directory in
+        // <dataDir>/plugins/ auto-installs + enables it; no marketplace step.
+        CLIConfig(
+            name: "MiniMax Code", source: "minimax",
+            configPath: ".minimax/plugins/codeisland/.claude-plugin/plugin.json", configKey: "hooks",
+            format: .mcodePlugin,
+            events: [
+                ("UserPromptSubmit", 5, true),
+                ("PreToolUse",       5, false),
+                ("PostToolUse",      5, true),
+                ("PermissionRequest", 86400, false),
+                ("Stop",             5, true),
+                ("SubagentStart",    5, true),
+                ("SubagentStop",     5, true),
+                ("SessionStart",     5, false),
+                ("SessionEnd",       5, true),
+            ]
+        ),
         // Cline — file-based hooks in ~/Documents/Cline/Hooks/<EventName>
         CLIConfig(
             name: "Cline", source: "cline",
@@ -805,6 +834,10 @@ struct ConfigInstaller {
                 ("subagent_stop", 5, false),
             ]
         case .cline:
+            return []
+        case .mcodePlugin:
+            // mcode events are declared inline on the CLIConfig (11-event
+            // Claude-compatible set; see the MiniMax Code entry).
             return []
         case .none:
             return []
@@ -1070,6 +1103,8 @@ struct ConfigInstaller {
                 uninstallHermesHooks(fm: fm)
             } else if cli.format == .zcode {
                 uninstallZcodeHooks(fm: fm)
+            } else if cli.format == .mcodePlugin {
+                uninstallMcodePlugin(fm: fm)
             } else if cli.source == "pi" {
                 uninstallPiExtension(fm: fm)
             } else if cli.source == "omp" {
@@ -1112,6 +1147,7 @@ struct ConfigInstaller {
         if source == "traecli" { return isTraecliHooksInstalled(fm: FileManager.default) }
         if source == "hermes" { return isHermesHooksInstalled(fm: FileManager.default) }
         if source == "zcode" { return isZcodeHooksInstalled(fm: FileManager.default) }
+        if source == "minimax" { return isMcodePluginInstalled(fm: FileManager.default) }
         if source == "cline" {
             guard let cli = allCLIs.first(where: { $0.source == "cline" }) else { return false }
             return isClineHooksInstalled(cli: cli, fm: FileManager.default)
@@ -1152,6 +1188,7 @@ struct ConfigInstaller {
         // ZCode's config lives one level below the app's real root (~/.zcode/cli/),
         // so detect against the root itself rather than cli.dirPath (#245).
         if source == "zcode" { return FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.zcode") }
+        if source == "minimax" { return mcodePresenceDetected() }
         // Kimi Code CLI moved from ~/.kimi (kimi-cli) to ~/.kimi-code.
         if source == "kimi" { return kimiPresenceDetected() }
         guard let cli = allCLIs.first(where: { $0.source == source }) else { return false }
@@ -1610,6 +1647,7 @@ struct ConfigInstaller {
     @discardableResult
     static func installExternalHooks(cli: CLIConfig, fm: FileManager) -> Bool {
         if cli.format == .cline { return installClineHooks(cli: cli, fm: fm) }
+        if cli.format == .mcodePlugin { return installMcodeHooks(cli: cli, fm: fm) }
         if cli.format == .kimi {
             // Kimi: do not create ~/.kimi-code (or legacy ~/.kimi) unless there is
             // already evidence of an existing install. Prefer the modern root.
@@ -1725,6 +1763,9 @@ struct ConfigInstaller {
                 entry = ["type": "command", "bash": copilotCommand, "timeoutSec": timeout]
             case .kimi:
                 // Handled earlier in the function; should never reach here
+                return false
+            case .mcodePlugin:
+                // Dedicated installer (installMcodeHooks); never reaches here
                 return false
             case .hermes:
                 // Hermes uses a dedicated YAML installer (installHermesHooks);
@@ -2710,6 +2751,83 @@ struct ConfigInstaller {
     }
 
     // MARK: - Kimi Code CLI (TOML hooks)
+
+    // MARK: - MiniMax Code (mcode) plugin hooks
+
+    /// mcode data dir: $MINIMAX_DATA_DIR wins, default ~/.minimax.
+    static func mcodeDataDir() -> String {
+        if let override = ProcessInfo.processInfo.environment["MINIMAX_DATA_DIR"], !override.isEmpty {
+            return override
+        }
+        return NSHomeDirectory() + "/.minimax"
+    }
+
+    /// Presence probe. ~/.minimax can also come from MiniMax Agent desktop
+    /// products, so the mcode-specific markers are the managed binary root
+    /// (~/.minimax-code) and the plugin marketplace dir (<dataDir>/plugins).
+    static func mcodePresenceDetected(fm: FileManager = .default) -> Bool {
+        if fm.fileExists(atPath: NSHomeDirectory() + "/.minimax-code") { return true }
+        return fm.fileExists(atPath: mcodeDataDir() + "/plugins")
+    }
+
+    static var mcodePluginDir: String { mcodeDataDir() + "/plugins/codeisland" }
+
+    /// Writes the hooks-only local plugin. Verified on mcode 0.5.5: the
+    /// directory's mere presence under <dataDir>/plugins/ registers it as
+    /// installed + enabled — no `mcode plugin add` step required.
+    internal static func installMcodeHooks(cli: CLIConfig, fm: FileManager) -> Bool {
+        guard mcodePresenceDetected(fm: fm) else { return true }   // mcode absent — skip
+
+        let manifestDir = mcodePluginDir + "/.claude-plugin"
+        if !fm.fileExists(atPath: manifestDir) {
+            try? fm.createDirectory(atPath: manifestDir, withIntermediateDirectories: true)
+        }
+
+        let quotedBridge = bridgeCommand.rangeOfCharacter(from: .whitespacesAndNewlines) != nil
+            ? "\"\(bridgeCommand)\""
+            : bridgeCommand
+        let baseCommand = "\(quotedBridge) --source \(cli.source)"
+
+        var hooks: [String: Any] = [:]
+        for (event, timeout, _) in cli.events {
+            let handler: [String: Any] = ["type": "command", "command": baseCommand, "timeout": timeout]
+            hooks[event] = [["matcher": "*", "hooks": [handler]] as [String: Any]]
+        }
+        let manifest: [String: Any] = [
+            "name": "codeisland",
+            "version": "1",
+            "description": "CodeIsland session hooks for MiniMax Code",
+            "hooks": hooks,
+        ]
+
+        guard let data = try? JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys]) else {
+            return false
+        }
+        let path = mcodePluginDir + "/.claude-plugin/plugin.json"
+        fm.createFile(atPath: path, contents: nil)   // truncate any stale manifest
+        return fm.createFile(atPath: path, contents: data)
+    }
+
+    static func isMcodePluginInstalled(fm: FileManager) -> Bool {
+        let path = mcodePluginDir + "/.claude-plugin/plugin.json"
+        guard let raw = fm.contents(atPath: path),
+              let json = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any],
+              let hooks = json["hooks"] as? [String: Any] else { return false }
+        for (_, value) in hooks {
+            guard let entries = value as? [[String: Any]] else { continue }
+            for entry in entries {
+                if let hookList = entry["hooks"] as? [[String: Any]],
+                   hookList.contains(where: { HookId.isOurs($0["command"] as? String ?? "") }) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private static func uninstallMcodePlugin(fm: FileManager) {
+        try? fm.removeItem(atPath: mcodePluginDir)
+    }
 
     internal static func installKimiHooks(cli: CLIConfig, fm: FileManager) -> Bool {
         let path = cli.fullPath

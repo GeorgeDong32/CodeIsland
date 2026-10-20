@@ -12,7 +12,6 @@ struct PiView: View {
 
     // pi.dev favicon dark-mode palette — near-white glyph.
     private static let piC      = Color(red: 0.965, green: 0.965, blue: 0.965) // #f6f6f6
-    private static let legC     = Color(red: 0.62, green: 0.62, blue: 0.64)
     private static let alertC   = Color(red: 1.0, green: 0.42, blue: 0.12)
     private static let kbBase   = Color(red: 0.18, green: 0.18, blue: 0.20)
     private static let kbKey    = Color(red: 0.40, green: 0.40, blue: 0.42)
@@ -91,11 +90,6 @@ struct PiView: View {
                with: .color(.black.opacity(opacity)))
     }
 
-    private func drawLegs(_ c: GraphicsContext, v: V) {
-        c.fill(Path(v.r(4.8, 12.6, 1.2, 1.4)), with: .color(Self.legC))
-        c.fill(Path(v.r(10.0, 12.6, 1.2, 1.4)), with: .color(Self.legC))
-    }
-
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // SLEEP — hovering mark breathing via opacity
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -140,7 +134,6 @@ struct PiView: View {
             let v = V(sz)
 
             drawShadow(c, v: v, width: 7 + abs(float) * 0.3, opacity: 0.2)
-            drawLegs(c, v: v)
             let breatheOp: Double = breathe ? 0.9 : 0.55
             drawPi(c, v: v, dy: float, color: Self.piC.opacity(breatheOp))
         }

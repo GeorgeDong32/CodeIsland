@@ -1,5 +1,37 @@
 # Changelog
 
+## [v1.2.16] - 2026-10-20
+
+### English
+
+- MiniMax Code permission prompts now surface on the card as a display-only wait: mcode 0.5.5 does not route interactive asks to plugin hooks, so a side-channel watcher tails its runtime observability log (permission.ask / permission.resolved) and flips the card to waiting-approval with tool/command detail, reminders and a one-time push; answering still happens in the TUI (terminal jump available)
+
+### 中文
+
+- MiniMax Code 权限询问现在以单向等待态呈现在卡片上：mcode 0.5.5 不把交互式询问路由到插件 hook，改为旁路尾随其运行时观测日志（permission.ask / permission.resolved），卡片切到等待审批并显示工具/命令详情、提醒与一次性推送；作答仍在 TUI 里完成（可跳转终端）
+
+## [v1.2.15] - 2026-10-19
+
+### English
+
+- Fix MiniMax Code cards showing raw thinking JSON: mcode serializes thinking blocks as JSON-in-text inside its "Claude-compatible" transcript, and both the backfill reader and the live-tail extractor now skip those pseudo-thinking blocks
+- Pi idle no longer draws the two detached leg dots (legacy tile-era leftovers that stayed pinned during the float)
+
+### 中文
+
+- 修复 MiniMax Code 卡片显示原始 thinking JSON 的问题：mcode 的「Claude 兼容」transcript 会把 thinking 块序列化成 text 块里的 JSON 字符串，回填读取器与实时 tail 均已跳过这类伪 thinking 块
+- Pi 空闲态不再绘制两粒脱开的小圆点（tile 时代遗留的腿，漂浮时钉在原地）
+
+## [v1.2.14] - 2026-10-19
+
+### English
+
+- MiniMax Code CLI (mcode) support: session cards via a hooks-only local plugin under `~/.minimax/plugins/` (Claude-compatible hook contract), process detection for `mcode` installs, and the Mcode mascot after the official MiniMax Agent icon (transparent, two bottom stems)
+
+### 中文
+
+- 新增 MiniMax Code CLI（mcode）支持：通过 `~/.minimax/plugins/` 下的 hooks-only 本地插件接入会话卡片（Claude 兼容 hook 契约），识别 mcode 安装形态的进程；Mcode 吉祥物照官方 MiniMax Agent 图标绘制（透明底、双底茎）
+
 ## [v1.2.13] - 2026-10-16
 
 ### English

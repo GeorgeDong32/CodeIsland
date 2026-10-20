@@ -86,6 +86,16 @@ public enum CLIProcessResolver {
             return lowercasedPath.hasSuffix("/agy")
                 || lowercasedPath.contains("/agy ")
                 || lowercasedPath.contains("/google-antigravity")
+        case "minimax":
+            // MiniMax Code CLI (`mcode`). The managed installer resolves
+            // through ~/.minimax-code/bin/mcode to a versioned binary at
+            // ~/.minimax-code/releases/<v>/bin/mcode; npm installs surface as
+            // the @minimax-ai/code package. Match by basename and package
+            // path — never a narrow substring (findOpenCodePids lesson).
+            return lowercasedPath.hasSuffix("/mcode")
+                || lowercasedPath.contains("/mcode ")
+                || lowercasedPath.contains("/@minimax-ai/code")
+                || lowercasedPath.contains("/.minimax-code/")
         default:
             return lowercasedPath.contains("/\(normalizedSource)")
         }

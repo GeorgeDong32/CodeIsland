@@ -372,6 +372,13 @@ final class AppState {
     /// is off. See AppState+CoworkWatch.
     @ObservationIgnored
     var coworkWatcher: CoworkSessionWatcher?
+    /// mcode permission-log side-channel watcher (display-only approvals —
+    /// mcode never routes interactive asks to hooks). See AppState+McodeWatch.
+    @ObservationIgnored
+    var mcodePermissionWatcher: McodePermissionLogWatcher?
+    /// Open mcode permission asks by request id → session id (side-channel).
+    @ObservationIgnored
+    var mcodePendingAsks: [String: String] = [:]
     /// The Claude Desktop process each in-flight Cowork turn runs in, and
     /// how to find the running one (a seam for tests).
     @ObservationIgnored
@@ -8317,12 +8324,20 @@ final class AppState {
                 }
             } else if normalizedRole == "assistant" || normalizedRole == "planner_response" {
                 if let content = message["content"] as? String {
-                    textContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty, !JSONLTailer.isPseudoThinkingText(trimmed) {
+                        textContent = trimmed
+                    }
                 } else if let contentArray = message["content"] as? [[String: Any]] {
                     for item in contentArray {
                         if item["type"] as? String == "text",
                            let t = item["text"] as? String, !t.isEmpty {
-                            textContent = t
+                            let trimmed = t.trimmingCharacters(in: .whitespacesAndNewlines)
+                            // mcode serializes thinking as JSON-in-text blocks; skip
+                            // them so the first REAL text block wins (minimax cards
+                            // were showing raw {"type":"thinking",…} strings).
+                            guard !JSONLTailer.isPseudoThinkingText(trimmed) else { continue }
+                            textContent = trimmed
                             break
                         }
                     }

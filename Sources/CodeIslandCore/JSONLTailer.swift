@@ -1068,12 +1068,28 @@ public final class JSONLTailer: @unchecked Sendable {
                 guard (block["type"] as? String) == "text" else { continue }
                 if let text = block["text"] as? String {
                     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmed.isEmpty { parts.append(trimmed) }
+                    guard !trimmed.isEmpty, !isPseudoThinkingText(trimmed) else { continue }
+                    parts.append(trimmed)
                 }
             }
             if parts.isEmpty { return nil }
             return parts.joined(separator: "\n")
         }
         return nil
+    }
+
+    /// mcode's "Claude-compatible" transcript serializes thinking blocks as
+    /// RAW JSON STRINGS inside ordinary text blocks — e.g.
+    /// `{"type":"thinking","thinking":"…"}`. Left unchecked that JSON
+    /// leaks onto cards as the assistant message (observed on the minimax
+    /// source). Treat such text blocks as thinking and skip them, matching
+    /// how real Claude `{type:"thinking"}` blocks are never surfaced.
+    public static func isPseudoThinkingText(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{") else { return false }
+        // Cheap prefix probes cover both compact and spaced JSON encodings.
+        return trimmed.hasPrefix("{\"type\":\"thinking\"")
+            || trimmed.hasPrefix("{\"type\": \"thinking\"")
+            || (trimmed.hasPrefix("{\"thinking\":") && trimmed.contains("\"type\":\"thinking\""))
     }
 }

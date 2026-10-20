@@ -1533,6 +1533,7 @@ private struct MascotsPage: View {
         ("AiWorkBot", "aiwork", "AiWork", Color(red: 0.12, green: 0.72, blue: 0.28)),
         ("AiWorkBot", "aiwork-cli", "AiWork CLI", Color(red: 0.12, green: 0.55, blue: 0.90)),
         ("ZTile", "zcode", "ZCode (Z.ai)", Color(red: 0.94, green: 0.94, blue: 0.95)),
+        ("Mcode", "minimax", "MiniMax Code CLI", Color(red: 0.494, green: 0.780, blue: 1.0)),
         ("DevinTile", "devin", "Devin CLI", Color(red: 0.50, green: 0.90, blue: 0.77)),
     ]
 

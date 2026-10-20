@@ -73,6 +73,8 @@ struct MascotView: View {
                 AiWorkView(status: status, size: size)
             case "zcode":
                 ZcodeView(status: status, size: size)
+            case "minimax":
+                McodeView(status: status, size: size)
             case "devin":
                 DevinView(status: status, size: size)
             default:
