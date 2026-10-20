@@ -1635,7 +1635,7 @@ private struct QuestionBar: View {
             // is fixed (PanelHeightMetrics), so an unbounded list pushed the
             // input and submit buttons below the window edge with no scrollbar,
             // making the question unanswerable.
-            ThinScrollView(maxHeight: optionsScrollBudget) {
+            BoundedScroll(maxHeight: optionsScrollBudget) {
                 VStack(spacing: 4) {
                         ForEach(Array(opts.enumerated()), id: \.offset) { idx, option in
                         let desc = item.payload.descriptions?.indices.contains(idx) == true ? item.payload.descriptions?[idx] : nil
@@ -1909,7 +1909,7 @@ private struct QuestionBar: View {
         if let options = options, !options.isEmpty {
             // Same scroll budget as the multi-question card: legacy option lists
             // can be just as long, and the window clips identically.
-            ThinScrollView(maxHeight: optionsScrollBudget) {
+            BoundedScroll(maxHeight: optionsScrollBudget) {
                 VStack(spacing: 4) {
                     ForEach(Array(options.enumerated()), id: \.offset) { idx, option in
                         let desc = descriptions?.indices.contains(idx) == true ? descriptions?[idx] : nil
@@ -2465,6 +2465,26 @@ private struct UsageSparkline: View {
             }
         }
         .frame(height: 10, alignment: .bottom)
+    }
+}
+
+/// Scroll only when the content exceeds `maxHeight` — pure SwiftUI. This
+/// deliberately replaces ThinScrollView for question cards: an NSHostingView
+/// inside NSScrollView inside the panel's animated VStack formed a layout
+/// feedback loop (sizeThatFits re-measuring forever, 100% main-thread CPU;
+/// caught by remote sample on 1.2.17) whenever a question card with
+/// variable-height option text appeared.
+private struct BoundedScroll<Content: View>: View {
+    let maxHeight: CGFloat
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ScrollView(.vertical) {
+            VStack(spacing: 0) { content }
+        }
+        .scrollIndicators(.hidden)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxHeight: maxHeight)
     }
 }
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## [v1.2.18] - 2026-10-20
+
+### English
+
+- Fix the 1.2.17 question-card hang: the NSScrollView-backed option list (NSHostingView inside an animated SwiftUI stack) formed a layout feedback loop pinning the main thread at 100% whenever a question card with variable-height options appeared. Question options now use a pure-SwiftUI bounded scroll — same "input and submit always reachable" guarantee, no Appkit/SwiftUI size negotiation
+
+### 中文
+
+- 修复 1.2.17 提问卡卡死：NSScrollView 包装的选项列表（NSHostingView 嵌在带动画的 SwiftUI 栈里）在变高选项内容出现时形成布局反馈环、主线程 100% 空转。提问选项改用纯 SwiftUI 有界滚动——同样保证输入框与提交按钮可达，且不再有 AppKit/SwiftUI 尺寸协商
+
 ## [v1.2.17] - 2026-10-20
 
 ### English
