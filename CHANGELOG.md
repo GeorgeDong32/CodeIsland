@@ -1,5 +1,15 @@
 # Changelog
 
+## [v1.2.20] - 2026-10-22
+
+### English
+
+- Damp the completion-card height feedback loop: quantize the measured reply height to 2pt steps before writing state. When the reply is clamped and the card fills the panel the feedback equation has no unique fixed point, so sub-pixel measurement wander re-triggered SwiftUI transactions forever (the "expand a long conversation" hang at 100% CPU)
+
+### 中文
+
+- 阻尼完成卡高度反馈环：实测回复高度按 2pt 档位量化后再写状态。回复被钳制且卡片填满面板时反馈方程无唯一不动点，亚像素级测量漂移会无限重触发 SwiftUI 事务（「长对话点展开」卡死、100% CPU）
+
 ## [v1.2.19] - 2026-10-20
 
 ### English

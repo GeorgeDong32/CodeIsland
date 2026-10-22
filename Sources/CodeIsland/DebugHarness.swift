@@ -187,8 +187,32 @@ enum DebugHarness {
         s.model = "claude-sonnet-4-20250514"
         s.source = "claude"
         s.lastUserPrompt = "总结一下 TODO 扫描结果"
-        let items = (0..<10).map { "第 \($0 + 1) 项：`Sources/CodeIsland/AppState.swift` 中的待办需要结合上下文确认是否仍然有效，建议先查 git blame 再决定是否关闭，同时补上回归测试覆盖验收标准与边界条件。" }
-        let reply = "扫描完成，共发现 10 条待确认项：\n\n" + items.map { "- \($0)" }.joined(separator: "\n") + "\n\n详细报告已写入 `/tmp/todo-report.md`。"
+        // Mirrors the real reply that hung the panel: heading + bold +
+        // fenced code + ordered/unordered lists — the mixed-markdown shape.
+        let reply = """
+完成。总结：
+
+## 修复内容（`6562336`，已 push + 本机安装已拉取）
+
+**根因**：pi 把 `/skill:name args` 展开成一条 user 消息（skill block + args），渲染时先加 ⏺ Skill 行、后加只剩 args 的用户条；无 args 时连用户条都不渲染。
+
+**修复**：新增 `extensions/lib/cc-skill-order.ts`，wrapper patch `InteractiveMode.addMessageToChat`（增量 append 与历史渲染的唯一咽喉点），把本次 append 切片重排为 CC 形态：
+
+```
+❯ /skill:diagnosing-bugs 测试        ← 用户条在前，完整敲入命令（归一化重建）
+
+⏺ Skill(diagnosing-bugs)
+    正在加载 skill……
+```
+
+- 用户条永远渲染，`无 args 时也不省略`
+- Skill 行与注入块保持相邻，中间不插入别的消息
+- 历史回放与增量 append 走同一条重排路径，避免两套逻辑漂移
+1. 回归：`bun test extensions/` 全绿，含新增的 `cc-skill-order.test.ts` 五个用例
+2. 手工验证：TUI 里 `/skill:diagnosing-bugs 测试`、`/skill:feishu`（无 args）、普通消息三形态
+
+详见 `extensions/lib/cc-skill-order.ts` 头注释。
+"""
         s.lastAssistantMessage = reply
         s.addRecentMessage(ChatMessage(isUser: true, text: "总结一下 TODO 扫描结果"))
         s.addRecentMessage(ChatMessage(isUser: false, text: reply))

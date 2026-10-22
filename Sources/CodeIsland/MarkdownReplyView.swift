@@ -75,10 +75,19 @@ private struct CompletionReplyView: View {
         .fixedSize(horizontal: false, vertical: true)
         // The CLAMPED height is measured on purpose: chrome = panel − reply
         // only holds for the height the card actually occupies (the
-        // completion-card-fits-window tests pin this). Loop safety comes from
-        // MarkdownListRowLayout's proposal-stable measurement, not from
-        // moving this probe.
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { replyHeight = $0 }
+        // completion-card-fits-window tests pin this).
+        //
+        // Loop guard: when the reply is clamped AND the card fills the panel,
+        // the feedback equation degenerates (reply = limit − panel + reply —
+        // no unique fixed point), so sub-pixel measurement wander re-triggered
+        // transactions forever at 100% CPU (the completion-card hang). The
+        // 2pt quantum absorbs the wander; genuine layout changes still land.
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { raw in
+            let quantized = (raw / 2).rounded(.down) * 2
+            if abs(quantized - replyHeight) >= 2 {
+                replyHeight = quantized
+            }
+        }
         .scrollIndicatorsFlash(onAppear: true)
         .tint(IslandMarkdownStyle.link)
     }
