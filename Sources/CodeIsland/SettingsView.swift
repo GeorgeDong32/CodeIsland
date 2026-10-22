@@ -1224,6 +1224,7 @@ enum ContentFontSize {
 private struct AppearancePage: View {
     @ObservedObject private var l10n = L10n.shared
     @AppStorage(SettingsKey.maxVisibleSessions) private var maxVisibleSessions = SettingsDefaults.maxVisibleSessions
+    @AppStorage(SettingsKey.maxPanelHeight) private var maxPanelHeight = SettingsDefaults.maxPanelHeight
     @AppStorage(SettingsKey.contentFontSize) private var contentFontSize = SettingsDefaults.contentFontSize
     @AppStorage(SettingsKey.aiMessageLines) private var aiMessageLines = SettingsDefaults.aiMessageLines
     @AppStorage(SettingsKey.showAgentDetails) private var showAgentDetails = SettingsDefaults.showAgentDetails
@@ -1293,6 +1294,15 @@ private struct AppearancePage: View {
                 } label: {
                     Text(l10n["max_visible_sessions"])
                     Text(l10n["max_visible_sessions_desc"])
+                }
+                Picker(selection: $maxPanelHeight) {
+                    Text("420 pt").tag(420)
+                    Text("560 pt").tag(560)
+                    Text("700 pt").tag(700)
+                    Text(l10n["unlimited"]).tag(0)
+                } label: {
+                    Text(l10n["max_panel_height"])
+                    Text(l10n["max_panel_height_desc"])
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {

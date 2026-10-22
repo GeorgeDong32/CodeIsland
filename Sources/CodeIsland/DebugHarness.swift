@@ -26,7 +26,9 @@ enum PreviewScenario: String, CaseIterable {
     case working
     case approval
     case question
+    case questionStress
     case completion
+    case completionStress
     case multi
     case busy
     // CLI-specific scenarios
@@ -65,8 +67,12 @@ enum DebugHarness {
             applyApproval(to: appState)
         case .question:
             applyQuestion(to: appState)
+        case .questionStress:
+            applyQuestionStress(to: appState)
         case .completion:
             applyCompletion(to: appState)
+        case .completionStress:
+            applyCompletionStress(to: appState)
         case .multi:
             applyMulti(to: appState)
         case .busy:
@@ -123,6 +129,29 @@ enum DebugHarness {
         state.surface = .approvalCard(sessionId: "preview-approval")
     }
 
+    /// Stress variant: a question long enough to overflow the fixed panel
+    /// window — the shape that hung the panel in a SwiftUI layout feedback
+    /// loop (100% main-thread CPU in sizeThatFits re-measurement).
+    private static func applyQuestionStress(to state: AppState) {
+        var s = SessionSnapshot()
+        s.status = .waitingQuestion
+        s.cwd = "/Users/dev/web-app"
+        s.model = "claude-sonnet-4-20250514"
+        s.source = "claude"
+        s.lastUserPrompt = "Refactor the auth module"
+        s.addRecentMessage(ChatMessage(isUser: true, text: "Refactor the auth module"))
+        state.sessions["preview-question"] = s
+        state.activeSessionId = "preview-question"
+        state.previewQuestionPayload = QuestionPayload(
+            question: "这个重构方案你倾向哪一个？考虑到后续维护成本、团队熟悉度和迁移风险，请综合评估后再选择。",
+            options: (0..<12).map { "方案 \($0 + 1)：提取服务层并引入依赖注入容器管理生命周期" },
+            descriptions: (0..<12).map {
+                "创建独立的 AuthService 类，通过构造器注入 UserRepository、TokenProvider 与 AuditLogger；迁移期间保留旧入口的双写兼容层，灰度两周后下线；需要同步更新 17 处调用点与 3 组集成测试。选项 \($0 + 1) 的详细说明足够长以触发多行折行。"
+            }
+        )
+        state.surface = .questionCard(sessionId: "preview-question")
+    }
+
     private static func applyQuestion(to state: AppState) {
         var s = SessionSnapshot()
         s.status = .waitingQuestion
@@ -146,6 +175,27 @@ enum DebugHarness {
             ]
         )
         state.surface = .questionCard(sessionId: "preview-question")
+    }
+
+    /// Stress variant: list-heavy markdown reply — the shape that put the
+    /// completion card's MarkdownListRowLayout into a sizeThatFits re-measure
+    /// feedback loop (100% main-thread CPU).
+    private static func applyCompletionStress(to state: AppState) {
+        var s = SessionSnapshot()
+        s.status = .idle
+        s.cwd = "/Users/dev/cli-tool"
+        s.model = "claude-sonnet-4-20250514"
+        s.source = "claude"
+        s.lastUserPrompt = "总结一下 TODO 扫描结果"
+        let items = (0..<10).map { "第 \($0 + 1) 项：`Sources/CodeIsland/AppState.swift` 中的待办需要结合上下文确认是否仍然有效，建议先查 git blame 再决定是否关闭，同时补上回归测试覆盖验收标准与边界条件。" }
+        let reply = "扫描完成，共发现 10 条待确认项：\n\n" + items.map { "- \($0)" }.joined(separator: "\n") + "\n\n详细报告已写入 `/tmp/todo-report.md`。"
+        s.lastAssistantMessage = reply
+        s.addRecentMessage(ChatMessage(isUser: true, text: "总结一下 TODO 扫描结果"))
+        s.addRecentMessage(ChatMessage(isUser: false, text: reply))
+        s.termApp = "Ghostty"
+        state.sessions["preview-completion"] = s
+        state.activeSessionId = "preview-completion"
+        state.surface = .completionCard(sessionId: "preview-completion")
     }
 
     private static func applyCompletion(to state: AppState) {

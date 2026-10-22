@@ -73,6 +73,11 @@ private struct CompletionReplyView: View {
         // hugs a short reply and stops growing at maxHeight.
         .frame(maxHeight: maxHeight)
         .fixedSize(horizontal: false, vertical: true)
+        // The CLAMPED height is measured on purpose: chrome = panel − reply
+        // only holds for the height the card actually occupies (the
+        // completion-card-fits-window tests pin this). Loop safety comes from
+        // MarkdownListRowLayout's proposal-stable measurement, not from
+        // moving this probe.
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { replyHeight = $0 }
         .scrollIndicatorsFlash(onAppear: true)
         .tint(IslandMarkdownStyle.link)
@@ -380,21 +385,43 @@ private struct MarkdownListView: View {
 struct MarkdownListRowLayout: Layout {
     private let spacing: CGFloat = 5
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    /// Remembers the last finite width this row was laid out at. Unbounded
+    /// (nil-width) ideal-size probes would otherwise measure wrapping list
+    /// text at its natural single-line width — a very different height than
+    /// the wrapped pass — and each differing answer re-triggered measurement:
+    /// the completion-card sizeThatFits feedback hang. With the cache, every
+    /// probe after the first real layout agrees.
+    struct RowCache {
+        var lastWidth: CGFloat?
+    }
+
+    func makeCache(subviews: Subviews) -> RowCache { RowCache() }
+
+    private func resolvedWidth(_ proposal: ProposedViewSize, cache: inout RowCache) -> CGFloat? {
+        if let w = proposal.width, w.isFinite, w > 0 {
+            cache.lastWidth = w
+            return w
+        }
+        return cache.lastWidth
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout RowCache) -> CGSize {
         guard subviews.count == 2 else { return .zero }
         let marker = subviews[0].sizeThatFits(.unspecified)
-        let content = subviews[1].sizeThatFits(contentProposal(width: proposal.width, markerWidth: marker.width))
+        let width = resolvedWidth(proposal, cache: &cache)
+        let content = subviews[1].sizeThatFits(contentProposal(width: width, markerWidth: marker.width))
         return CGSize(width: marker.width + spacing + content.width, height: max(marker.height, content.height))
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout RowCache) {
         guard subviews.count == 2 else { return }
         let marker = subviews[0].sizeThatFits(.unspecified)
         subviews[0].place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(marker))
+        let width = resolvedWidth(proposal, cache: &cache) ?? bounds.width
         subviews[1].place(
             at: CGPoint(x: bounds.minX + marker.width + spacing, y: bounds.minY),
             anchor: .topLeading,
-            proposal: contentProposal(width: bounds.width, markerWidth: marker.width)
+            proposal: contentProposal(width: width.isFinite ? width : bounds.width, markerWidth: marker.width)
         )
     }
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## [v1.2.19] - 2026-10-20
+
+### English
+
+- Harden the completion card against layout feedback loops (pre-existing; list-heavy replies triggered it): MarkdownListRowLayout now remembers its last laid-out width so ideal-size probes agree with real passes — the mechanism seen in hung-process samples (sizeThatFits re-measurement at 100% CPU)
+- The max panel height setting now caps the expanded window itself (not just the completion reply), with a new picker (420/560/700pt/unlimited) — "unlimited" sessions no longer produce a full-screen window; the session list scrolls internally, in line with the compact-HUD notch design of upstream notch apps
+
+### 中文
+
+- 加固完成卡抗布局反馈环（存量问题，列表型回复可触发）：MarkdownListRowLayout 记住上次实际布局宽度使理想尺寸探测与真实测量一致——挂死进程采样中观察到的机制（sizeThatFits 无限重测、100% CPU）
+- 面板最大高度设置现在直接钳制展开窗口（不再只限完成卡回复区），并新增设置项（420/560/700pt/不限）——「不限」会话数不再撑出全屏窗口；会话列表内部滚动，与上游刘海应用的紧凑 HUD 设计一致
+
 ## [v1.2.18] - 2026-10-20
 
 ### English

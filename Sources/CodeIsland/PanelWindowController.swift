@@ -167,7 +167,14 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         // a redraw, which looked like "invisible after ~2s, reappears on hover" (#304).
         // The content is top-anchored and the session list scrolls internally, so the
         // window never needs to be taller than the visible screen.
-        let maxH = min(desiredH, screen.visibleFrame.height)
+        var maxH = min(desiredH, screen.visibleFrame.height)
+        // The maxPanelHeight setting caps the expanded window directly (0 = off).
+        // It previously constrained only the completion reply, so "unlimited"
+        // sessions still produced a full-screen window — the notch metaphor is a
+        // compact HUD (upstream notch apps keep expansions small); the list scrolls
+        // internally, so a shorter window loses nothing.
+        let panelCap = UserDefaults.standard.integer(forKey: SettingsKey.maxPanelHeight)
+        if panelCap > 0 { maxH = min(maxH, CGFloat(panelCap)) }
         let screenW = screen.frame.width
         let width = min(620, screenW - 40)
         return NSSize(width: width, height: maxH)
