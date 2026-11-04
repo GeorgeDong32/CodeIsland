@@ -57,11 +57,18 @@ memory: sheet layout, dy/jumpY/shake compensation formulas).
 **Empirical resolution (1.2.21 pass):** the fleet's scenes turned out to be
 overwhelmingly procedural (asymmetric breath curves, thinking-pause quirks,
 humanized typing cadence, REM blinks) — T1 modifier rewrites would have
-regressed the visuals. So ALL idle/work scenes ship as T2 strips, and T1
-remains the technique for NEW simple mascots and non-mascot loops
-(TypingIndicator, glows). The strips are rendered from the SAME SwiftUI
-views by the harness, so playback is pixel- and cadence-identical to the
-live render by construction.
+regressed the visuals. So every supported source's idle/work scenes play
+as T2 strips (28 direct sources incl. devin; 6 supported source ids are
+aliases whose views match a striped sibling — `SpriteLoopPlayer.stripAliases`:
+cursor-cli→cursor, qoderwork→qoder, codybuddycn→codebuddy, aiwork-cli→aiwork,
+google-antigravity→gemini, dsh→claude). T1 remains the technique for NEW
+simple mascots and non-mascot loops (TypingIndicator, glows). The strips
+are rendered from the SAME SwiftUI views by the harness, so playback is
+pixel- and cadence-identical to the live render by construction.
+`testSpriteCoverageForAllSupportedSources` fails the build if any
+supported source would fall back to live rendering. Power measured at 0%
+for devin, google-antigravity and cursor-cli previews — the engine cost is
+source-independent.
 
 1. `scripts/gen-mascot-sprites.sh` runs `MascotRenderHarness/
 testRenderSpriteStrips` (env-gated like the sheets): per source × scene a

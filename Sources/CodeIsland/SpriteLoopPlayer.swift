@@ -57,8 +57,22 @@ struct SpriteLoopPlayer: NSViewRepresentable {
     private static var cache: [String: Strip] = [:]
     private static let cacheLock = NSLock()
 
+    /// Supported sources whose resolved name has no strip of its own but whose
+    /// MascotView routing lands on the SAME view as a striped sibling
+    /// (e.g. "cursor-cli" -> CursorView == "cursor"). Without this map those
+    /// sources silently fell back to live per-frame rendering.
+    static let stripAliases: [String: String] = [
+        "cursor-cli": "cursor",
+        "qoderwork": "qoder",
+        "codybuddycn": "codebuddy",
+        "aiwork-cli": "aiwork",
+        "google-antigravity": "gemini",
+        "dsh": "claude",  // routes to the default ClawdView, same as "claude"
+    ]
+
     static func strip(source: String, scene: Scene) -> Strip? {
-        let key = "\(source)-\(scene.rawValue)"
+        let canonical = stripAliases[source] ?? source
+        let key = "\(canonical)-\(scene.rawValue)"
         cacheLock.lock(); defer { cacheLock.unlock() }
         if let hit = cache[key] { return hit }
         guard let url = Bundle.appModule.url(

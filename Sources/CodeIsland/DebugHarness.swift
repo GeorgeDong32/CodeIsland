@@ -99,7 +99,13 @@ enum DebugHarness {
         s.status = .running
         s.cwd = "/Users/dev/my-project"
         s.model = "claude-sonnet-4-20250514"
-        s.source = "claude"
+        // --preview-source <id> overrides the working-session's source — used
+        // to benchmark mascot playback for non-claude sources.
+        s.source = {
+            let args = CommandLine.arguments
+            guard let idx = args.firstIndex(of: "--preview-source"), idx + 1 < args.count else { return "claude" }
+            return args[idx + 1]
+        }()
         s.currentTool = "Edit"
         s.toolDescription = "src/components/App.tsx"
         s.lastUserPrompt = "Fix the login button styling"

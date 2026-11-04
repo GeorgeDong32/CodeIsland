@@ -143,6 +143,24 @@
     "scene" : "work",
     "source" : "cursor"
   },
+  "devin-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "devin"
+  },
+  "devin-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "devin"
+  },
   "droid-idle.png" : {
     "cell" : 128,
     "cols" : 20,
