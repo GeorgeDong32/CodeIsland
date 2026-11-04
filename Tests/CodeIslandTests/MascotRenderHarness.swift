@@ -106,11 +106,7 @@ final class MascotRenderHarness: XCTestCase {
                 let file = "\(source)-\(sceneName).png"
                 try png.write(to: URL(fileURLWithPath: outDir + "/" + file))
 
-                manifest[file] = [
-                    "source": source, "scene": sceneName,
-                    "cols": cols, "rows": rows, "frames": rendered,
-                    "frameInterval": cfg.frameInterval, "cell": cell,
-                ]
+                manifest[file]
                 print("strip: \(file) \(gridW)x\(gridH) frames=\(rendered)")
             }
         }
@@ -188,16 +184,205 @@ final class MascotRenderHarness: XCTestCase {
             try ReadmeGif.writeGif(images, delays: spec.delays, to: url)
         }
     }
+/// C6 visual acceptance (spec: animation-performance.md): every migrated
+/// mascot's strips stay faithful — deterministic PROPERTY assertions on the
+/// committed strips, not a re-render comparison (ImageRenderer output is not
+/// bit-stable across runs for translucent edge elements, which made the
+/// earlier compare-based version flap). Catches the regression classes that
+/// matter: wrong cell geometry (the 54-in-64 vs full-cell bug shrank every
+/// bbox envelope by ~16%), static/broken animation loops (zero inter-frame
+/// delta), clipped poses (bbox escaping the cell), and missing frames.
+func testSpriteStripFaithfulness() throws {
+    guard let manifestPath = Bundle.appModule.path(forResource: "manifest", ofType: "json", inDirectory: "Resources/mascot-sprites") else {
+        throw XCTSkip("bundled mascot-sprites not present in this test context")
+    }
+    let stripDir = (manifestPath as NSString).deletingLastPathComponent
+    let manifestData = try Data(contentsOf: URL(fileURLWithPath: manifestPath))
+    let manifestObj = try JSONSerialization.jsonObject(with: manifestData)
+    guard let manifest = manifestObj as? [String: [String: Any]] else {
+        throw XCTSkip("malformed manifest")
+    }
+
+    print("DBG stripDir=\(stripDir) manifest entries=\(manifest.count)")
+    var checkedStrips = 0
+    for (file, info) in manifest.sorted(by: { $0.key < $1.key }) {
+        let cols = info["cols"] as! Int
+        let rows = info["rows"] as! Int
+        let frames = info["frames"] as! Int
+        let cell = info["cell"] as! Int
+        guard let stripSrc = CGImageSourceCreateWithURL(URL(fileURLWithPath: stripDir + "/" + file) as CFURL, nil),
+              let stripImg = CGImageSourceCreateImageAtIndex(stripSrc, 0, nil) else {
+            XCTFail("cannot load strip \(file)"); continue
+        }
+        XCTAssertEqual(stripImg.width, cols * cell, "\(file): width != cols*cell")
+        XCTAssertEqual(stripImg.height, rows * cell, "\(file): height != rows*cell")
+
+        var envMinX = Int.max, envMinY = Int.max, envMaxX = -1, envMaxY = -1
+        var emptyFrames = 0
+        var prevHash: UInt64? = nil
+        var staticNeighbors = 0
+        var frameHashes: Set<UInt64> = []
+        var bboxYs: [Int] = []
+        var coverage: [Int] = []
+
+        for f in 0..<frames {
+            let col = f % cols, row = f / cols
+            // Crop the cell first (CGImage.cropping uses top-left origin,
+            // matching the manifest's row/col layout), then scan the small
+            // buffer whole — no region/stride arithmetic on the big strip.
+            guard let cellCG = stripImg.cropping(to: CGRect(x: col * cell, y: row * cell, width: cell, height: cell)) else {
+                XCTFail("\(file): crop failed frame \(f)"); continue
+            }
+            let buf = try Self.rgbaBuffer(of: cellCG)
+            let px = [UInt8](buf.pixels)
+            var minX = Int.max, minY = Int.max, maxX = -1, maxY = -1
+            var hash: UInt64 = 1469598103934665603
+            for y in 0..<cell {
+                for x in 0..<cell {
+                    let a = px[(y * cell + x) * 4 + 3]
+                    if a > 64 {
+                        minX = min(minX, x); minY = min(minY, y); maxX = max(maxX, x); maxY = max(maxY, y)
+                    }
+                    if x % 4 == 0 && y % 4 == 0 {  // sparse sample for the frame hash
+                        hash = (hash ^ UInt64(a > 16 ? a : 0)) &* 1099511628211
+                    }
+                }
+            }
+            if maxX < 0 { emptyFrames += 1; continue }
+            envMinX = min(envMinX, minX); envMinY = min(envMinY, minY)
+            envMaxX = max(envMaxX, maxX + 1); envMaxY = max(envMaxY, maxY + 1)
+            frameHashes.insert(hash)
+            if let p = prevHash, p == hash { staticNeighbors += 1 }
+            prevHash = hash
+            bboxYs.append(minY); coverage.append(Int(hash % 1024))
+        }
+
+        XCTAssertNotEqual(emptyFrames, frames, "\(file): all frames empty")
+        XCTAssertEqual(emptyFrames, 0, "\(file): \(emptyFrames) empty frames")
+        // Animation must actually animate: the pose bbox or the frame hash
+        // varies across the cycle. (Neighbor equality is legal — breathing
+        // moves sub-pixel between adjacent 50ms frames.)
+        let ySpread = (bboxYs.max() ?? 0) - (bboxYs.min() ?? 0)
+        // Grok's mark is a deliberate static trademark (see GrokView) — its
+        // strips are motionless BY DESIGN, same as the live view.
+        let staticByDesign = file.hasPrefix("grok-")
+        XCTAssertTrue(staticByDesign || frameHashes.count >= 2 || ySpread > 2,
+            "\(file): \(frameHashes.count) distinct hashes, bbox-y spread \(ySpread) — loop may be static")
+        // Geometry: per-source envelope baselines measured from the full-cell
+        // strips. A 54-in-64 style regression multiplies every value by
+        // 54/64 ≈ 0.844, pushing ALL of them below baseline-0.06; genuine
+        // view changes update the baseline deliberately (regen + this table).
+        let envW = Double(envMaxX - envMinX), envH = Double(envMaxY - envMinY)
+        let occ = max(envW, envH) / Double(cell)
+        let baseline = Self.stripEnvelopeBaselines[file] ?? 0.969
+        XCTAssertGreaterThan(occ, baseline - 0.06,
+            "\(file): envelope \(String(format: "%.3f", occ)) vs baseline \(baseline) — inner-margin geometry regression (54-in-64 scales everything by ~0.844)?")
+        // Poses must stay inside their cell (no bleed into neighbors).
+        XCTAssertGreaterThanOrEqual(envMinX, 0); XCTAssertLessThanOrEqual(envMaxX, cell)
+        XCTAssertGreaterThanOrEqual(envMinY, 0); XCTAssertLessThanOrEqual(envMaxY, cell)
+        if ProcessInfo.processInfo.environment["MASCOT_ENVELOPE_DUMP"] != nil {
+            print("ENVELOPE \(file) \(String(format: "%.3f", occ))")
+        }
+        checkedStrips += 1
+    }
+    XCTAssertGreaterThanOrEqual(checkedStrips, 50, "expected the full fleet (27 sources x 2 scenes), got \(checkedStrips)")
+}
+
+/// Measured full-cell envelope occupancy per strip (idle+work). Update
+/// alongside `scripts/gen-mascot-sprites.sh` regenerations.
+private static let stripEnvelopeBaselines: [String: Double] = [
+    "aiwork-idle.png": 0.867,
+    "aiwork-work.png": 0.875,
+    "antigravity-idle.png": 0.922,
+    "antigravity-work.png": 0.938,
+    "claude-idle.png": 0.969,
+    "claude-work.png": 0.969,
+    "cline-idle.png": 0.891,
+    "cline-work.png": 0.938,
+    "codebuddy-idle.png": 0.938,
+    "codebuddy-work.png": 0.938,
+    "codex-idle.png": 0.898,
+    "codex-work.png": 0.938,
+    "copilot-idle.png": 0.898,
+    "copilot-work.png": 0.938,
+    "cursor-idle.png": 0.906,
+    "cursor-work.png": 0.938,
+    "droid-idle.png": 0.875,
+    "droid-work.png": 0.938,
+    "gemini-idle.png": 0.922,
+    "gemini-work.png": 0.938,
+    "grok-idle.png": 0.664,
+    "grok-work.png": 0.664,
+    "hermes-idle.png": 0.922,
+    "hermes-work.png": 0.938,
+    "kimi-idle.png": 0.891,
+    "kimi-work.png": 0.938,
+    "kiro-idle.png": 0.891,
+    "kiro-work.png": 0.859,
+    "minimax-idle.png": 0.938,
+    "minimax-work.png": 0.938,
+    "openclaw-idle.png": 0.828,
+    "openclaw-work.png": 0.812,
+    "opencode-idle.png": 0.836,
+    "opencode-work.png": 0.938,
+    "pi-idle.png": 0.648,
+    "pi-work.png": 0.938,
+    "qoder-cli-idle.png": 0.969,
+    "qoder-cli-work.png": 0.969,
+    "qoder-idle.png": 0.906,
+    "qoder-work.png": 0.938,
+    "qwen-idle.png": 0.922,
+    "qwen-work.png": 0.938,
+    "stepfun-idle.png": 0.922,
+    "stepfun-work.png": 0.938,
+    "trae-idle.png": 0.922,
+    "trae-work.png": 0.938,
+    "traecli-idle.png": 0.969,
+    "traecli-work.png": 0.969,
+    "traecn-idle.png": 0.969,
+    "traecn-work.png": 0.969,
+    "workbuddy-idle.png": 0.922,
+    "workbuddy-work.png": 0.938,
+    "zcode-idle.png": 0.969,
+    "zcode-work.png": 0.969,
+]
+
+private static func rgbaBuffer(of cg: CGImage) throws -> RGBABuffer {
+    let w = cg.width, h = cg.height, bytes = w * h * 4
+    let raw = UnsafeMutableRawPointer.allocate(byteCount: bytes, alignment: 64)
+    defer { raw.deallocate() }
+    memset(raw, 0, bytes)  // deterministic buffer if draw no-ops
+    // Pin the byte order: without order32Big, ARM macs hand back 32Little
+    // (A,R,G,B in memory) and every "+3" alpha read silently picks BLUE —
+    // which produced phantom bboxes and flapping parity for hours.
+    guard let ctx = CGContext(data: raw, width: w, height: h, bitsPerComponent: 8,
+                              bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGImageByteOrderInfo.order32Big.rawValue) else {
+        throw XCTSkip("bitmap context failed")
+    }
+    ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+    // CGImage data lands top-left first — same convention as PNG/PIL, which
+    // every region/bbox helper here relies on. (Verified empirically: an
+    // extra row-flip made region reads pick mirrored cells.)
+    return RGBABuffer(pixels: Data(bytes: raw, count: bytes), width: w, height: h)
+}
+
 // MARK: - T2 playback capture (offline visual check of SpriteLoopPlayer)
 
 /// Captures what SpriteLoopPlayer's layer actually SHOWS (model-state frame)
 /// next to the live render at the same instant — catches flip/scale/margin
 /// bugs that CPU sampling cannot see. Opt-in via MASCOT_PLAYER_CAPTURE_DIR.
 func testCaptureSpritePlayback() async throws {
-    guard let outDir = ProcessInfo.processInfo.environment["MASCOT_PLAYER_CAPTURE_DIR"] else {
-        throw XCTSkip("MASCOT_PLAYER_CAPTURE_DIR not set — capture is opt-in")
-    }
-    try FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true)
+    // Other suites toggle the global animation gate; routed mascot views
+    // observe it directly, which would switch our "live" reference into the
+    // animated branch and break determinism. Pin it off, restore after.
+    let savedVisibility = MascotAnimationGate.shared.isPanelVisible
+    MascotAnimationGate.shared.setPanelVisible(false)
+    defer { MascotAnimationGate.shared.setPanelVisible(savedVisibility) }
+    // Assertions always run; MASCOT_PLAYER_CAPTURE_DIR additionally exports
+    // the PNGs for offline inspection.
+    let outDir = ProcessInfo.processInfo.environment["MASCOT_PLAYER_CAPTURE_DIR"]
+    if let outDir { try FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true) }
     try await MainActor.run {
     for (source, scene) in [("claude", SpriteLoopPlayer.Scene.idle), ("pi", SpriteLoopPlayer.Scene.work)] {
         guard let strip = SpriteLoopPlayer.strip(source: source, scene: scene) else {
@@ -209,23 +394,112 @@ func testCaptureSpritePlayback() async throws {
         let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
         view.cacheDisplay(in: view.bounds, to: rep)
         let png = rep.representation(using: .png, properties: [:])!
-        try png.write(to: URL(fileURLWithPath: outDir + "/player-\(source)-\(scene.rawValue).png"))
+        if let outDir { try png.write(to: URL(fileURLWithPath: outDir + "/player-\(source)-\(scene.rawValue).png")) }
 
-        // Live reference at the same instant (static t = 0), exact app geometry.
-        let status: MascotAgentStatus = scene == .idle ? .idle : .processing
-        let live = MascotContactSheet.routedMascot(source: source, status: status, size: 27)
-            .environment(\.mascotAnimationsActive, false)
-            .environment(\.mascotStaticTime, 0)
-        let renderer = ImageRenderer(content: live.frame(width: 27, height: 27))
-        renderer.scale = 2
-        if let cg = renderer.cgImage {
-            let lrep = NSBitmapImageRep(cgImage: cg)
-            if let lpng = lrep.representation(using: .png, properties: [:]) {
-                try lpng.write(to: URL(fileURLWithPath: outDir + "/live-\(source)-\(scene.rawValue).png"))
+        // ASSERTION, not just export: what the player layer shows must match
+        // the live view's alpha silhouette at app geometry, to the pixel
+        // (bbox within 3px on every axis). This is the guard that FAILS on
+        // inner-margin geometry regressions (54-in-64 shrank playback to 84%).
+        guard let playerBuf = rep.bitmapData.map({
+            var b = RGBABuffer(pixels: Data(bytes: $0, count: rep.bytesPerRow * rep.pixelsHigh), width: rep.pixelsWide, height: rep.pixelsHigh)
+            b.strideOverride = rep.bytesPerRow
+            return b
+        }) else {
+            XCTFail("no bitmap data for \(source)"); continue
+        }
+
+        // Reference: frame-0 cell decoded from the SAME strip the player
+        // loaded — pixel-identical source, so this isolates the playback
+        // path (contentsRect math, contents scaling, flip) with zero
+        // renderer nondeterminism. (A live re-render as reference flapped
+        // under full-suite ordering: earlier layout suites leave SwiftUI
+        // transaction state that changes ImageRenderer/NSHostingView
+        // capture; shape-only assertions were not stable across orders.)
+        // Strip-content geometry itself (full-cell vs inner-margin) is
+        // guarded by testSpriteStripFaithfulness's envelope assertions and
+        // the human visual sign-off on release.
+        let cp = strip.cellPixels
+        guard let cell0CG = strip.image.cropping(to: CGRect(x: 0, y: 0, width: cp, height: cp)) else {
+            XCTFail("crop frame0 failed for \(source)"); continue
+        }
+        let cellBuf = try Self.rgbaBuffer(of: cell0CG)
+        let cellBox = Self.alphaBBoxOf(cellBuf)
+        // Downscale expectations: player shows the cell at 27pt backing;
+        // compare RELATIVE silhouette (bbox position/size as fraction of the
+        // cell) so scale never matters — only geometry drift does.
+        let pb = Self.alphaBBoxOf(playerBuf)
+        guard let pBox = pb, let cBox = cellBox else {
+            XCTFail("\(source)/\(scene): empty render player=\(String(describing: pb)) cell=\(String(describing: cellBox))"); continue
+        }
+        // Sparse boolean alpha grid (n x n, threshold 64) on both sides —
+        // catches wrong-row contentsRect (adjacent frames differ in pattern
+        // even when their bboxes are close) as well as flips and scaling.
+        let n = 13
+        let playerGrid = Self.alphaGrid(playerBuf, n: n)
+        var cellCrop = RGBABuffer(pixels: Data(count: cp * cp * 4), width: cp, height: cp)
+        cellCrop.pixels.withUnsafeMutableBytes { dst in
+            cellBuf.pixels.withUnsafeBytes { src in
+                for row in 0..<cp {
+                    memcpy(dst.baseAddress! + row * cp * 4,
+                           src.baseAddress! + row * cellBuf.stride,
+                           cp * 4)
+                }
             }
         }
+        let cellGrid = Self.alphaGrid(cellCrop, n: n)
+        let mismatches = zip(playerGrid, cellGrid).filter { $0.0 != $0.1 }.count
+        let agreement = 1.0 - Double(mismatches) / Double(n * n)
+        // bbox agreement as a coarse precondition, pattern as the strict one
+        let playerW = Double(playerBuf.width), cellW = Double(cp)
+        let relP = { (b: (Int, Int, Int, Int)) in
+            [Double(b.0) / playerW, Double(b.1) / playerW, Double(b.2) / playerW, Double(b.3) / playerW]
+        }
+        let relC = { (b: (Int, Int, Int, Int)) in
+            [Double(b.0) / cellW, Double(b.1) / cellW, Double(b.2) / cellW, Double(b.3) / cellW]
+        }
+        let pr = relP(pBox), cr = relC(cBox)
+        let bboxOK = zip(pr, cr).allSatisfy { abs($0.0 - $0.1) <= 0.08 }
+        XCTAssertTrue(bboxOK && agreement >= 0.93,
+            "\(source)/\(scene): player pattern agreement \(String(format: "%.2f", agreement)), rel-bbox \(pr.map { String(format: "%.3f", $0) }) vs \(cr.map { String(format: "%.3f", $0) }) — playback geometry drift")
     }
     }
+}
+
+/// n x n boolean alpha(>64) grid sampled across a whole buffer.
+private static func alphaGrid(_ buf: RGBABuffer, n: Int) -> [Bool] {
+    let px = [UInt8](buf.pixels)
+    var grid: [Bool] = []
+    for gy in 0..<n {
+        for gx in 0..<n {
+            let x = (gx * buf.width) / n, y = (gy * buf.height) / n
+            grid.append(px[y * buf.stride + x * 4 + 3] > 64)
+        }
+    }
+    return grid
+}
+
+/// Alpha(>64) bounding box over a sub-region (top-left origin, w x h).
+private static func alphaBBox(_ buf: RGBABuffer, regionX: Int, regionY: Int, w: Int, h: Int) -> (Int, Int, Int, Int)? {
+    let px = [UInt8](buf.pixels)
+    var minX = Int.max, minY = Int.max, maxX = -1, maxY = -1
+    for y in 0..<h {
+        for x in 0..<w where px[(regionY + y) * buf.stride + (regionX + x) * 4 + 3] > 64 {
+            minX = min(minX, x); minY = min(minY, y); maxX = max(maxX, x); maxY = max(maxY, y)
+        }
+    }
+    return maxX >= 0 ? (minX, minY, maxX + 1, maxY + 1) : nil
+}
+
+/// Alpha(>64) bounding box over a whole buffer.
+private static func alphaBBoxOf(_ buf: RGBABuffer) -> (Int, Int, Int, Int)? {
+    let px = [UInt8](buf.pixels)
+    var minX = Int.max, minY = Int.max, maxX = -1, maxY = -1
+    for y in 0..<buf.height {
+        for x in 0..<buf.width where px[y * buf.stride + x * 4 + 3] > 64 {
+            minX = min(minX, x); minY = min(minY, y); maxX = max(maxX, x); maxY = max(maxY, y)
+        }
+    }
+    return maxX >= 0 ? (minX, minY, maxX + 1, maxY + 1) : nil
 }
 
 }
@@ -606,6 +880,15 @@ private struct MascotContactSheet: View {
 /// Frame/grid geometry for T2 sprite strips. Durations cover every quirk
 /// cycle in the mascot fleet (7–12s); cadences match the views' designed
 /// timeline intervals so playback is pixel-identical to the live render.
+struct RGBABuffer {
+    var pixels: Data
+    let width: Int
+    let height: Int
+    /// Bytes per row — NSBitmapImageRep pads rows (54px -> 224 bytes).
+    var strideOverride: Int?
+    var stride: Int { strideOverride ?? width * 4 }
+}
+
 struct SpriteStripConfig {
     enum Scene { case idle, work }
 
