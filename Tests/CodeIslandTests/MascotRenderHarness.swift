@@ -188,6 +188,46 @@ final class MascotRenderHarness: XCTestCase {
             try ReadmeGif.writeGif(images, delays: spec.delays, to: url)
         }
     }
+// MARK: - T2 playback capture (offline visual check of SpriteLoopPlayer)
+
+/// Captures what SpriteLoopPlayer's layer actually SHOWS (model-state frame)
+/// next to the live render at the same instant — catches flip/scale/margin
+/// bugs that CPU sampling cannot see. Opt-in via MASCOT_PLAYER_CAPTURE_DIR.
+func testCaptureSpritePlayback() async throws {
+    guard let outDir = ProcessInfo.processInfo.environment["MASCOT_PLAYER_CAPTURE_DIR"] else {
+        throw XCTSkip("MASCOT_PLAYER_CAPTURE_DIR not set — capture is opt-in")
+    }
+    try FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true)
+    try await MainActor.run {
+    for (source, scene) in [("claude", SpriteLoopPlayer.Scene.idle), ("pi", SpriteLoopPlayer.Scene.work)] {
+        guard let strip = SpriteLoopPlayer.strip(source: source, scene: scene) else {
+            XCTFail("no strip for \(source)/\(scene)"); continue
+        }
+        let view = SpriteLoopPlayer.PlayerView(frame: NSRect(x: 0, y: 0, width: 27, height: 27))
+        view.play(strip, size: 27, speed: 1, animate: false)
+        view.layoutSubtreeIfNeeded()
+        let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+        view.cacheDisplay(in: view.bounds, to: rep)
+        let png = rep.representation(using: .png, properties: [:])!
+        try png.write(to: URL(fileURLWithPath: outDir + "/player-\(source)-\(scene.rawValue).png"))
+
+        // Live reference at the same instant (static t = 0), exact app geometry.
+        let status: MascotAgentStatus = scene == .idle ? .idle : .processing
+        let live = MascotContactSheet.routedMascot(source: source, status: status, size: 27)
+            .environment(\.mascotAnimationsActive, false)
+            .environment(\.mascotStaticTime, 0)
+        let renderer = ImageRenderer(content: live.frame(width: 27, height: 27))
+        renderer.scale = 2
+        if let cg = renderer.cgImage {
+            let lrep = NSBitmapImageRep(cgImage: cg)
+            if let lpng = lrep.representation(using: .png, properties: [:]) {
+                try lpng.write(to: URL(fileURLWithPath: outDir + "/live-\(source)-\(scene.rawValue).png"))
+            }
+        }
+    }
+    }
+}
+
 }
 
 // MARK: - README GIF export
@@ -603,7 +643,11 @@ private struct SpriteStripFrame: View {
     let time: Double
 
     var body: some View {
-        MascotContactSheet.routedMascot(source: source, status: status, size: 54)
+        // FULL-CELL geometry: the live panel draws the mascot at exactly its
+        // cell size (MascotView(size: 27) fills 27pt). The strip must mirror
+        // that 1:1 — any inner margin (e.g. the sheet convention 54-in-64)
+        // scales every mascot down and moves the clipping line on poses.
+        MascotContactSheet.routedMascot(source: source, status: status, size: SpriteStripConfig.framePt)
             .environment(\.mascotAnimationsActive, false)
             .environment(\.mascotStaticTime, time)
             .frame(width: SpriteStripConfig.framePt, height: SpriteStripConfig.framePt)
