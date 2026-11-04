@@ -19,6 +19,7 @@ This directory contains guidelines for frontend development. Fill in each file w
 | [Hook Guidelines](./hook-guidelines.md) | Custom hooks, data fetching patterns | To fill |
 | [State Management](./state-management.md) | Local state, global state, server state | To fill |
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
+| [Animation Performance](./animation-performance.md) | Mascot/notch animation tiers (T0 schedule / T1 CA-driven / T2 sprites), watcher rules, power benchmark | Filled (1.2.21 pass) |
 | [Type Safety](./type-safety.md) | Type patterns, validation | To fill |
 
 ---

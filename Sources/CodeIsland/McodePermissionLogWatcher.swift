@@ -2,10 +2,10 @@ import Foundation
 
 /// Side-channel watcher for MiniMax Code (mcode) permission prompts.
 ///
-/// mcode 0.5.5 does NOT dispatch `PermissionRequest` to plugin hooks for
+/// mcode does NOT dispatch `PermissionRequest` to plugin hooks for
 /// interactive TUI asks (verified empirically — tool hooks fire, permission
-/// asks go straight to the TUI dialog via `channel_dispatch`). Its runtime
-/// observability log, however, records the full permission lifecycle:
+/// asks go straight to the TUI dialog). Its runtime observability log
+/// records the full permission lifecycle instead:
 ///
 ///     [00:15:26.825] INFO: [] permission.ask       {"request_id":…,"session_id":"mvs_…","tool_name":"bash",…}
 ///     [00:16:22.451] INFO: [] permission.resolved  {"request_id":…,"session_id":"mvs_…","decision":"allowOnce"}
@@ -14,6 +14,11 @@ import Foundation
 /// Tail those lines and surface a DISPLAY-ONLY waitingApproval on the card:
 /// the island cannot approve/deny (the user answers in the TUI), but the
 /// card explains why the session paused and offers the terminal jump.
+///
+/// Event-driven, zero idle cost (spec: animation-performance.md — watchers
+/// use DispatchSource, never polling timers): a `.write` source on the open
+/// log file fires on appends; a `.write` source on the directory fd catches
+/// the hourly bucket rollover.
 final class McodePermissionLogWatcher: @unchecked Sendable {
 
     enum Event: Sendable, Equatable {
@@ -26,13 +31,15 @@ final class McodePermissionLogWatcher: @unchecked Sendable {
     }
 
     private let queue = DispatchQueue(label: "codeisland.mcode-perm-watch", qos: .utility)
-    private var timer: Timer?
     private let onEvents: @Sendable ([Event]) -> Void
 
-    /// Current tail position: (file name, byte offset, partial line carry).
+    // Tail state
     private var currentFile: String?
     private var offset: UInt64 = 0
     private var carry = ""
+    private var fileHandle: FileHandle?
+    private var fileSource: DispatchSourceFileSystemObject?
+    private var dirSource: DispatchSourceFileSystemObject?
 
     private var logDir: String {
         if let override = ProcessInfo.processInfo.environment["MINIMAX_DATA_DIR"], !override.isEmpty {
@@ -45,55 +52,92 @@ final class McodePermissionLogWatcher: @unchecked Sendable {
         self.onEvents = onEvents
     }
 
+    deinit {
+        fileSource?.cancel()
+        dirSource?.cancel()
+        try? fileHandle?.close()
+    }
+
     func start() {
-        guard timer == nil else { return }
-        let timer = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            self.queue.async { self.pollOnce() }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
+        queue.async { [self] in attach() }
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
         queue.async { [self] in
-            currentFile = nil
-            offset = 0
-            carry = ""
+            fileSource?.cancel(); fileSource = nil
+            dirSource?.cancel(); dirSource = nil
+            try? fileHandle?.close(); fileHandle = nil
+            currentFile = nil; offset = 0; carry = ""
         }
     }
 
-    // MARK: - Tail
+    // MARK: - DispatchSource wiring
 
-    private func pollOnce() {
+    private func attach() {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: logDir) else {
+            // mcode data dir absent or not yet created — poll lazily for the
+            // directory itself (cheap: one stat every 10s until it exists).
+            queue.asyncAfter(deadline: .now() + 10) { self.attach() }
+            return
+        }
+        watchDirectory()
+        switchToNewestFile()
+    }
+
+    private func watchDirectory() {
+        guard dirSource == nil else { return }
+        let fd = open(logDir, O_EVTONLY)
+        guard fd >= 0 else { return }
+        let src = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd, eventMask: [.write], queue: queue)
+        src.setEventHandler { [weak self] in self?.queue.async { self?.rolloverIfNeeded() } }
+        src.setCancelHandler { close(fd) }
+        src.resume()
+        dirSource = src
+    }
+
+    private func switchToNewestFile() {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: logDir) else { return }
         let logs = names.filter { $0.hasPrefix("runtime-") && $0.hasSuffix(".log") }.sorted()
         guard let newest = logs.last else { return }
+        guard newest != currentFile else { return }
+
+        fileSource?.cancel(); fileSource = nil
+        try? fileHandle?.close()
+        carry = ""
         let path = logDir + "/" + newest
-
-        if newest != currentFile {
-            // Hourly rollover (or first poll): read the new bucket from the top.
-            currentFile = newest
-            offset = 0
-            carry = ""
-        }
-
         guard let handle = FileHandle(forReadingAtPath: path) else { return }
-        defer { handle.closeFile() }
+        currentFile = newest
+        offset = 0
+        fileHandle = handle
+        let fd = handle.fileDescriptor
+        let src = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd, eventMask: [.write], queue: queue)
+        src.setEventHandler { [weak self] in self?.queue.async { self?.drain() } }
+        // A cancelled source's cancel-handler must not close the shared fd —
+        // the FileHandle owns it; we only cancel the source.
+        src.resume()
+        fileSource = src
+        drain()
+    }
+
+    private func rolloverIfNeeded() { switchToNewestFile() }
+
+    // MARK: - Tail
+
+    private func drain() {
+        guard let handle = fileHandle else { return }
         let size = handle.seekToEndOfFile()
-        if size < offset { offset = 0; carry = "" }   // truncated/rotated content
+        if size < offset { offset = 0; carry = "" }   // truncated content
         guard size > offset else { return }
         handle.seek(toFileOffset: offset)
         let data = handle.readDataToEndOfFile()
         offset = size
         guard let text = String(data: data, encoding: .utf8) else { return }
 
-        var events: [Event] = []
         var stream = carry + text
-        // Only parse up to the last complete line; keep the remainder.
         if let lastNewline = stream.lastIndex(of: "\n") {
             carry = String(stream[stream.index(after: lastNewline)...])
             stream = String(stream[stream.startIndex..<lastNewline])
@@ -101,6 +145,7 @@ final class McodePermissionLogWatcher: @unchecked Sendable {
             carry = stream
             stream = ""
         }
+        var events: [Event] = []
         for line in stream.components(separatedBy: "\n") {
             if let event = Self.parse(line: line) {
                 events.append(event)

@@ -33,7 +33,11 @@ struct MascotTimeline<Content: View>: View {
 
     var body: some View {
         if animationsActive {
-            TimelineView(.periodic(from: .now, by: max(interval, Self.minInterval))) { ctx in
+            // `.animation` (not `.periodic`): vsync-aligned and system-throttled,
+            // and it pauses while the view is not on screen. `.periodic` never
+            // throttles — it kept mascots redrawing at full cadence under full
+            // occlusion (spec: animation-performance.md, tier T0).
+            TimelineView(.animation(minimumInterval: max(interval, Self.minInterval))) { ctx in
                 content(ctx.date.timeIntervalSinceReferenceDate * speed)
             }
             .id(animationEpoch)
