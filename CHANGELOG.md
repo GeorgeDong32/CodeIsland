@@ -1,5 +1,18 @@
 # Changelog
 
+## [v1.2.21] - 2026-11-05
+
+### English
+
+- Mascot power pass: idle/work animations now play from pre-rendered sprite strips (rendered from the same views by the harness — pixel-identical) via a discrete Core Animation keyframe loop composited by the render server. Measured mascot CPU: collapsed 7%→0%, expanded 8%→0% (single working session, 60s averages); animations never pause and alert bursts stay live
+- MascotTimeline switches to the vsync-aligned, system-throttled schedule; the mcode permission watcher is now DispatchSource-driven (zero idle polling)
+- New: panel max-height picker (from v1.2.19), completion-card layout-loop hardening (v1.2.19/20)
+
+### 中文
+
+- 吉祥物功耗治理：idle/work 动画改为播放预渲染精灵条（由 harness 从同一套 view 渲染——像素级一致），Core Animation 离散关键帧循环、render server 合成。实测单工作会话下吉祥物 CPU：收起 7%→0%、展开 8%→0%（60 秒均值）；动画永不暂停，alert 短爆发保持实时渲染
+- MascotTimeline 改用 vsync 对齐、系统可节流的调度；mcode 权限监听改为 DispatchSource 事件驱动（空闲零轮询）
+
 ## [v1.2.20] - 2026-10-22
 
 ### English
