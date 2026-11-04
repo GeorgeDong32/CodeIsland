@@ -78,6 +78,17 @@ idle/processing/running through the player when a strip exists and falls
 back to the live view otherwise (so reverting the assets is safe).
 3. Alert stays live-rendered (short event bursts, rarely on screen).
 
+Verification layers (all in `MascotRenderHarness`, run with the normal
+suite): `testSpriteStripFaithfulness` asserts strip properties per source
+(no empty frames, loop animates — Grok's mark is static by design —, poses
+stay in-cell, and per-source envelope-occupancy baselines that a 54-in-64
+geometry regression fails across the board); `testCaptureSpritePlayback`
+asserts the player layer's pattern against the strip's frame-0 cell.
+When regenerating strips with changed view geometry, update the baseline
+table in the same commit. Bitmap reads must pin `order32Big` (ARM default
+is 32Little and +3 reads BLUE), honor `bytesPerRow` padding, and zero
+buffers.
+
 ## Watchers and timers (the non-animation half)
 
 - File-arrival watchers use `DispatchSource` (filesystem / `.write` on an open
