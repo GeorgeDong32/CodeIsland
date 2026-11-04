@@ -28,17 +28,19 @@ walks the display list and commits a CA transaction. Research summary:
 `.periodic`. `.periodic` never throttles; `.animation` aligns to vsync and the
 system may adapt the cadence. Floor stays 20 fps (`minInterval 0.05`).
 
-### T1 — CA-driven loops (default for continuous idle/work motion)
+### T1 — CA-driven loops (whole-body affine motion)
 
 Express periodic motion as **sparse states + animatable modifiers** so Core
 Animation interpolates without per-tick app work:
 
 - Whole-body hover/breathe → static `Canvas` + `.offset(y:)` / `.opacity`
   with `.animation(.easeInOut(duration:).repeatForever(autoreverses:))`.
-- Discrete cycling (keyboard flashes, blinking) → `PhaseAnimator` or a state
-  toggled on a long timer with an animated transition between states.
-- Moving decorations (z's, bubbles) → independent small views, each with its
-  own staggered `repeatForever` offset/opacity animation.
+- Discrete cycling (blinking, shimmer) → `PhaseAnimator`, or a state toggle
+  with an animated transition (`TypingIndicator` is the in-tree example —
+  `withAnimation(.repeatForever)` on a gradient offset; the mascot views'
+  glow circles use the same idiom).
+- Moving decorations (z's, bubbles) → independent small views, each with
+  its own staggered `repeatForever` offset/opacity animation.
 - The `Canvas` closure must not take `t` for T1 scenes — it draws the static
   body once. No `MascotTimeline` in idle/work scenes.
 - **Allowed to stay on TimelineView**: alert-style short bursts (event-driven,
@@ -50,20 +52,31 @@ opacity, not dismemberment; every change is validated with the
 MascotRenderHarness motion-compensated checker (see `mascot-dev-conventions`
 memory: sheet layout, dy/jumpY/shake compensation formulas).
 
-### T2 — sprite sheets (for procedural cycles T1 can't express)
+### T2 — sprite sheets (procedural cycles; the fleet-wide resolution)
 
-When a scene's internals vary per-frame in non-affine ways (slot squashes,
-tile shimmers), pre-render instead of computing:
+**Empirical resolution (1.2.21 pass):** the fleet's scenes turned out to be
+overwhelmingly procedural (asymmetric breath curves, thinking-pause quirks,
+humanized typing cadence, REM blinks) — T1 modifier rewrites would have
+regressed the visuals. So ALL idle/work scenes ship as T2 strips, and T1
+remains the technique for NEW simple mascots and non-mascot loops
+(TypingIndicator, glows). The strips are rendered from the SAME SwiftUI
+views by the harness, so playback is pixel- and cadence-identical to the
+live render by construction.
 
-1. `MascotRenderHarness` emits a per-scene frame strip (N frames × 1 row) per
-   mascot at 2× scale via `MASCOT_SPRITE_DIR` (opt-in env, like the sheets).
-2. `SpriteLoopPlayer` (NSViewRepresentable) hosts a bare `CALayer` whose
-   `contents` is the strip and plays a `CAKeyframeAnimation` on `contentsRect`
-   (`calculationMode: .discrete`, `repeatCount: .infinity`, duration = frames
-   × frameInterval). WindowServer composites every frame — zero per-frame app
-   work.
-3. Views pick T2 only when T1 modifiers cannot reproduce the motion. The
-   strips regenerate via the harness; never checked in as stale art.
+1. `scripts/gen-mascot-sprites.sh` runs `MascotRenderHarness/
+testRenderSpriteStrips` (env-gated like the sheets): per source × scene a
+grid-layout PNG (20 cols; idle 100 f @ 0.12 s, work 260 f @ 0.05 s — durations
+cover the longest quirk cycle in the fleet) plus `manifest.json` land in
+`Sources/CodeIsland/Resources/mascot-sprites/` and get committed. **Any
+mascot view change must be followed by a regeneration** — stale strips keep
+playing the old animation.
+2. `SpriteLoopPlayer` (NSViewRepresentable) hosts a bare `CALayer` and plays
+a `CAKeyframeAnimation` on `contentsRect` (`calculationMode: .discrete`,
+`repeatCount: .infinity`, duration = frames × interval ÷ speed). WindowServer
+composites every frame — zero per-frame app work. `MascotView` routes
+idle/processing/running through the player when a strip exists and falls
+back to the live view otherwise (so reverting the assets is safe).
+3. Alert stays live-rendered (short event bursts, rarely on screen).
 
 ## Watchers and timers (the non-animation half)
 
@@ -93,7 +106,10 @@ Run before and after any animation change; record both rows here:
 | Build | collapsed | expanded |
 | --- | --- | --- |
 | v1.2.20 (baseline, `097411c`) | 7% avg / 12% peak | 8% avg / 10% peak |
-| v1.2.21 (T0+T1+T2) | (fill) | (fill) |
+| v1.2.21 T0 (schedule throttle) | 0–1% avg / 1% peak | 3% avg / 11% peak |
+| v1.2.21 T2 (sprite playback) | 0% avg / 6% peak | 0% avg / 7% peak |
+
+Peaks are transient (hover transitions); averages are the steady state.
 
 Acceptance for the power goal: both states ≤ 2% average with animation
 visually unchanged (harness-verified) — animations are never paused or

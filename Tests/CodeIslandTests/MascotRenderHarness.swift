@@ -45,6 +45,79 @@ final class MascotRenderHarness: XCTestCase {
         }
     }
 
+    /// Sprite strips for the T2 playback engine (spec:
+    /// animation-performance.md). Renders each source's idle and work
+    /// cycles — the SAME SwiftUI views, at their designed cadences — into
+    /// grid-layout PNG strips plus a manifest JSON. `MASCOT_SPRITE_DIR`
+    /// gates it (opt-in like the sheets); `MASCOT_SPRITE_SOURCES` limits the
+    /// sources (comma-separated); `MASCOT_SPRITE_SCENES` limits scenes
+    /// (idle,work). Alert stays live-rendered (short event-driven bursts).
+    func testRenderSpriteStrips() throws {
+        guard let outDir = ProcessInfo.processInfo.environment["MASCOT_SPRITE_DIR"] else {
+            throw XCTSkip("MASCOT_SPRITE_DIR not set — harness is opt-in")
+        }
+        let sources = (ProcessInfo.processInfo.environment["MASCOT_SPRITE_SOURCES"] ?? SpriteStripConfig.defaultSources)
+            .split(separator: ",").map(String.init)
+        let scenes = (ProcessInfo.processInfo.environment["MASCOT_SPRITE_SCENES"] ?? "idle,work")
+            .split(separator: ",").map(String.init)
+
+        try FileManager.default.createDirectory(atPath: outDir, withIntermediateDirectories: true)
+        let fm = FileManager.default
+        let manifestPath = outDir + "/manifest.json"
+        var manifest: [String: Any] = (try? JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: manifestPath))) as? [String: Any]) ?? [:]
+
+        for source in sources {
+            for sceneName in scenes {
+                let cfg = SpriteStripConfig(scene: sceneName)
+                let status: MascotAgentStatus = cfg.scene == .work ? .processing : .idle
+                let cols = SpriteStripConfig.gridCols
+                let rows = (cfg.frames + cols - 1) / cols
+
+                // Compose the grid with CoreGraphics: each cell one frame.
+                let cell = SpriteStripConfig.cellPixels
+                let gridW = cols * cell, gridH = rows * cell
+                let space = CGColorSpace(name: CGColorSpace.sRGB)!
+                guard let ctx = CGContext(data: nil, width: gridW, height: gridH,
+                                          bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+                    XCTFail("grid context failed for \(source)/\(sceneName)"); continue
+                }
+                ctx.clear(CGRect(x: 0, y: 0, width: gridW, height: gridH))
+
+                var rendered = 0
+                for frame in 0..<cfg.frames {
+                    let t = Double(frame) * cfg.frameInterval
+                    let view = SpriteStripFrame(source: source, status: status, time: t)
+                    let renderer = ImageRenderer(content: view)
+                    renderer.scale = CGFloat(SpriteStripConfig.renderScale)
+                    guard let image = renderer.cgImage else {
+                        XCTFail("frame \(frame) failed for \(source)/\(sceneName)"); continue
+                    }
+                    let col = frame % cols, row = frame / cols
+                    // Row 0 at the TOP of the PNG: flip y accordingly.
+                    let x = CGFloat(col * cell), y = CGFloat(gridH - (row + 1) * cell)
+                    let cs = CGFloat(cell)
+                    ctx.draw(image, in: CGRect(x: x, y: y, width: cs, height: cs))
+                    rendered += 1
+                }
+                guard let gridImage = ctx.makeImage(),
+                      let png = NSBitmapImageRep(cgImage: gridImage).representation(using: .png, properties: [:])
+                else { XCTFail("encode failed for \(source)/\(sceneName)"); continue }
+                let file = "\(source)-\(sceneName).png"
+                try png.write(to: URL(fileURLWithPath: outDir + "/" + file))
+
+                manifest[file] = [
+                    "source": source, "scene": sceneName,
+                    "cols": cols, "rows": rows, "frames": rendered,
+                    "frameInterval": cfg.frameInterval, "cell": cell,
+                ]
+                print("strip: \(file) \(gridW)x\(gridH) frames=\(rendered)")
+            }
+        }
+        let data = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: URL(fileURLWithPath: manifestPath))
+    }
+
     func testRenderContactSheets() throws {
         guard let outDir = ProcessInfo.processInfo.environment["MASCOT_SHEET_DIR"] else {
             throw XCTSkip("MASCOT_SHEET_DIR not set — harness is opt-in")
@@ -487,5 +560,52 @@ private struct MascotContactSheet: View {
         case "minimax": McodeView(status: status, size: size)
         default: ClawdView(status: status, size: size)
         }
+    }
+}
+
+/// Frame/grid geometry for T2 sprite strips. Durations cover every quirk
+/// cycle in the mascot fleet (7–12s); cadences match the views' designed
+/// timeline intervals so playback is pixel-identical to the live render.
+struct SpriteStripConfig {
+    enum Scene { case idle, work }
+
+    static let gridCols = 20
+    static let renderScale = 2
+    static let framePt: CGFloat = 64
+    static var cellPixels: Int { Int(framePt) * renderScale }
+
+    /// The full routed-source fleet (default sprite generation set).
+    static let defaultSources = "claude,codex,grok,gemini,cursor,trae,traecn,traecli,copilot,qoder,qoder-cli,droid,codebuddy,stepfun,opencode,qwen,antigravity,workbuddy,hermes,openclaw,kiro,kimi,pi,cline,aiwork,zcode,minimax"
+
+    static func scene(_ name: String) -> Scene? {
+        switch name { case "idle": return .idle; case "work": return .work; default: return nil }
+    }
+
+    init(scene name: String) {
+        let s = SpriteStripConfig.scene(name) ?? .idle
+        self.scene = s
+    }
+
+    let scene: Scene
+
+    /// Cadence = the views' own timeline interval (floored to 20fps in
+    /// MascotTimeline); duration covers the longest quirk cycle in the fleet.
+    var frameInterval: Double { scene == .idle ? 0.12 : 0.05 }
+    var duration: Double { scene == .idle ? 12.0 : 13.0 }
+    var frames: Int { Int((duration / frameInterval).rounded()) }
+}
+
+/// One sprite cell: the routed mascot at a fixed timeline instant, sized to
+/// the strip cell (square framePt canvas, transparent background).
+private struct SpriteStripFrame: View {
+    let source: String
+    let status: MascotAgentStatus
+    let time: Double
+
+    var body: some View {
+        MascotContactSheet.routedMascot(source: source, status: status, size: 54)
+            .environment(\.mascotAnimationsActive, false)
+            .environment(\.mascotStaticTime, time)
+            .frame(width: SpriteStripConfig.framePt, height: SpriteStripConfig.framePt)
     }
 }

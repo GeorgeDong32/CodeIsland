@@ -25,6 +25,23 @@ struct MascotView: View {
     var body: some View {
         let resolved = SessionSnapshot.normalizedSupportedSource(source) ?? source
         Group {
+            // T2 sprite playback (spec: animation-performance.md): idle and
+            // work cycles play from pre-rendered strips — the SAME views
+            // rendered by the harness — with a discrete CA contentsRect loop
+            // composited entirely by the render server (zero per-frame app
+            // work, never paused). Alert stays live (short event bursts),
+            // and any source without a bundled strip falls back to the live
+            // switch below.
+            if let scene = SpriteLoopPlayer.Scene(status: status),
+               SpriteLoopPlayer.strip(source: resolved, scene: scene) != nil {
+                SpriteLoopPlayer(
+                    source: resolved,
+                    scene: scene,
+                    size: size,
+                    speed: Double(speedPct) / 100.0,
+                    animationsActive: animationGate.animationsActive
+                )
+            } else {
             switch resolved {
             case "codex":
                 DexView(status: status, size: size)
@@ -79,6 +96,7 @@ struct MascotView: View {
                 DevinView(status: status, size: size)
             default:
                 ClawdView(status: status, size: size)
+            }
             }
         }
         .environment(\.mascotSpeed, Double(speedPct) / 100.0)
