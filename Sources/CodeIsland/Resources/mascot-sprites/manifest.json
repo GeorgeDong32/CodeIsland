@@ -1,0 +1,488 @@
+{
+  "aiwork-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "aiwork"
+  },
+  "aiwork-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "aiwork"
+  },
+  "antigravity-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "antigravity"
+  },
+  "antigravity-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "antigravity"
+  },
+  "claude-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "claude"
+  },
+  "claude-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "claude"
+  },
+  "cline-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "cline"
+  },
+  "cline-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "cline"
+  },
+  "codebuddy-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "codebuddy"
+  },
+  "codebuddy-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "codebuddy"
+  },
+  "codex-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "codex"
+  },
+  "codex-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "codex"
+  },
+  "copilot-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "copilot"
+  },
+  "copilot-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "copilot"
+  },
+  "cursor-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "cursor"
+  },
+  "cursor-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "cursor"
+  },
+  "droid-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "droid"
+  },
+  "droid-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "droid"
+  },
+  "gemini-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "gemini"
+  },
+  "gemini-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "gemini"
+  },
+  "grok-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "grok"
+  },
+  "grok-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "grok"
+  },
+  "hermes-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "hermes"
+  },
+  "hermes-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "hermes"
+  },
+  "kimi-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "kimi"
+  },
+  "kimi-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "kimi"
+  },
+  "kiro-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "kiro"
+  },
+  "kiro-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "kiro"
+  },
+  "minimax-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "minimax"
+  },
+  "minimax-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "minimax"
+  },
+  "openclaw-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "openclaw"
+  },
+  "openclaw-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "openclaw"
+  },
+  "opencode-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "opencode"
+  },
+  "opencode-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "opencode"
+  },
+  "pi-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "pi"
+  },
+  "pi-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "pi"
+  },
+  "qoder-cli-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "qoder-cli"
+  },
+  "qoder-cli-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "qoder-cli"
+  },
+  "qoder-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "qoder"
+  },
+  "qoder-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "qoder"
+  },
+  "qwen-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "qwen"
+  },
+  "qwen-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "qwen"
+  },
+  "stepfun-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "stepfun"
+  },
+  "stepfun-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "stepfun"
+  },
+  "trae-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "trae"
+  },
+  "trae-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "trae"
+  },
+  "traecli-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "traecli"
+  },
+  "traecli-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "traecli"
+  },
+  "traecn-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "traecn"
+  },
+  "traecn-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "traecn"
+  },
+  "workbuddy-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "workbuddy"
+  },
+  "workbuddy-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "workbuddy"
+  },
+  "zcode-idle.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.12,
+    "frames" : 100,
+    "rows" : 5,
+    "scene" : "idle",
+    "source" : "zcode"
+  },
+  "zcode-work.png" : {
+    "cell" : 128,
+    "cols" : 20,
+    "frameInterval" : 0.050000000000000003,
+    "frames" : 260,
+    "rows" : 13,
+    "scene" : "work",
+    "source" : "zcode"
+  }
+}
