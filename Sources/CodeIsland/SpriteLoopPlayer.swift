@@ -70,6 +70,38 @@ struct SpriteLoopPlayer: NSViewRepresentable {
         "dsh": "claude",  // routes to the default ClawdView, same as "claude"
     ]
 
+    /// LRU bound on decoded strips. Idle strips decode to ~6.5MB, work strips
+    /// ~17MB; without a cap a long session touching many sources would grow
+    /// unbounded. 8 covers every concurrently visible mascot (island + panel
+    /// rows) with headroom.
+    static let cacheLimit = 8
+    static var cacheOrder: [String] = []
+    /// Manifest presence map, parsed once — existence checks must not decode
+    /// a 17MB PNG just to answer "is there a strip?".
+    static var presence: Set<String> = []
+    static var presenceLoaded = false
+
+    /// Cheap existence check: consults the manifest only, never decodes.
+    /// Exists separately from `strip(source:scene:)` so MascotView routing
+    /// (which runs on every render) stays allocation-free.
+    static func stripExists(source: String, scene: Scene) -> Bool {
+        let canonical = stripAliases[source] ?? source
+        let key = "\(canonical)-\(scene.rawValue)"
+        cacheLock.lock(); defer { cacheLock.unlock() }
+        if cache[key] != nil { return true }
+        if presenceLoaded { return presence.contains(key) }
+        guard let manifestURL = Bundle.appModule.url(
+            forResource: "manifest", withExtension: "json", subdirectory: "Resources/mascot-sprites"),
+            let data = try? Data(contentsOf: manifestURL),
+            let manifest = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else { presenceLoaded = true; return false }
+        for file in manifest.keys {
+            presence.insert((file as NSString).deletingPathExtension)
+        }
+        presenceLoaded = true
+        return presence.contains(key)
+    }
+
     static func strip(source: String, scene: Scene) -> Strip? {
         let canonical = stripAliases[source] ?? source
         let key = "\(canonical)-\(scene.rawValue)"
@@ -94,6 +126,12 @@ struct SpriteLoopPlayer: NSViewRepresentable {
         let strip = Strip(image: image, cols: cols, rows: rows, frames: frames,
                           frameInterval: interval, cellPixels: image.width / cols)
         cache[key] = strip
+        cacheOrder.removeAll { $0 == key }
+        cacheOrder.append(key)
+        while cacheOrder.count > cacheLimit, let oldest = cacheOrder.first {
+            cacheOrder.removeFirst()
+            cache.removeValue(forKey: oldest)
+        }
         return strip
     }
 

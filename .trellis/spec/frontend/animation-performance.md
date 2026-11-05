@@ -85,6 +85,15 @@ idle/processing/running through the player when a strip exists and falls
 back to the live view otherwise (so reverting the assets is safe).
 3. Alert stays live-rendered (short event bursts, rarely on screen).
 
+**Idle never freezes (iron rule):** the sprite player ALWAYS animates — the
+idle-settled static sleeping frame (#299) existed to stop live per-frame
+rendering costs, which sprite playback doesn't have (measured 0% app CPU
+collapsed while playing; the CA animation advances on the presentation
+layer at the strip's designed cadence). The animation gate still governs
+the live-view fallback branch. Overhead guards: `stripExists` answers
+routing from the manifest without decoding, and the decoded-strip cache is
+LRU-capped (8 entries ≈ worst ~130MB; idle 6.5MB / work 17MB each).
+
 Verification layers (all in `MascotRenderHarness`, run with the normal
 suite): `testSpriteStripFaithfulness` asserts strip properties per source
 (no empty frames, loop animates — Grok's mark is static by design —, poses

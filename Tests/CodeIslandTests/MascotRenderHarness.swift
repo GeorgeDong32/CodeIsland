@@ -299,9 +299,9 @@ func testSpriteStripFaithfulness() throws {
     /// (Born from an audit that found 7 supported sources without strips.)
     func testSpriteCoverageForAllSupportedSources() throws {
         for source in SessionSnapshot.supportedSources.sorted() {
-            let idle = SpriteLoopPlayer.strip(source: source, scene: .idle)
-            let work = SpriteLoopPlayer.strip(source: source, scene: .work)
-            XCTAssertTrue(idle != nil && work != nil,
+            let idle = SpriteLoopPlayer.stripExists(source: source, scene: .idle)
+            let work = SpriteLoopPlayer.stripExists(source: source, scene: .work)
+            XCTAssertTrue(idle && work,
                 "\(source): no idle/work strip (direct or alias) — falls back to live per-frame rendering")
         }
     }

@@ -29,17 +29,21 @@ struct MascotView: View {
             // work cycles play from pre-rendered strips — the SAME views
             // rendered by the harness — with a discrete CA contentsRect loop
             // composited entirely by the render server (zero per-frame app
-            // work, never paused). Alert stays live (short event bursts),
-            // and any source without a bundled strip falls back to the live
-            // switch below.
+            // work). The player ALWAYS animates: the idle-settled static
+            // sleeping frame (#299) existed to stop live per-frame rendering
+            // costs, which sprite playback doesn't have — measured 0% app
+            // CPU while playing. Iron rule: animations never pause. Alert
+            // stays live (short event bursts), and any source without a
+            // bundled strip falls back to the live switch below (which keeps
+            // the gate).
             if let scene = SpriteLoopPlayer.Scene(status: status),
-               SpriteLoopPlayer.strip(source: resolved, scene: scene) != nil {
+               SpriteLoopPlayer.stripExists(source: resolved, scene: scene) {
                 SpriteLoopPlayer(
                     source: resolved,
                     scene: scene,
                     size: size,
                     speed: Double(speedPct) / 100.0,
-                    animationsActive: animationGate.animationsActive
+                    animationsActive: true
                 )
                 // The player must occupy exactly the mascot cell — SwiftUI
                 // otherwise proposes the PARENT's size, and in wide low slots
