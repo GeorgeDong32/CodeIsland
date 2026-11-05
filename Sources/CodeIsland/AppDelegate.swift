@@ -103,6 +103,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         attachInteractionCoordinator(coordinator)
     }
 
+    /// PNG-dump every window this app owns into `dir` (own-window capture
+    /// needs no Screen Recording permission). Debug aid, off by default.
+    static func snapshotOwnWindows(to dir: String) {
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        for window in NSApp.windows where window.isVisible {
+            let name = window.title.isEmpty ? "win-\(window.hashValue)" : "\(window.title)"
+            let safe = name.replacingOccurrences(of: "/", with: "_")
+            guard let image = CGWindowListCreateImage(
+                .null, .optionIncludingWindow, CGWindowID(window.windowNumber),
+                [.bestResolution, .boundsIgnoreFraming])
+            else { continue }
+            let rep = NSBitmapImageRep(cgImage: image)
+            if let png = rep.representation(using: .png, properties: [:]) {
+                let stamp = Int(Date().timeIntervalSince1970)
+                try? png.write(to: URL(fileURLWithPath: "\(dir)/\(safe)-\(stamp).png"))
+            }
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Read before anything else: the launch Apple Event that says "login
         // item" is only current during this synchronous call.
@@ -112,6 +131,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Pre-set app icon so Dock/menu bar use the packaged bundle icon.
         NSApp.applicationIconImage = SettingsWindowController.bundleAppIcon()
         SettingsWindowController.shared.appState = appState
+        // --self-snapshot <dir>: dump PNGs of our own windows ~4s after launch
+        // (own-window capture needs no Screen Recording permission) — used to
+        // visually verify on-screen mascot rendering from a remote session.
+        if let idx = CommandLine.arguments.firstIndex(of: "--self-snapshot"),
+           idx + 1 < CommandLine.arguments.count {
+            let dir = CommandLine.arguments[idx + 1]
+            for delay in [4.0, 5.5, 7.0] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                    Self.snapshotOwnWindows(to: dir)
+                }
+            }
+        }
         // Keep the proven hook/UI path as the production default. The Center
         // cutover is explicit until its renderer passes behavioral and visual
         // parity gates against that baseline.

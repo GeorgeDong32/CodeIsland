@@ -292,13 +292,16 @@ export default function codeislandExtension(pi: ExtensionAPI) {
     if (startedSessions.has(sid)) return;
 
     const sessionName = pi.getSessionName();
-    await sendToSocket(
+    const delivered = await sendToSocket(
       base(sessionId, cwd, {
         hook_event_name: "SessionStart",
         ...(sessionName ? { session_title: sessionName } : {}),
       }, tty),
     );
-    startedSessions.add(sid);
+    // Only mark as started when the event actually reached CodeIsland. If the
+    // app was down/restarting (socket missing), the NEXT event retries the
+    // handshake instead of this session being untracked forever.
+    if (delivered) startedSessions.add(sid);
   }
 
 

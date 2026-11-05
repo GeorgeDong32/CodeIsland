@@ -102,6 +102,7 @@ struct SpriteLoopPlayer: NSViewRepresentable {
     final class PlayerView: NSView {
         var layerHost = CALayer()
         var animationKey = "sprite-loop"
+        var pending: (strip: Strip, size: CGFloat, speed: Double, animate: Bool)?
 
         override init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
@@ -113,19 +114,54 @@ struct SpriteLoopPlayer: NSViewRepresentable {
         @available(*, unavailable)
         required init?(coder: NSCoder) { fatalError("not used") }
 
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            // SwiftUI can swap the view's layer during re-hosting; the old
+            // layer (with our animation) then detaches and the visible one
+            // falls back to contentsRect (0,0,1,1) — the whole strip squeezed
+            // into the cell. Re-wire and re-arm whenever that happens.
+            if layer !== layerHost { layer = layerHost }
+            if let p = pending { apply(p) }
+        }
+
+        override func layout() {
+            super.layout()
+            // Animation died or layer swapped: restore the frame-0 model state
+            // FIRST (so even a dead animation shows the right cell), then re-arm.
+            if let p = pending, layerHost.animation(forKey: animationKey) == nil {
+                apply(p)
+            }
+        }
+
         func play(_ strip: Strip, size: CGFloat, speed: Double, animate: Bool) {
-            layerHost.frame = NSRect(origin: .zero, size: NSSize(width: size, height: size))
-            layerHost.contents = strip.image
+            // Skip no-op updates: updateNSView fires on every parent render,
+            // and re-adding the animation each time would restart playback at
+            // frame 0 (visible stutter).
+            if let p = pending, p.strip.image === strip.image,
+               p.size == size, p.speed == speed, p.animate == animate,
+               layerHost.animation(forKey: animationKey) != nil {
+                return
+            }
+            pending = (strip, size, speed, animate)
+            apply(pending!)
+        }
+
+        private func apply(_ p: (strip: Strip, size: CGFloat, speed: Double, animate: Bool)) {
+            layerHost.frame = NSRect(origin: .zero, size: NSSize(width: p.size, height: p.size))
+            layerHost.contents = p.strip.image
             layerHost.contentsGravity = .resize
-            guard animate, speed > 0 else {
+            // Model state always points at a valid cell — if the CA animation
+            // is ever lost (layer swap, transaction purge), the view still
+            // shows a single mascot frame, never the squeezed strip.
+            layerHost.contentsRect = p.strip.contentsRect(frame: 0)
+            guard p.animate, p.speed > 0 else {
                 layerHost.removeAnimation(forKey: animationKey)
-                layerHost.contentsRect = strip.contentsRect(frame: 0)
                 return
             }
             let anim = CAKeyframeAnimation(keyPath: "contentsRect")
-            anim.values = (0..<strip.frames).map { strip.contentsRect(frame: $0) }
-            anim.keyTimes = (0..<strip.frames).map { NSNumber(value: Double($0) / Double(strip.frames)) }
-            anim.duration = Double(strip.frames) * strip.frameInterval / speed
+            anim.values = (0..<p.strip.frames).map { p.strip.contentsRect(frame: $0) }
+            anim.keyTimes = (0..<p.strip.frames).map { NSNumber(value: Double($0) / Double(p.strip.frames)) }
+            anim.duration = Double(p.strip.frames) * p.strip.frameInterval / p.speed
             anim.calculationMode = .discrete
             anim.repeatCount = .infinity
             anim.fillMode = .forwards

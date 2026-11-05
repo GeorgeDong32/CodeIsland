@@ -41,6 +41,11 @@ struct MascotView: View {
                     speed: Double(speedPct) / 100.0,
                     animationsActive: animationGate.animationsActive
                 )
+                // The player must occupy exactly the mascot cell — SwiftUI
+                // otherwise proposes the PARENT's size, and in wide low slots
+                // (collapsed notch strip) the square mascot stretches into a
+                // full-width band.
+                .frame(width: size, height: size)
             } else {
             switch resolved {
             case "codex":

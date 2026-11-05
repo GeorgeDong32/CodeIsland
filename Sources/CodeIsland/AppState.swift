@@ -3604,7 +3604,15 @@ final class AppState {
     private func restoreSessions() {
         let persisted = SessionPersistence.load()
         let cutoff = Date().addingTimeInterval(-30 * 60) // 30 minutes
-        for p in persisted where p.lastActivity > cutoff {
+        for p in persisted {
+            // Live sessions always restore regardless of idle age — an app
+            // restart must never shed a running terminal (the 30-min cutoff
+            // is only for cards whose process is gone).
+            let pidStillAlive: Bool = {
+                guard let pid = p.cliPid, pid > 0 else { return false }
+                return Self.isLiveProcess(ProcessIdentity(pid: pid, startTime: p.cliStartTime))
+            }()
+            guard pidStillAlive || p.lastActivity > cutoff else { continue }
             guard let source = SessionSnapshot.normalizedSupportedSource(p.source) else { continue }
             let restoredSessionId = Self.canonicalRestoredCodexSessionId(
                 sessionId: p.sessionId,
@@ -3663,12 +3671,9 @@ final class AppState {
             }
             // Restore persisted cliPid only if the process is still alive — avoids
             // stale sessions reappearing briefly after the app or IDE restarts (#46).
-            if let pid = p.cliPid, pid > 0 {
-                let identity = ProcessIdentity(pid: pid, startTime: p.cliStartTime)
-                if Self.isLiveProcess(identity) {
-                    snapshot.cliPid = pid
-                    snapshot.cliStartTime = p.cliStartTime
-                }
+            if let pid = p.cliPid, pid > 0, pidStillAlive {
+                snapshot.cliPid = pid
+                snapshot.cliStartTime = p.cliStartTime
             }
             // Skip sessions whose process is dead and status was idle — nothing to show.
             // Keep Cursor Task tombstones / foldable orphans so applyCursor… can still
