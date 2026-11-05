@@ -6,11 +6,13 @@
 #   collapsed — mouse parked far away; only the compact notch bar animates
 #   expanded  — mouse parked over the notch; full panel with cards animates
 #
-# Usage: scripts/measure-mascot-power.sh [path-to-CodeIsland.app]
+# Usage: scripts/measure-mascot-power.sh [path-to-CodeIsland.app] [scenario]
+#   scenario: working (default) | idle — which mock session the preview injects.
 # Requires /tmp/mousemove (see spec animation-performance.md for the source).
 
 set -u
 APP=${1:-.build/release/CodeIsland.app}
+SCENARIO=${2:-working}
 BIN="$APP/Contents/MacOS/CodeIsland"
 DURATION=60
 
@@ -21,7 +23,7 @@ AWAY_X=40;  AWAY_Y=$((SH - 40))      # bottom-left corner
 # Don't fight the real running instance.
 killall CodeIsland 2>/dev/null; sleep 1
 
-"$BIN" --preview working >/dev/null 2>&1 &
+"$BIN" --preview "$SCENARIO" >/dev/null 2>&1 &
 APP_PID=$!
 sleep 6
 

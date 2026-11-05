@@ -135,8 +135,14 @@ Run before and after any animation change; record both rows here:
 | v1.2.20 (baseline, `097411c`) | 7% avg / 12% peak | 8% avg / 10% peak |
 | v1.2.21 T0 (schedule throttle) | 0–1% avg / 1% peak | 3% avg / 11% peak |
 | v1.2.21 T2 (sprite playback) | 0% avg / 6% peak | 0% avg / 7% peak |
+| final (always-animate, LRU, `a2b114b`) working | 0% avg / 1% peak | 0% avg / 0% peak |
+| final (always-animate) **idle — never frozen** | 0% avg / 1% peak | 0% avg / 1% peak |
 
-Peaks are transient (hover transitions); averages are the steady state.
+Peaks are transient (hover transitions); averages are the steady state. The
+final rows are the iron-rule configuration: idle sessions keep playing their
+zzz/breathing loops (verified via snapshot diffs) at the same ~0% cost as
+work playback. RSS with the LRU-capped strip cache: ~116MB whole-app.
+Measure idle with `scripts/measure-mascot-power.sh <app> idle`.
 
 Acceptance for the power goal: both states ≤ 2% average with animation
 visually unchanged (harness-verified) — animations are never paused or
