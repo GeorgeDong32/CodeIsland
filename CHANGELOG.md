@@ -1,5 +1,23 @@
 # Changelog
 
+## [v1.2.22] - 2026-11-05
+
+### English
+
+- Never-frozen idle mascots: the sleeping-frame gate is gone for sprite playback — idle sessions keep playing their zzz/breathing loops at measured 0.0% CPU (working and idle, collapsed and expanded, 60s averages; peaks ≤1% are hover transients)
+- Session tracking self-heals: the pi extension retries the SessionStart handshake until it actually reaches CodeIsland (sessions started while the app was restarting used to stay untracked forever), and app restarts now restore every session whose CLI process is still alive (the 30-min idle cutoff only applies to dead-process cards)
+- Fixed the notch-strip mascot squish: the player is constrained to an exact square and its layer re-arms if SwiftUI re-hosting drops the animation (a dead animation can now only ever show one correct frame, never the raw strip)
+- Memory bounds: strip existence checks read the manifest instead of decoding 17MB PNGs, and the decoded-strip cache is LRU-capped at 8 entries
+- Fleet coverage: all 34 supported sources resolve to sprite strips (6 alias sources normalize to their striped sibling views, devin gained its own strips) with a hard test gate
+
+### 中文
+
+- 空闲吉祥物永不静帧：精灵播放不再进入睡眠帧门控——空闲会话持续播放 zzz/呼吸动画，实测 0.0% CPU（working/idle × 收起/展开四场景 60s 均值，peak ≤1% 均为 hover 瞬态）
+- 会话跟踪自愈：pi 扩展在 SessionStart 真正送达前持续重试握手（此前 app 重启窗口里启动的会话会永久失联）；app 重启后恢复所有 CLI 进程仍活着的会话（30 分钟截断只作用于进程已死的卡片）
+- 修复刘海条吉祥物被压扁成横带：播放器强制方形约束，SwiftUI 重宿主丢动画时自动重挂（动画失效时最多显示单帧正确画面，绝不显示原始条带）
+- 内存封顶：条存在性检查改读 manifest（不再解码 17MB PNG），解码缓存 LRU=8
+- 全源覆盖：34 个支持源全部解析到精灵条（6 个别名源规范化到同视图兄弟条，devin 补直条），测试硬门禁防回退
+
 ## [v1.2.21] - 2026-11-05
 
 ### English
