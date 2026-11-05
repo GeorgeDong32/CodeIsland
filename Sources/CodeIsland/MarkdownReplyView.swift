@@ -50,6 +50,16 @@ private struct CompletionReplyView: View {
     /// This view's own laid-out height, so the rest of the card can be told
     /// apart from it in the panel's measured height.
     @State private var replyHeight: CGFloat = 0
+    /// Last time the height above was actually written. The 2pt quantum
+    /// absorbs sub-pixel wander, but while the panel is ANIMATING (a card
+    /// auto-opening, the curtain transition) the laid-out height moves every
+    /// frame and the reply sits exactly on a quantum boundary — every frame
+    /// crosses it, every crossing re-enters a full layout transaction with
+    /// markdown re-parsing, and the main thread never comes up for air
+    /// (1.2.22: two watchdog SIGKILLs in one evening, "expand n conversations"
+    /// froze the app). A 300ms cooldown per write turns that into at most
+    /// ~3 layout adjustments per second — invisible, and always converging.
+    @State private var lastHeightWrite: Date = .distantPast
 
     var body: some View {
         let maxHeight = CompletionReplyMetrics.maxHeight(
@@ -84,9 +94,11 @@ private struct CompletionReplyView: View {
         // 2pt quantum absorbs the wander; genuine layout changes still land.
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { raw in
             let quantized = (raw / 2).rounded(.down) * 2
-            if abs(quantized - replyHeight) >= 2 {
-                replyHeight = quantized
-            }
+            guard abs(quantized - replyHeight) >= 2 else { return }
+            let now = Date()
+            guard now.timeIntervalSince(lastHeightWrite) >= 0.3 else { return }
+            lastHeightWrite = now
+            replyHeight = quantized
         }
         .scrollIndicatorsFlash(onAppear: true)
         .tint(IslandMarkdownStyle.link)

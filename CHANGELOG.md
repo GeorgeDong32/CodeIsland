@@ -1,5 +1,17 @@
 # Changelog
 
+## [v1.2.23] - 2026-11-05
+
+### English
+
+- Fixed the completion-card freeze ("expand conversations" hung the app): while a card auto-opens the panel layout animates every frame, and the reply's quantized height sat exactly on a quantum boundary — every frame crossed it and re-entered a full layout transaction with markdown re-parsing. The height measurement now has a 300ms cooldown per write, capping re-layouts at ~3/s; the watchdog hang samples from 16:42/16:49 both showed 2000/2000 main-thread samples inside that transaction.
+- Full regression 2026 tests, 0 failures.
+
+### 中文
+
+- 修复完成卡冻结（「展开对话」时 app 无响应）：卡片自动展开期间面板布局逐帧动画，回复区量化高度恰停在档位边界——每帧跨档一次、每次跨档重入带 markdown 重解析的完整布局事务。高度测量现在每次写入有 300ms 冷却，重排上限约每秒 3 次；16:42/16:49 两次看门狗 hang 采样均为 2000/2000 主线程样本卡在该事务内。
+- 全量回归 2026 测试 0 失败。
+
 ## [v1.2.22] - 2026-11-05
 
 ### English
